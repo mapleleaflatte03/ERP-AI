@@ -55,9 +55,72 @@ echo "=================================================="
 TABLES=("extracted_invoices" "journal_proposals" "approvals" "ledger_entries" "ledger_lines")
 MIN_REQUIRED=(1 1 1 1 2)
 
-# Functions
+# =============================================================================
+# PR13.6: Helper functions for 2-path governance testing
+# =============================================================================
+
+# DB query helper
 db_count() {
     docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT count(*) FROM $1" 2>/dev/null | tr -d ' \n'
+}
+
+db_query() {
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -c "$1" 2>/dev/null | tr -d ' \n'
+}
+
+# Save current policy rules config for restore
+save_policy_config() {
+    SAVED_THRESHOLD=$(db_query "SELECT config->>'max_amount' FROM policy_rules WHERE name='auto_approve_threshold'")
+    echo "  Saved threshold config: $SAVED_THRESHOLD"
+}
+
+# Restore policy rules to default
+restore_policy_config() {
+    echo "  Restoring policy rules to default..."
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "
+        UPDATE policy_rules SET config = '{\"max_amount\": 10000000}'::jsonb WHERE name = 'auto_approve_threshold';
+    " >/dev/null 2>&1
+    echo "  ✓ Policy rules restored"
+}
+
+# Set threshold for deterministic test outcomes
+set_threshold() {
+    local amount=$1
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c "
+        UPDATE policy_rules SET config = '{\"max_amount\": $amount}'::jsonb WHERE name = 'auto_approve_threshold';
+    " >/dev/null 2>&1
+    echo "  ✓ Threshold set to: $amount"
+}
+
+# Get job state from DB
+get_job_state() {
+    local job_id=$1
+    db_query "SELECT current_state FROM job_processing_state WHERE job_id = '$job_id'"
+}
+
+# Get approval status for job
+get_approval_status() {
+    local job_id=$1
+    db_query "SELECT status FROM approvals WHERE job_id = '$job_id' ORDER BY created_at DESC LIMIT 1"
+}
+
+# Check if approval has non-null job_id (critical invariant)
+check_approval_job_id() {
+    local job_id=$1
+    local null_count=$(db_query "SELECT count(*) FROM approvals WHERE job_id = '$job_id' AND job_id IS NULL")
+    if [ "$null_count" != "0" ]; then
+        echo -e "${RED}❌ CRITICAL: approval.job_id is NULL!${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# Check audit events for job
+get_audit_events() {
+    local job_id=$1
+    docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -c "
+        SELECT event_type FROM audit_events WHERE job_id = '$job_id' ORDER BY created_at
+    " 2>/dev/null | tr -d ' ' | tr '\n' ',' | sed 's/,$//'
 }
 
 db_latest_epoch() {
@@ -151,38 +214,25 @@ if [ "$SMOKE_MODE" = "static" ]; then
 fi
 
 # ============================================================
-# DYNAMIC MODE: Full E2E with strict validation + retry logic
+# DYNAMIC MODE: Full E2E with 2-path governance testing (PR13.6)
 # ============================================================
 
-# Main E2E function - returns 0 on success, 1 on hard fail, 2 on flaky fail
-run_e2e_attempt() {
-    local attempt=$1
+# Upload and poll job - returns job_id in LAST_JOB_ID, final status in LAST_JOB_STATUS
+# Returns 0 on terminal state, 1 on hard fail, 2 on flaky fail
+upload_and_poll() {
+    local test_name=$1
+    local expected_state=$2  # "completed" or "waiting_for_approval"
     
     echo ""
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}📊 STEP 1: Capture BEFORE state${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-    declare -A COUNT_BEFORE
-    declare -A EPOCH_BEFORE
-
-    for table in "${TABLES[@]}"; do
-        COUNT_BEFORE[$table]=$(db_count "$table")
-        EPOCH_BEFORE[$table]=$(db_latest_epoch "$table")
-        echo "  $table: ${COUNT_BEFORE[$table]} rows"
-    done
-
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}🚀 STEP 2: Upload document and trigger workflow${NC}"
+    echo -e "${YELLOW}🚀 Upload document: $test_name${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
     # Verify test file exists
     if [ ! -f "$TEST_FILE" ]; then
         echo -e "${RED}❌ FAIL: Test file not found: $TEST_FILE${NC}"
-        return 1  # Hard fail - not retryable
+        return 1
     fi
-    echo "  ✓ Test file: $(basename $TEST_FILE)"
 
     # Upload document
     TENANT_ID="smoke-e2e-$(date +%s)"
@@ -200,7 +250,7 @@ run_e2e_attempt() {
     if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
         echo -e "${RED}❌ FAIL: Upload failed (HTTP $HTTP_CODE)${NC}"
         echo "  Response: $BODY"
-        return 1  # Hard fail
+        return 1
     fi
 
     JOB_ID=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('job_id', d.get('id', '')))" 2>/dev/null || echo "")
@@ -208,18 +258,14 @@ run_e2e_attempt() {
     if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "" ]; then
         echo -e "${RED}❌ FAIL: No job_id returned${NC}"
         echo "  Response: $BODY"
-        return 1  # Hard fail
+        return 1
     fi
 
     echo -e "  ${GREEN}✓${NC} Job created: $JOB_ID"
-    
-    # Export JOB_ID for outer scope
     export LAST_JOB_ID="$JOB_ID"
 
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}⏳ STEP 3: Poll job until completion (max ${TIMEOUT_SECONDS}s)${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}⏳ Polling job until terminal state (max ${TIMEOUT_SECONDS}s)${NC}"
 
     START_TIME=$(date +%s)
     JOB_STATUS="pending"
@@ -230,18 +276,19 @@ run_e2e_attempt() {
         if [ $ELAPSED -gt $TIMEOUT_SECONDS ]; then
             echo ""
             echo -e "${RED}❌ FAIL: Job timed out after ${TIMEOUT_SECONDS}s${NC}"
-            return 1  # Hard fail - timeout is infra issue
+            return 1
         fi
         
         STATUS_RESPONSE=$(curl -s "$API_URL/v1/jobs/$JOB_ID" 2>/dev/null || echo '{"status":"unknown"}')
         JOB_STATUS=$(echo "$STATUS_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
         
-        printf "\r  Status: %-15s (%ds elapsed)" "$JOB_STATUS" "$ELAPSED"
+        printf "\r  Status: %-20s (%ds elapsed)" "$JOB_STATUS" "$ELAPSED"
         
         case "$JOB_STATUS" in
-            "completed")
+            "completed"|"waiting_for_approval")
                 echo ""
-                echo -e "  ${GREEN}✓${NC} Job completed successfully!"
+                echo -e "  ${GREEN}✓${NC} Job reached terminal state: $JOB_STATUS"
+                export LAST_JOB_STATUS="$JOB_STATUS"
                 break
                 ;;
             "failed"|"error")
@@ -249,14 +296,13 @@ run_e2e_attempt() {
                 local error_msg=$(get_job_error "$JOB_ID")
                 echo -e "${RED}Job failed: $error_msg${NC}"
                 
-                # Check if this is a flaky LLM error
                 if is_flaky_llm_error "$error_msg"; then
                     echo -e "${YELLOW}⚠️ Detected flaky LLM JSON error - eligible for retry${NC}"
-                    return 2  # Flaky fail - retryable
+                    return 2
                 else
                     echo -e "${RED}❌ FAIL: Job status = $JOB_STATUS (non-retryable)${NC}"
                     print_diagnostics "$JOB_ID"
-                    return 1  # Hard fail
+                    return 1
                 fi
                 ;;
             *)
@@ -266,48 +312,197 @@ run_e2e_attempt() {
     done
 
     # Wait for DB writes
-    sleep 3
+    sleep 2
+    return 0
+}
 
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}📊 STEP 4: Verify AFTER state (must have new records)${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-    declare -A COUNT_AFTER
-    declare -A EPOCH_AFTER
-    TABLES_WITH_NEW=0
-    NEW_RECORDS_TOTAL=0
-
-    for table in "${TABLES[@]}"; do
-        COUNT_AFTER[$table]=$(db_count "$table")
-        EPOCH_AFTER[$table]=$(db_latest_epoch "$table")
-        
-        DIFF=$((COUNT_AFTER[$table] - COUNT_BEFORE[$table]))
-        
-        if [ $DIFF -gt 0 ]; then
-            echo -e "  ${GREEN}✓${NC} $table: ${COUNT_BEFORE[$table]} → ${COUNT_AFTER[$table]} (+$DIFF NEW)"
-            TABLES_WITH_NEW=$((TABLES_WITH_NEW + 1))
-            NEW_RECORDS_TOTAL=$((NEW_RECORDS_TOTAL + DIFF))
-        elif [ "${EPOCH_AFTER[$table]}" -gt "${EPOCH_BEFORE[$table]}" ]; then
-            echo -e "  ${GREEN}✓${NC} $table: updated (newer timestamp)"
-            TABLES_WITH_NEW=$((TABLES_WITH_NEW + 1))
-        else
-            echo -e "  ${YELLOW}○${NC} $table: ${COUNT_AFTER[$table]} (no change)"
-        fi
-    done
-
-    echo ""
+# Verify governance outcome for a job
+# Args: job_id, expected_state, expected_approval_status, expected_ledger_delta, expected_outbox_delta
+verify_governance_outcome() {
+    local job_id=$1
+    local expected_state=$2
+    local expected_approval=$3
+    local expected_ledger=$4
+    local expected_outbox=$5
+    local ledger_before=$6
+    local outbox_before=$7
     
-    # Export for outer scope
-    export LAST_TABLES_WITH_NEW=$TABLES_WITH_NEW
-    export LAST_NEW_RECORDS_TOTAL=$NEW_RECORDS_TOTAL
-
-    # At least some tables should have new data
-    if [ $TABLES_WITH_NEW -gt 0 ]; then
-        return 0  # Success
+    echo ""
+    echo -e "${YELLOW}📋 Verifying governance outcome...${NC}"
+    
+    local PASS=true
+    
+    # 1. Check job state in DB
+    local actual_state=$(get_job_state "$job_id")
+    if [ "$actual_state" = "$expected_state" ]; then
+        echo -e "  ${GREEN}✓${NC} Job state: $actual_state (expected: $expected_state)"
     else
-        echo -e "${YELLOW}⚠️ Job completed but no new records - may be flaky${NC}"
-        return 2  # Treat as flaky - retryable
+        echo -e "  ${RED}✗${NC} Job state: $actual_state (expected: $expected_state)"
+        PASS=false
+    fi
+    
+    # 2. Check approval status
+    local actual_approval=$(get_approval_status "$job_id")
+    if [ "$actual_approval" = "$expected_approval" ]; then
+        echo -e "  ${GREEN}✓${NC} Approval status: $actual_approval (expected: $expected_approval)"
+    else
+        echo -e "  ${RED}✗${NC} Approval status: $actual_approval (expected: $expected_approval)"
+        PASS=false
+    fi
+    
+    # 3. Check approval.job_id NOT NULL (critical invariant)
+    local approval_count=$(db_query "SELECT count(*) FROM approvals WHERE job_id = '$job_id'")
+    if [ "$approval_count" -ge "1" ]; then
+        echo -e "  ${GREEN}✓${NC} Approval record exists with job_id (count: $approval_count)"
+    else
+        echo -e "  ${RED}✗${NC} No approval record found for job_id"
+        PASS=false
+    fi
+    
+    # 4. Check ledger delta
+    local ledger_after=$(db_count "ledger_entries")
+    local ledger_delta=$((ledger_after - ledger_before))
+    if [ "$ledger_delta" = "$expected_ledger" ]; then
+        echo -e "  ${GREEN}✓${NC} Ledger delta: +$ledger_delta (expected: +$expected_ledger)"
+    else
+        echo -e "  ${RED}✗${NC} Ledger delta: +$ledger_delta (expected: +$expected_ledger)"
+        PASS=false
+    fi
+    
+    # 5. Check outbox delta
+    local outbox_after=$(db_count "outbox_events")
+    local outbox_delta=$((outbox_after - outbox_before))
+    if [ "$outbox_delta" = "$expected_outbox" ]; then
+        echo -e "  ${GREEN}✓${NC} Outbox delta: +$outbox_delta (expected: +$expected_outbox)"
+    else
+        echo -e "  ${RED}✗${NC} Outbox delta: +$outbox_delta (expected: +$expected_outbox)"
+        PASS=false
+    fi
+    
+    # 6. Check audit events
+    local audit_events=$(get_audit_events "$job_id")
+    echo -e "  ${CYAN}ℹ${NC}  Audit events: $audit_events"
+    
+    if [ "$PASS" = true ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Main E2E function with 2-path testing
+run_e2e_attempt() {
+    local attempt=$1
+    
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}📊 PR13.6: Two-Path Governance Testing${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Save current config for restore
+    save_policy_config
+    
+    local CASE_A_PASS=false
+    local CASE_B_PASS=false
+    
+    # ================================================================
+    # CASE A: Force AUTO_APPROVED (high threshold)
+    # Expected: state=completed, approval=approved, ledger+1, outbox+1
+    # ================================================================
+    echo ""
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}🅰️  CASE A: AUTO_APPROVED Path${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    
+    # Set threshold high to force auto-approval
+    set_threshold 100000000  # 100M
+    
+    # Capture BEFORE counts
+    local ledger_before_a=$(db_count "ledger_entries")
+    local outbox_before_a=$(db_count "outbox_events")
+    local approvals_before_a=$(db_count "approvals")
+    echo "  Before: ledger=$ledger_before_a, outbox=$outbox_before_a, approvals=$approvals_before_a"
+    
+    # Upload and poll
+    set +e
+    upload_and_poll "Case A (auto_approved)" "completed"
+    local upload_result=$?
+    set -e
+    
+    if [ $upload_result -eq 0 ]; then
+        # Verify outcome
+        set +e
+        verify_governance_outcome "$LAST_JOB_ID" "completed" "approved" "1" "1" "$ledger_before_a" "$outbox_before_a"
+        if [ $? -eq 0 ]; then
+            echo -e "  ${GREEN}✅ CASE A PASSED${NC}"
+            CASE_A_PASS=true
+        else
+            echo -e "  ${RED}❌ CASE A FAILED: Outcome mismatch${NC}"
+        fi
+        set -e
+    elif [ $upload_result -eq 2 ]; then
+        echo -e "  ${YELLOW}⚠️ CASE A: Flaky error, will retry${NC}"
+        restore_policy_config
+        return 2
+    else
+        echo -e "  ${RED}❌ CASE A FAILED: Upload/poll error${NC}"
+        restore_policy_config
+        return 1
+    fi
+    
+    # ================================================================
+    # CASE B: Force NEEDS_APPROVAL (low threshold)
+    # Expected: state=waiting_for_approval, approval=pending, ledger+0, outbox+0
+    # ================================================================
+    echo ""
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}🅱️  CASE B: NEEDS_APPROVAL Path${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+    
+    # Set threshold to 1 to force needs_approval
+    set_threshold 1
+    
+    # Capture BEFORE counts
+    local ledger_before_b=$(db_count "ledger_entries")
+    local outbox_before_b=$(db_count "outbox_events")
+    local approvals_before_b=$(db_count "approvals")
+    echo "  Before: ledger=$ledger_before_b, outbox=$outbox_before_b, approvals=$approvals_before_b"
+    
+    # Upload and poll
+    set +e
+    upload_and_poll "Case B (needs_approval)" "waiting_for_approval"
+    upload_result=$?
+    set -e
+    
+    if [ $upload_result -eq 0 ]; then
+        # Verify outcome
+        set +e
+        verify_governance_outcome "$LAST_JOB_ID" "waiting_for_approval" "pending" "0" "0" "$ledger_before_b" "$outbox_before_b"
+        if [ $? -eq 0 ]; then
+            echo -e "  ${GREEN}✅ CASE B PASSED${NC}"
+            CASE_B_PASS=true
+        else
+            echo -e "  ${RED}❌ CASE B FAILED: Outcome mismatch${NC}"
+        fi
+        set -e
+    elif [ $upload_result -eq 2 ]; then
+        echo -e "  ${YELLOW}⚠️ CASE B: Flaky error, will retry${NC}"
+        restore_policy_config
+        return 2
+    else
+        echo -e "  ${RED}❌ CASE B FAILED: Upload/poll error${NC}"
+        restore_policy_config
+        return 1
+    fi
+    
+    # Restore policy config
+    restore_policy_config
+    
+    # Final result
+    if [ "$CASE_A_PASS" = true ] && [ "$CASE_B_PASS" = true ]; then
+        return 0
+    else
+        return 1
     fi
 }
 
@@ -316,8 +511,7 @@ run_e2e_attempt() {
 # ============================================================
 ATTEMPT=1
 LAST_JOB_ID=""
-LAST_TABLES_WITH_NEW=0
-LAST_NEW_RECORDS_TOTAL=0
+LAST_JOB_STATUS=""
 
 while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
     echo ""
@@ -336,19 +530,19 @@ while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
             # Success!
             echo ""
             echo "=================================================="
-            echo -e "${GREEN}✅ SMOKE_E2E PASSED (DYNAMIC)${NC}"
-            echo "   - Job completed: $LAST_JOB_ID"
-            echo "   - Tables with new data: $LAST_TABLES_WITH_NEW/5"
-            echo "   - New records: $LAST_NEW_RECORDS_TOTAL"
+            echo -e "${GREEN}✅ SMOKE_E2E PASSED (DYNAMIC - 2-Path Governance)${NC}"
+            echo "   ✓ Case A: AUTO_APPROVED path verified"
+            echo "   ✓ Case B: NEEDS_APPROVAL path verified"
             if [ $ATTEMPT -gt 1 ]; then
                 echo -e "   - ${YELLOW}Succeeded after $ATTEMPT attempts (flaky LLM recovered)${NC}"
             fi
             echo ""
-            echo "📋 Latest Record:"
+            echo "📋 Summary:"
             docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t << 'EOF'
-SELECT '  Invoice: ' || invoice_number || ' from ' || vendor_name FROM extracted_invoices ORDER BY created_at DESC LIMIT 1;
-SELECT '  Proposal: ' || status || ' (' || ai_model || ')' FROM journal_proposals ORDER BY created_at DESC LIMIT 1;
-SELECT '  Ledger: ' || entry_number FROM ledger_entries ORDER BY created_at DESC LIMIT 1;
+SELECT '  Total invoices: ' || count(*) FROM extracted_invoices;
+SELECT '  Total approvals: ' || count(*) || ' (approved=' || count(*) FILTER (WHERE status='approved') || ', pending=' || count(*) FILTER (WHERE status='pending') || ')' FROM approvals;
+SELECT '  Total ledger entries: ' || count(*) FROM ledger_entries;
+SELECT '  Total outbox events: ' || count(*) FROM outbox_events;
 EOF
             exit 0
             ;;
