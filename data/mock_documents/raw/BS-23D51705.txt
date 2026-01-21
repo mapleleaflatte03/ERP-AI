@@ -1,0 +1,14 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: VPBank
+Số tài khoản: 1020123456791
+Ngày sao kê: 18/01/2026
+Số dư hiện tại: 495,252,867 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-16 | Thu | 37,613,944 | Thu hồi công nợ | FT20260116679364
+2026-01-14 | Chi | 4,776,362 | TT cho Công ty TNHH Thương mại ABC | FT20260114475190
+2026-01-13 | Chi | 19,011,323 | TT cho Công ty TNHH May mặc Việt Tiến | FT20260113217308
+2026-01-12 | Thu | 45,757,143 | Thu hồi công nợ | FT20260112526117
+2026-01-10 | Thu | 1,237,947 | Thu hồi công nợ | FT20260110374680

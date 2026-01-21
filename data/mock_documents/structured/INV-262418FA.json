@@ -1,0 +1,47 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202512303522",
+  "invoice_date": "2025-12-30",
+  "vendor_name": "Công ty TNHH Thực phẩm Sạch Việt",
+  "vendor_tax_code": "5067594934",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Dịch vụ vận chuyển",
+      "quantity": 5,
+      "unit": "chuyến",
+      "unit_price": 2504436,
+      "amount": 12522180
+    },
+    {
+      "line_no": 2,
+      "description": "Giấy in A4 Double A",
+      "quantity": 7,
+      "unit": "ram",
+      "unit_price": 90690,
+      "amount": 634832
+    },
+    {
+      "line_no": 3,
+      "description": "Bàn làm việc 1m2",
+      "quantity": 4,
+      "unit": "cái",
+      "unit_price": 2775800,
+      "amount": 11103202
+    },
+    {
+      "line_no": 4,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 7,
+      "unit": "cái",
+      "unit_price": 2063869,
+      "amount": 14447080
+    }
+  ],
+  "subtotal": 38707294,
+  "vat_rate": 5,
+  "vat_amount": 1935365,
+  "grand_total": 40642659,
+  "payment_method": "cash",
+  "currency": "VND"
+}

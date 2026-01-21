@@ -1,0 +1,39 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601058699",
+  "invoice_date": "2026-01-05",
+  "vendor_name": "Công ty TNHH Dịch vụ Sao Mai",
+  "vendor_tax_code": "5306459450",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Máy tính xách tay Dell Latitude",
+      "quantity": 4,
+      "unit": "cái",
+      "unit_price": 23940524,
+      "amount": 95762098
+    },
+    {
+      "line_no": 2,
+      "description": "Giấy in A4 Double A",
+      "quantity": 8,
+      "unit": "ram",
+      "unit_price": 77710,
+      "amount": 621680
+    },
+    {
+      "line_no": 3,
+      "description": "Chuột không dây",
+      "quantity": 5,
+      "unit": "cái",
+      "unit_price": 370148,
+      "amount": 1850740
+    }
+  ],
+  "subtotal": 98234518,
+  "vat_rate": 5,
+  "vat_amount": 4911726,
+  "grand_total": 103146244,
+  "payment_method": "bank_transfer",
+  "currency": "VND"
+}

@@ -1,0 +1,39 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601034899",
+  "invoice_date": "2026-01-03",
+  "vendor_name": "Công ty TNHH Hóa chất Việt Trì",
+  "vendor_tax_code": "2419179580",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Dịch vụ vệ sinh văn phòng",
+      "quantity": 8,
+      "unit": "tháng",
+      "unit_price": 7542779,
+      "amount": 60342231
+    },
+    {
+      "line_no": 2,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 10,
+      "unit": "cái",
+      "unit_price": 2233533,
+      "amount": 22335331
+    },
+    {
+      "line_no": 3,
+      "description": "Chuột không dây",
+      "quantity": 8,
+      "unit": "cái",
+      "unit_price": 371525,
+      "amount": 2972198
+    }
+  ],
+  "subtotal": 85649760,
+  "vat_rate": 5,
+  "vat_amount": 4282488,
+  "grand_total": 89932248,
+  "payment_method": "cash",
+  "currency": "VND"
+}

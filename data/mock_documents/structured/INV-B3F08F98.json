@@ -1,0 +1,47 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601149486",
+  "invoice_date": "2026-01-14",
+  "vendor_name": "Công ty CP Thép Hòa Phát",
+  "vendor_tax_code": "2825989011",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Máy tính xách tay Dell Latitude",
+      "quantity": 9,
+      "unit": "cái",
+      "unit_price": 23745991,
+      "amount": 213713923
+    },
+    {
+      "line_no": 2,
+      "description": "Văn phòng phẩm các loại",
+      "quantity": 2,
+      "unit": "bộ",
+      "unit_price": 495646,
+      "amount": 991292
+    },
+    {
+      "line_no": 3,
+      "description": "Cafe hòa tan G7",
+      "quantity": 8,
+      "unit": "hộp",
+      "unit_price": 186033,
+      "amount": 1488262
+    },
+    {
+      "line_no": 4,
+      "description": "Dịch vụ bảo trì CNTT",
+      "quantity": 10,
+      "unit": "tháng",
+      "unit_price": 14451894,
+      "amount": 144518939
+    }
+  ],
+  "subtotal": 360712416,
+  "vat_rate": 10,
+  "vat_amount": 36071242,
+  "grand_total": 396783658,
+  "payment_method": "credit",
+  "currency": "VND"
+}

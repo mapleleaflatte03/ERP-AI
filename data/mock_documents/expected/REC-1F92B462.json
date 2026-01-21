@@ -1,0 +1,38 @@
+{
+  "doc_id": "REC-1F92B462",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "PT20260110970",
+      "ngay_chung_tu": "2026-01-10",
+      "loai_chung_tu": "PT",
+      "ghi_chu": "Mua Mực in HP 85A"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6421",
+        "tai_khoan_co": "111",
+        "so_tien": 1769199,
+        "dien_giai": "Mua Mực in HP 85A"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.88,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng tiền: 1,769,199 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "amount",
+        "value": 1769199,
+        "source": "ocr"
+      }
+    ]
+  }
+}

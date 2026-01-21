@@ -1,0 +1,40 @@
+{
+  "doc_id": "EXP-87D868B6",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "BC-CP-20260113",
+      "ngay_chung_tu": "2026-01-13",
+      "loai_chung_tu": "BC-CP",
+      "ghi_chu": "Báo cáo chi phí - Hoàng Văn Em"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6426",
+        "tai_khoan_co": "141",
+        "so_tien": 6123623,
+        "dien_giai": "Hoàn ứng chi phí - Hoàng Văn Em"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": true,
+  "review_reasons": [
+    "amount_threshold"
+  ],
+  "confidence_score": 0.85,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng chi phí: 6,123,623 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "total",
+        "value": 6123623,
+        "source": "ocr"
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601024257",
+  "invoice_date": "2026-01-02",
+  "vendor_name": "Công ty CP Đầu tư Phú Thành",
+  "vendor_tax_code": "3585650756",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Ghế văn phòng cao cấp",
+      "quantity": 4,
+      "unit": "cái",
+      "unit_price": 3464446,
+      "amount": 13857785
+    },
+    {
+      "line_no": 2,
+      "description": "Giấy in A4 Double A",
+      "quantity": 1,
+      "unit": "ram",
+      "unit_price": 89400,
+      "amount": 89400
+    },
+    {
+      "line_no": 3,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 7,
+      "unit": "cái",
+      "unit_price": 2129710,
+      "amount": 14907972
+    },
+    {
+      "line_no": 4,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 4,
+      "unit": "cái",
+      "unit_price": 2401174,
+      "amount": 9604695
+    },
+    {
+      "line_no": 5,
+      "description": "Mực in HP 85A",
+      "quantity": 2,
+      "unit": "hộp",
+      "unit_price": 413347,
+      "amount": 826694
+    }
+  ],
+  "subtotal": 39286546,
+  "vat_rate": 0,
+  "vat_amount": 0,
+  "grand_total": 39286546,
+  "payment_method": "bank_transfer",
+  "currency": "VND"
+}

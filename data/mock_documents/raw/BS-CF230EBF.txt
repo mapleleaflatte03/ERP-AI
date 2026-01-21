@@ -1,0 +1,20 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: BIDV
+Số tài khoản: 1020123456744
+Ngày sao kê: 16/01/2026
+Số dư hiện tại: 472,718,471 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-11 | Chi | 1,783,698 | Thanh toán HD 462479 | FT20260111924629
+2026-01-10 | Chi | 12,232,589 | TT cho Công ty TNHH MTV Hương Giang | FT20260110792094
+2026-01-10 | Chi | 11,514,643 | Chi phí điện | FT20260110468203
+2026-01-08 | Thu | 48,565,775 | Thu hồi công nợ | FT20260108945687
+2026-01-07 | Chi | 11,444,882 | TT cho Công ty CP Vật liệu Xây dựng An Phát | FT20260107301158
+2026-01-06 | Chi | 20,840,993 | Thanh toán HD 503906 | FT20260106299312
+2026-01-03 | Chi | 23,227,018 | Thanh toán HD 745414 | FT20260103415568
+2025-12-30 | Thu | 25,442,489 | Thu hồi công nợ | FT20251230446239
+2025-12-28 | Chi | 22,759,589 | Chi phí điện | FT20251228631756
+2025-12-27 | Chi | 23,300,844 | TT cho Công ty TNHH Hóa chất Việt Trì | FT20251227373903
+2025-12-25 | Thu | 26,671,940 | CK từ công ty Công ty TNHH Thương mại ABC | FT20251225333238

@@ -1,0 +1,22 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601149486
+Ngày: 14/01/2026
+
+Đơn vị bán hàng: Công ty CP Thép Hòa Phát
+Mã số thuế: 2825989011
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Máy tính xách tay Dell Latitude | cái | 9 | 23,745,991 | 213,713,923
+2. Văn phòng phẩm các loại | bộ | 2 | 495,646 | 991,292
+3. Cafe hòa tan G7 | hộp | 8 | 186,033 | 1,488,262
+4. Dịch vụ bảo trì CNTT | tháng | 10 | 14,451,894 | 144,518,939
+
+Cộng tiền hàng: 360,712,416 VND
+Thuế suất GTGT: 10%
+Tiền thuế GTGT: 36,071,242 VND
+Tổng cộng tiền thanh toán: 396,783,658 VND
+
+Bằng chữ: 396 triệu 783 nghìn đồng
+
+Hình thức thanh toán: Công nợ

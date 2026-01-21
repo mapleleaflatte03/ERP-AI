@@ -1,0 +1,17 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: ACB
+Số tài khoản: 1020123456784
+Ngày sao kê: 19/01/2026
+Số dư hiện tại: 82,726,345 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-18 | Thu | 13,470,502 | TT từ KH Công ty CP Công nghệ XYZ | FT20260118808011
+2026-01-15 | Chi | 15,841,910 | Chi phí điện | FT20260115751332
+2026-01-15 | Chi | 2,808,253 | Chi phí nước | FT20260115265409
+2026-01-01 | Chi | 9,249,844 | Chi phí thuê nhà | FT20260101515011
+2026-01-01 | Thu | 5,916,443 | Thu hồi công nợ | FT20260101378082
+2025-12-31 | Thu | 42,565,989 | Thu hồi công nợ | FT20251231712024
+2025-12-27 | Chi | 2,418,148 | Thanh toán HD 627276 | FT20251227265080
+2025-12-23 | Thu | 28,096,918 | TT từ KH Công ty CP Công nghệ XYZ | FT20251223707040

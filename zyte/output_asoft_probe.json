@@ -1,0 +1,5 @@
+[
+{"kind": "page", "value": "http://202.78.231.242:8292/index.html", "status": 200, "content_type": "text/html;charset=utf-8", "source_url": "http://202.78.231.242:8292/index.html", "base_url": "http://202.78.231.242:8292/index.html"},
+{"kind": "script", "value": "http://202.78.231.242:8292/swagger-ui-bundle.js", "source_url": "http://202.78.231.242:8292/index.html", "base_url": "http://202.78.231.242:8292/index.html"},
+{"kind": "script", "value": "http://202.78.231.242:8292/swagger-ui-standalone-preset.js", "source_url": "http://202.78.231.242:8292/index.html", "base_url": "http://202.78.231.242:8292/index.html"}
+]

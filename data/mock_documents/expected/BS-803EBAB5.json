@@ -1,0 +1,28 @@
+{
+  "doc_id": "BS-803EBAB5",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": null,
+  "reconciliation_result": {
+    "status": "pending",
+    "total_transactions": 13,
+    "matched": 0,
+    "unmatched": 13
+  },
+  "needs_human_review": true,
+  "review_reasons": [
+    "bank_reconciliation"
+  ],
+  "confidence_score": 1.0,
+  "evidence": {
+    "key_text_snippets": [
+      "Số dư hiện tại: 174,157,563 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "balance",
+        "value": 174157563,
+        "source": "structured"
+      }
+    ]
+  }
+}

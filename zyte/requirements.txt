@@ -1,0 +1,5 @@
+# Zyte Scrapy Cloud requirements
+# Keep minimal to avoid deployment issues
+
+scrapy>=2.11
+itemloaders>=1.0.6

@@ -1,0 +1,22 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: BIDV
+Số tài khoản: 1020123456727
+Ngày sao kê: 18/01/2026
+Số dư hiện tại: 174,157,563 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-18 | Chi | 11,778,635 | TT cho Công ty CP Nhựa Duy Tân | FT20260118981334
+2026-01-13 | Thu | 18,458,794 | TT từ KH Công ty CP Vật liệu Xây dựng An Phát | FT20260113576786
+2026-01-11 | Thu | 44,738,514 | TT từ KH Công ty TNHH Thương mại ABC | FT20260111309044
+2026-01-09 | Chi | 29,136,961 | Thanh toán HD 664365 | FT20260109870319
+2026-01-08 | Chi | 14,451,068 | Chi phí nước | FT20260108508396
+2026-01-08 | Chi | 26,042,630 | Chi phí internet | FT20260108364525
+2026-01-06 | Thu | 48,406,986 | CK từ công ty Công ty TNHH Thương mại ABC | FT20260106527398
+2026-01-04 | Thu | 42,758,957 | CK từ công ty Công ty TNHH Thương mại ABC | FT20260104720644
+2026-01-01 | Thu | 33,764,525 | CK từ công ty Công ty TNHH Dịch vụ Sao Mai | FT20260101609232
+2025-12-31 | Thu | 6,633,618 | TT từ KH Công ty CP Nhựa Duy Tân | FT20251231584125
+2025-12-23 | Thu | 32,561,757 | TT từ KH Công ty TNHH Thương mại ABC | FT20251223466960
+2025-12-23 | Thu | 42,697,130 | TT từ KH Công ty TNHH Dịch vụ Sao Mai | FT20251223596564
+2025-12-21 | Thu | 39,633,925 | TT từ KH Công ty CP Vật liệu Xây dựng An Phát | FT20251221468845

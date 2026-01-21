@@ -1,0 +1,40 @@
+{
+  "doc_id": "EXP-3A8CBE48",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "BC-CP-20260118",
+      "ngay_chung_tu": "2026-01-18",
+      "loai_chung_tu": "BC-CP",
+      "ghi_chu": "Báo cáo chi phí - Nguyễn Văn An"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6426",
+        "tai_khoan_co": "141",
+        "so_tien": 5932091,
+        "dien_giai": "Hoàn ứng chi phí - Nguyễn Văn An"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": true,
+  "review_reasons": [
+    "amount_threshold"
+  ],
+  "confidence_score": 0.85,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng chi phí: 5,932,091 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "total",
+        "value": 5932091,
+        "source": "ocr"
+      }
+    ]
+  }
+}

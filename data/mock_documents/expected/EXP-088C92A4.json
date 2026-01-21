@@ -1,0 +1,38 @@
+{
+  "doc_id": "EXP-088C92A4",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "BC-CP-20260116",
+      "ngay_chung_tu": "2026-01-16",
+      "loai_chung_tu": "BC-CP",
+      "ghi_chu": "Báo cáo chi phí - Lê Hoàng Cường"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6426",
+        "tai_khoan_co": "141",
+        "so_tien": 4437900,
+        "dien_giai": "Hoàn ứng chi phí - Lê Hoàng Cường"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.85,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng chi phí: 4,437,900 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "total",
+        "value": 4437900,
+        "source": "ocr"
+      }
+    ]
+  }
+}

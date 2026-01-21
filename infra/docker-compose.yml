@@ -1,0 +1,204 @@
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # INFRASTRUCTURE SERVICES
+  # ===========================================================================
+
+  # PostgreSQL - OLTP & Metadata (ERP Official DB)
+  postgres:
+    image: postgres:15-alpine
+    container_name: erp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_ai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp_user -d erp_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp-network
+
+  # Qdrant - Vector Database (Knowledge Base)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: erp-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp-network
+
+  # MinIO - Object Storage (RAW/Staging Zone)
+  minio:
+    image: minio/minio:latest
+    container_name: erp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret_2024}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp-network
+
+  # MLflow - Model Registry & Tracking (Observability)
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: erp-mlflow
+    restart: unless-stopped
+    command: >
+      bash -c "pip install psycopg2-binary boto3 && 
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_secret_2024}@postgres:5432/${POSTGRES_DB:-erp_ai}
+      --default-artifact-root s3://mlflow-artifacts
+      --host 0.0.0.0
+      --port 5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_admin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_secret_2024}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 60s
+    networks:
+      - erp-network
+
+  # ===========================================================================
+  # E2E APPLICATION SERVICES
+  # ===========================================================================
+
+  # AI Gateway API (RBAC/Tenant/Quota)
+  gateway-api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.gateway
+    container_name: erp-gateway-api
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_ai}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+    volumes:
+      - ../:/app
+      - ../data:/app/data
+      - ../logs:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp-network
+
+  # Pipeline Worker (OCR → Embed → Coding)
+  pipeline-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+    container_name: erp-pipeline-worker
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_ai}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      WORKER_POLL_INTERVAL: 5
+    volumes:
+      - ../:/app
+      - ../data:/app/data
+      - ../logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      gateway-api:
+        condition: service_healthy
+    networks:
+      - erp-network
+
+  # Outbox Dispatcher (Event Bus)
+  outbox-dispatcher:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.dispatcher
+    container_name: erp-outbox-dispatcher
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_secret_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_ai}
+      DISPATCHER_POLL_INTERVAL: 2
+    volumes:
+      - ../:/app
+      - ../logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - erp-network
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  minio_data:
+
+networks:
+  erp-network:
+    driver: bridge

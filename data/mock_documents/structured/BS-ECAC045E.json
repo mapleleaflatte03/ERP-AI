@@ -1,0 +1,108 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "VPBank",
+  "account_no": "1020123456746",
+  "statement_date": "2026-01-10",
+  "balance": 116761860,
+  "transactions": [
+    {
+      "date": "2026-01-09",
+      "type": "credit",
+      "amount": 35791878,
+      "description": "CK từ công ty Công ty TNHH MTV Hương Giang",
+      "reference": "FT20260109755788"
+    },
+    {
+      "date": "2025-12-29",
+      "type": "credit",
+      "amount": 45134841,
+      "description": "CK từ công ty Công ty TNHH MTV Hương Giang",
+      "reference": "FT20251229533321"
+    },
+    {
+      "date": "2025-12-28",
+      "type": "debit",
+      "amount": 11272927,
+      "description": "TT cho Công ty CP Nhựa Duy Tân",
+      "reference": "FT20251228445824"
+    },
+    {
+      "date": "2025-12-28",
+      "type": "debit",
+      "amount": 10170984,
+      "description": "Thanh toán HD 953085",
+      "reference": "FT20251228138479"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "debit",
+      "amount": 23979166,
+      "description": "Thanh toán HD 624783",
+      "reference": "FT20251227617781"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "credit",
+      "amount": 41133561,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20251227437978"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "credit",
+      "amount": 22106889,
+      "description": "TT từ KH Công ty TNHH MTV Hương Giang",
+      "reference": "FT20251227910075"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "credit",
+      "amount": 14660562,
+      "description": "TT từ KH Công ty TNHH MTV Hương Giang",
+      "reference": "FT20251227402020"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "debit",
+      "amount": 4574383,
+      "description": "TT cho Công ty TNHH Thương mại ABC",
+      "reference": "FT20251227425845"
+    },
+    {
+      "date": "2025-12-24",
+      "type": "credit",
+      "amount": 38060964,
+      "description": "TT từ KH Công ty CP Vật liệu Xây dựng An Phát",
+      "reference": "FT20251224982277"
+    },
+    {
+      "date": "2025-12-23",
+      "type": "debit",
+      "amount": 21799840,
+      "description": "Chi phí internet",
+      "reference": "FT20251223464863"
+    },
+    {
+      "date": "2025-12-22",
+      "type": "debit",
+      "amount": 1367881,
+      "description": "Thanh toán HD 807053",
+      "reference": "FT20251222715643"
+    },
+    {
+      "date": "2025-12-17",
+      "type": "credit",
+      "amount": 32574775,
+      "description": "CK từ công ty Công ty CP Đầu tư Phú Thành",
+      "reference": "FT20251217290305"
+    },
+    {
+      "date": "2025-12-11",
+      "type": "credit",
+      "amount": 46116053,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20251211142185"
+    }
+  ],
+  "currency": "VND"
+}

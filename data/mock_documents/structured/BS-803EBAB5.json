@@ -1,0 +1,101 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "BIDV",
+  "account_no": "1020123456727",
+  "statement_date": "2026-01-18",
+  "balance": 174157563,
+  "transactions": [
+    {
+      "date": "2026-01-18",
+      "type": "debit",
+      "amount": 11778635,
+      "description": "TT cho Công ty CP Nhựa Duy Tân",
+      "reference": "FT20260118981334"
+    },
+    {
+      "date": "2026-01-13",
+      "type": "credit",
+      "amount": 18458794,
+      "description": "TT từ KH Công ty CP Vật liệu Xây dựng An Phát",
+      "reference": "FT20260113576786"
+    },
+    {
+      "date": "2026-01-11",
+      "type": "credit",
+      "amount": 44738514,
+      "description": "TT từ KH Công ty TNHH Thương mại ABC",
+      "reference": "FT20260111309044"
+    },
+    {
+      "date": "2026-01-09",
+      "type": "debit",
+      "amount": 29136961,
+      "description": "Thanh toán HD 664365",
+      "reference": "FT20260109870319"
+    },
+    {
+      "date": "2026-01-08",
+      "type": "debit",
+      "amount": 14451068,
+      "description": "Chi phí nước",
+      "reference": "FT20260108508396"
+    },
+    {
+      "date": "2026-01-08",
+      "type": "debit",
+      "amount": 26042630,
+      "description": "Chi phí internet",
+      "reference": "FT20260108364525"
+    },
+    {
+      "date": "2026-01-06",
+      "type": "credit",
+      "amount": 48406986,
+      "description": "CK từ công ty Công ty TNHH Thương mại ABC",
+      "reference": "FT20260106527398"
+    },
+    {
+      "date": "2026-01-04",
+      "type": "credit",
+      "amount": 42758957,
+      "description": "CK từ công ty Công ty TNHH Thương mại ABC",
+      "reference": "FT20260104720644"
+    },
+    {
+      "date": "2026-01-01",
+      "type": "credit",
+      "amount": 33764525,
+      "description": "CK từ công ty Công ty TNHH Dịch vụ Sao Mai",
+      "reference": "FT20260101609232"
+    },
+    {
+      "date": "2025-12-31",
+      "type": "credit",
+      "amount": 6633618,
+      "description": "TT từ KH Công ty CP Nhựa Duy Tân",
+      "reference": "FT20251231584125"
+    },
+    {
+      "date": "2025-12-23",
+      "type": "credit",
+      "amount": 32561757,
+      "description": "TT từ KH Công ty TNHH Thương mại ABC",
+      "reference": "FT20251223466960"
+    },
+    {
+      "date": "2025-12-23",
+      "type": "credit",
+      "amount": 42697130,
+      "description": "TT từ KH Công ty TNHH Dịch vụ Sao Mai",
+      "reference": "FT20251223596564"
+    },
+    {
+      "date": "2025-12-21",
+      "type": "credit",
+      "amount": 39633925,
+      "description": "TT từ KH Công ty CP Vật liệu Xây dựng An Phát",
+      "reference": "FT20251221468845"
+    }
+  ],
+  "currency": "VND"
+}

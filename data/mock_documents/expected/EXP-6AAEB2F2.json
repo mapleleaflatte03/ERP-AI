@@ -1,0 +1,38 @@
+{
+  "doc_id": "EXP-6AAEB2F2",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "BC-CP-20260115",
+      "ngay_chung_tu": "2026-01-15",
+      "loai_chung_tu": "BC-CP",
+      "ghi_chu": "Báo cáo chi phí - Trần Thị Bình"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6426",
+        "tai_khoan_co": "141",
+        "so_tien": 2059611,
+        "dien_giai": "Hoàn ứng chi phí - Trần Thị Bình"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.85,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng chi phí: 2,059,611 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "total",
+        "value": 2059611,
+        "source": "ocr"
+      }
+    ]
+  }
+}

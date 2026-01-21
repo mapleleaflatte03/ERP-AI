@@ -1,0 +1,31 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601124657",
+  "invoice_date": "2026-01-12",
+  "vendor_name": "Công ty TNHH Thương mại ABC",
+  "vendor_tax_code": "8479902459",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Nước uống đóng chai",
+      "quantity": 2,
+      "unit": "thùng",
+      "unit_price": 25883,
+      "amount": 51767
+    },
+    {
+      "line_no": 2,
+      "description": "Dịch vụ vận chuyển",
+      "quantity": 9,
+      "unit": "chuyến",
+      "unit_price": 2293469,
+      "amount": 20641225
+    }
+  ],
+  "subtotal": 20692992,
+  "vat_rate": 10,
+  "vat_amount": 2069299,
+  "grand_total": 22762291,
+  "payment_method": "cash",
+  "currency": "VND"
+}

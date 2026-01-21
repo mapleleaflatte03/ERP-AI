@@ -1,0 +1,53 @@
+{
+  "doc_id": "INV-F4D17409",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601034899",
+      "ngay_chung_tu": "2026-01-03",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty TNHH Hóa chất Việt Trì"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601034899",
+      "ngay_hoa_don": "2026-01-03",
+      "nha_cung_cap": "Công ty TNHH Hóa chất Việt Trì",
+      "ma_so_thue_ncc": "2419179580"
+    },
+    "thue": {
+      "thue_suat_vat": 5,
+      "tien_thue_vat": 4282488,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6422",
+        "tai_khoan_co": "111",
+        "so_tien": 85649760,
+        "dien_giai": "Mua hàng - Dịch vụ vệ sinh văn phòng"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 89,932,248 VND",
+      "Thuế suất GTGT: 5%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 89932248,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 5,
+        "source": "ocr"
+      }
+    ]
+  }
+}

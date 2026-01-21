@@ -1,0 +1,21 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601192832
+Ngày: 19/01/2026
+
+Đơn vị bán hàng: Công ty TNHH Logistics Bắc Nam
+Mã số thuế: 6687206971
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Dịch vụ vận chuyển | chuyến | 5 | 2,369,726 | 11,848,631
+2. Chuột không dây | cái | 10 | 381,286 | 3,812,865
+3. Màn hình LCD 24 inch | cái | 8 | 4,784,421 | 38,275,367
+
+Cộng tiền hàng: 53,936,863 VND
+Thuế suất GTGT: 5%
+Tiền thuế GTGT: 2,696,843 VND
+Tổng cộng tiền thanh toán: 56,633,706 VND
+
+Bằng chữ: 56 triệu 633 nghìn đồng
+
+Hình thức thanh toán: Tiền mặt

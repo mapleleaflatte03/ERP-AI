@@ -1,0 +1,21 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601058699
+Ngày: 05/01/2026
+
+Đơn vị bán hàng: Công ty TNHH Dịch vụ Sao Mai
+Mã số thuế: 5306459450
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Máy tính xách tay Dell Latitude | cái | 4 | 23,940,524 | 95,762,098
+2. Giấy in A4 Double A | ram | 8 | 77,710 | 621,680
+3. Chuột không dây | cái | 5 | 370,148 | 1,850,740
+
+Cộng tiền hàng: 98,234,518 VND
+Thuế suất GTGT: 5%
+Tiền thuế GTGT: 4,911,726 VND
+Tổng cộng tiền thanh toán: 103,146,244 VND
+
+Bằng chữ: 103 triệu 146 nghìn đồng
+
+Hình thức thanh toán: Chuyển khoản

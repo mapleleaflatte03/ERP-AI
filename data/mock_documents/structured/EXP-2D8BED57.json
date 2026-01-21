@@ -1,0 +1,25 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-16",
+  "employee": "Hoàng Văn Em",
+  "expenses": [
+    {
+      "description": "Di chuyển - Taxi",
+      "amount": 377408
+    },
+    {
+      "description": "Khách sạn",
+      "amount": 1660198
+    },
+    {
+      "description": "Vé máy bay",
+      "amount": 4610371
+    },
+    {
+      "description": "Ăn uống tiếp khách",
+      "amount": 727253
+    }
+  ],
+  "total": 7375230,
+  "currency": "VND"
+}

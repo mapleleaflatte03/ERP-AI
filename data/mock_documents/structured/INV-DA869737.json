@@ -1,0 +1,31 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601028350",
+  "invoice_date": "2026-01-02",
+  "vendor_name": "Công ty CP Đầu tư Phú Thành",
+  "vendor_tax_code": "1822873088",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Ghế văn phòng cao cấp",
+      "quantity": 3,
+      "unit": "cái",
+      "unit_price": 3344982,
+      "amount": 10034945
+    },
+    {
+      "line_no": 2,
+      "description": "Chuột không dây",
+      "quantity": 2,
+      "unit": "cái",
+      "unit_price": 346019,
+      "amount": 692038
+    }
+  ],
+  "subtotal": 10726983,
+  "vat_rate": 0,
+  "vat_amount": 0,
+  "grand_total": 10726983,
+  "payment_method": "cash",
+  "currency": "VND"
+}

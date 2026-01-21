@@ -1,0 +1,41 @@
+# Zyte project gitignore
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Output files (regeneratable)
+output/
+output.json
+*.jl
+*.jsonl
+
+# Shub/Scrapy Cloud
+.shub/
+.scrapy/
+scrapinghub.yml.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NEVER commit these (security)
+*.apikey
+*.secret
+.env.local

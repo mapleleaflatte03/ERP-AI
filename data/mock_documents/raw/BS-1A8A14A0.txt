@@ -1,0 +1,14 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: Techcombank
+Số tài khoản: 1020123456714
+Ngày sao kê: 16/01/2026
+Số dư hiện tại: 265,373,707 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-12 | Thu | 46,666,321 | TT từ KH Công ty CP Vật liệu Xây dựng An Phát | FT20260112503457
+2026-01-10 | Chi | 13,775,203 | Chi phí internet | FT20260110246413
+2026-01-09 | Chi | 25,565,624 | Chi phí internet | FT20260109479580
+2026-01-09 | Thu | 35,193,730 | TT từ KH Công ty TNHH Thực phẩm Sạch Việt | FT20260109214975
+2026-01-08 | Thu | 15,158,818 | Thu hồi công nợ | FT20260108429963

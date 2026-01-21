@@ -1,0 +1,21 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-15",
+  "employee": "Trần Thị Bình",
+  "expenses": [
+    {
+      "description": "Chi phí hội nghị",
+      "amount": 855658
+    },
+    {
+      "description": "Khách sạn",
+      "amount": 855868
+    },
+    {
+      "description": "Di chuyển - Taxi",
+      "amount": 348085
+    }
+  ],
+  "total": 2059611,
+  "currency": "VND"
+}

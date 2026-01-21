@@ -1,0 +1,22 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601147658
+Ngày: 14/01/2026
+
+Đơn vị bán hàng: Công ty CP Công nghệ XYZ
+Mã số thuế: 4645120421
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Bàn làm việc 1m2 | cái | 4 | 3,004,204 | 12,016,817
+2. Dịch vụ vận chuyển | chuyến | 1 | 2,332,319 | 2,332,319
+3. Máy tính xách tay Dell Latitude | cái | 7 | 23,826,015 | 166,782,107
+4. Cafe hòa tan G7 | hộp | 8 | 172,269 | 1,378,152
+
+Cộng tiền hàng: 182,509,395 VND
+Thuế suất GTGT: 10%
+Tiền thuế GTGT: 18,250,940 VND
+Tổng cộng tiền thanh toán: 200,760,335 VND
+
+Bằng chữ: 200 triệu 760 nghìn đồng
+
+Hình thức thanh toán: Tiền mặt

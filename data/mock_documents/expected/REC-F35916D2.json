@@ -1,0 +1,38 @@
+{
+  "doc_id": "REC-F35916D2",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "PT20260105372",
+      "ngay_chung_tu": "2026-01-05",
+      "loai_chung_tu": "PT",
+      "ghi_chu": "Mua Ghế văn phòng cao cấp"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6421",
+        "tai_khoan_co": "111",
+        "so_tien": 3191747,
+        "dien_giai": "Mua Ghế văn phòng cao cấp"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.88,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng tiền: 3,191,747 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "amount",
+        "value": 3191747,
+        "source": "ocr"
+      }
+    ]
+  }
+}

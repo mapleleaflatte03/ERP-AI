@@ -1,0 +1,53 @@
+{
+  "doc_id": "INV-869A7AF7",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202512297071",
+      "ngay_chung_tu": "2025-12-29",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty TNHH Thiết bị Văn phòng Minh Anh"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202512297071",
+      "ngay_hoa_don": "2025-12-29",
+      "nha_cung_cap": "Công ty TNHH Thiết bị Văn phòng Minh Anh",
+      "ma_so_thue_ncc": "7583090712"
+    },
+    "thue": {
+      "thue_suat_vat": 10,
+      "tien_thue_vat": 8122774,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6422",
+        "tai_khoan_co": "112",
+        "so_tien": 81227739,
+        "dien_giai": "Mua hàng - Dịch vụ bảo trì CNTT"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 89,350,513 VND",
+      "Thuế suất GTGT: 10%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 89350513,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 10,
+        "source": "ocr"
+      }
+    ]
+  }
+}

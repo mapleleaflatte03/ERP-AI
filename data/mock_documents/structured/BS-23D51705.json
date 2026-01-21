@@ -1,0 +1,45 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "VPBank",
+  "account_no": "1020123456791",
+  "statement_date": "2026-01-18",
+  "balance": 495252867,
+  "transactions": [
+    {
+      "date": "2026-01-16",
+      "type": "credit",
+      "amount": 37613944,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260116679364"
+    },
+    {
+      "date": "2026-01-14",
+      "type": "debit",
+      "amount": 4776362,
+      "description": "TT cho Công ty TNHH Thương mại ABC",
+      "reference": "FT20260114475190"
+    },
+    {
+      "date": "2026-01-13",
+      "type": "debit",
+      "amount": 19011323,
+      "description": "TT cho Công ty TNHH May mặc Việt Tiến",
+      "reference": "FT20260113217308"
+    },
+    {
+      "date": "2026-01-12",
+      "type": "credit",
+      "amount": 45757143,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260112526117"
+    },
+    {
+      "date": "2026-01-10",
+      "type": "credit",
+      "amount": 1237947,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260110374680"
+    }
+  ],
+  "currency": "VND"
+}

@@ -1,0 +1,17 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-14",
+  "employee": "Phạm Thị Dung",
+  "expenses": [
+    {
+      "description": "Khách sạn",
+      "amount": 1741719
+    },
+    {
+      "description": "Di chuyển - Taxi",
+      "amount": 203981
+    }
+  ],
+  "total": 1945700,
+  "currency": "VND"
+}

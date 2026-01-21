@@ -1,0 +1,53 @@
+{
+  "doc_id": "INV-DA869737",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601028350",
+      "ngay_chung_tu": "2026-01-02",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty CP Đầu tư Phú Thành"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601028350",
+      "ngay_hoa_don": "2026-01-02",
+      "nha_cung_cap": "Công ty CP Đầu tư Phú Thành",
+      "ma_so_thue_ncc": "1822873088"
+    },
+    "thue": {
+      "thue_suat_vat": 0,
+      "tien_thue_vat": 0,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "2111",
+        "tai_khoan_co": "111",
+        "so_tien": 10726983,
+        "dien_giai": "Mua hàng - Ghế văn phòng cao cấp"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 10,726,983 VND",
+      "Thuế suất GTGT: 0%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 10726983,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 0,
+        "source": "ocr"
+      }
+    ]
+  }
+}

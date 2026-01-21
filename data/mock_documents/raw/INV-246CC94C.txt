@@ -1,0 +1,21 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601051053
+Ngày: 05/01/2026
+
+Đơn vị bán hàng: Công ty TNHH MTV Hương Giang
+Mã số thuế: 2867302554
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Dịch vụ bảo trì CNTT | tháng | 3 | 15,023,045 | 45,069,135
+2. Màn hình LCD 24 inch | cái | 5 | 4,807,502 | 24,037,512
+3. Dịch vụ bảo trì CNTT | tháng | 10 | 14,096,733 | 140,967,333
+
+Cộng tiền hàng: 210,073,980 VND
+Thuế suất GTGT: 8%
+Tiền thuế GTGT: 16,805,918 VND
+Tổng cộng tiền thanh toán: 226,879,898 VND
+
+Bằng chữ: 226 triệu 879 nghìn đồng
+
+Hình thức thanh toán: Tiền mặt

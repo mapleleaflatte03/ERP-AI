@@ -1,0 +1,17 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-16",
+  "employee": "Lê Hoàng Cường",
+  "expenses": [
+    {
+      "description": "Vé máy bay",
+      "amount": 3824295
+    },
+    {
+      "description": "Khách sạn",
+      "amount": 613605
+    }
+  ],
+  "total": 4437900,
+  "currency": "VND"
+}

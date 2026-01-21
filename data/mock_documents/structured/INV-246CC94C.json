@@ -1,0 +1,39 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601051053",
+  "invoice_date": "2026-01-05",
+  "vendor_name": "Công ty TNHH MTV Hương Giang",
+  "vendor_tax_code": "2867302554",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Dịch vụ bảo trì CNTT",
+      "quantity": 3,
+      "unit": "tháng",
+      "unit_price": 15023045,
+      "amount": 45069135
+    },
+    {
+      "line_no": 2,
+      "description": "Màn hình LCD 24 inch",
+      "quantity": 5,
+      "unit": "cái",
+      "unit_price": 4807502,
+      "amount": 24037512
+    },
+    {
+      "line_no": 3,
+      "description": "Dịch vụ bảo trì CNTT",
+      "quantity": 10,
+      "unit": "tháng",
+      "unit_price": 14096733,
+      "amount": 140967333
+    }
+  ],
+  "subtotal": 210073980,
+  "vat_rate": 8,
+  "vat_amount": 16805918,
+  "grand_total": 226879898,
+  "payment_method": "cash",
+  "currency": "VND"
+}

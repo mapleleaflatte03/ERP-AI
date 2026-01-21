@@ -1,0 +1,23 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601024257
+Ngày: 02/01/2026
+
+Đơn vị bán hàng: Công ty CP Đầu tư Phú Thành
+Mã số thuế: 3585650756
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Ghế văn phòng cao cấp | cái | 4 | 3,464,446 | 13,857,785
+2. Giấy in A4 Double A | ram | 1 | 89,400 | 89,400
+3. Bàn phím cơ Logitech | cái | 7 | 2,129,710 | 14,907,972
+4. Bàn phím cơ Logitech | cái | 4 | 2,401,174 | 9,604,695
+5. Mực in HP 85A | hộp | 2 | 413,347 | 826,694
+
+Cộng tiền hàng: 39,286,546 VND
+Thuế suất GTGT: 0%
+Tiền thuế GTGT: 0 VND
+Tổng cộng tiền thanh toán: 39,286,546 VND
+
+Bằng chữ: 39 triệu 286 nghìn đồng
+
+Hình thức thanh toán: Chuyển khoản

@@ -1,0 +1,17 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-16",
+  "employee": "Hoàng Văn Em",
+  "expenses": [
+    {
+      "description": "Chi phí hội nghị",
+      "amount": 1918033
+    },
+    {
+      "description": "Ăn uống tiếp khách",
+      "amount": 719895
+    }
+  ],
+  "total": 2637928,
+  "currency": "VND"
+}

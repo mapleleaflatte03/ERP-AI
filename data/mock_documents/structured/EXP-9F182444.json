@@ -1,0 +1,25 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-13",
+  "employee": "Lê Hoàng Cường",
+  "expenses": [
+    {
+      "description": "Chi phí hội nghị",
+      "amount": 1752233
+    },
+    {
+      "description": "Vé máy bay",
+      "amount": 2186312
+    },
+    {
+      "description": "Di chuyển - Taxi",
+      "amount": 366200
+    },
+    {
+      "description": "Ăn uống tiếp khách",
+      "amount": 760301
+    }
+  ],
+  "total": 5065046,
+  "currency": "VND"
+}

@@ -1,0 +1,45 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "Techcombank",
+  "account_no": "1020123456714",
+  "statement_date": "2026-01-16",
+  "balance": 265373707,
+  "transactions": [
+    {
+      "date": "2026-01-12",
+      "type": "credit",
+      "amount": 46666321,
+      "description": "TT từ KH Công ty CP Vật liệu Xây dựng An Phát",
+      "reference": "FT20260112503457"
+    },
+    {
+      "date": "2026-01-10",
+      "type": "debit",
+      "amount": 13775203,
+      "description": "Chi phí internet",
+      "reference": "FT20260110246413"
+    },
+    {
+      "date": "2026-01-09",
+      "type": "debit",
+      "amount": 25565624,
+      "description": "Chi phí internet",
+      "reference": "FT20260109479580"
+    },
+    {
+      "date": "2026-01-09",
+      "type": "credit",
+      "amount": 35193730,
+      "description": "TT từ KH Công ty TNHH Thực phẩm Sạch Việt",
+      "reference": "FT20260109214975"
+    },
+    {
+      "date": "2026-01-08",
+      "type": "credit",
+      "amount": 15158818,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260108429963"
+    }
+  ],
+  "currency": "VND"
+}

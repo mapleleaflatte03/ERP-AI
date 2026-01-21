@@ -1,0 +1,28 @@
+{
+  "doc_id": "BS-CF230EBF",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": null,
+  "reconciliation_result": {
+    "status": "pending",
+    "total_transactions": 11,
+    "matched": 0,
+    "unmatched": 11
+  },
+  "needs_human_review": true,
+  "review_reasons": [
+    "bank_reconciliation"
+  ],
+  "confidence_score": 1.0,
+  "evidence": {
+    "key_text_snippets": [
+      "Số dư hiện tại: 472,718,471 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "balance",
+        "value": 472718471,
+        "source": "structured"
+      }
+    ]
+  }
+}

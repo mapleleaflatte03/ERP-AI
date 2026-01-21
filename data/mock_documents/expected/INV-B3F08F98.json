@@ -1,0 +1,55 @@
+{
+  "doc_id": "INV-B3F08F98",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601149486",
+      "ngay_chung_tu": "2026-01-14",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty CP Thép Hòa Phát"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601149486",
+      "ngay_hoa_don": "2026-01-14",
+      "nha_cung_cap": "Công ty CP Thép Hòa Phát",
+      "ma_so_thue_ncc": "2825989011"
+    },
+    "thue": {
+      "thue_suat_vat": 10,
+      "tien_thue_vat": 36071242,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "1531",
+        "tai_khoan_co": "331",
+        "so_tien": 360712416,
+        "dien_giai": "Mua hàng - Máy tính xách tay Dell Latitude"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": true,
+  "review_reasons": [
+    "amount_threshold"
+  ],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 396,783,658 VND",
+      "Thuế suất GTGT: 10%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 396783658,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 10,
+        "source": "ocr"
+      }
+    ]
+  }
+}

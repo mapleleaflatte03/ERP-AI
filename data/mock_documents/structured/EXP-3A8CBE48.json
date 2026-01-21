@@ -1,0 +1,21 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-18",
+  "employee": "Nguyễn Văn An",
+  "expenses": [
+    {
+      "description": "Di chuyển - Taxi",
+      "amount": 363345
+    },
+    {
+      "description": "Vé máy bay",
+      "amount": 4647787
+    },
+    {
+      "description": "Chi phí hội nghị",
+      "amount": 920959
+    }
+  ],
+  "total": 5932091,
+  "currency": "VND"
+}

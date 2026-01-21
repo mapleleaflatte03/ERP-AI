@@ -1,0 +1,47 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601147658",
+  "invoice_date": "2026-01-14",
+  "vendor_name": "Công ty CP Công nghệ XYZ",
+  "vendor_tax_code": "4645120421",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Bàn làm việc 1m2",
+      "quantity": 4,
+      "unit": "cái",
+      "unit_price": 3004204,
+      "amount": 12016817
+    },
+    {
+      "line_no": 2,
+      "description": "Dịch vụ vận chuyển",
+      "quantity": 1,
+      "unit": "chuyến",
+      "unit_price": 2332319,
+      "amount": 2332319
+    },
+    {
+      "line_no": 3,
+      "description": "Máy tính xách tay Dell Latitude",
+      "quantity": 7,
+      "unit": "cái",
+      "unit_price": 23826015,
+      "amount": 166782107
+    },
+    {
+      "line_no": 4,
+      "description": "Cafe hòa tan G7",
+      "quantity": 8,
+      "unit": "hộp",
+      "unit_price": 172269,
+      "amount": 1378152
+    }
+  ],
+  "subtotal": 182509395,
+  "vat_rate": 10,
+  "vat_amount": 18250940,
+  "grand_total": 200760335,
+  "payment_method": "cash",
+  "currency": "VND"
+}

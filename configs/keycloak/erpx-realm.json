@@ -1,0 +1,184 @@
+{
+  "realm": "erpx",
+  "displayName": "ERPX AI Accounting",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "System administrator"
+      },
+      {
+        "name": "accountant",
+        "description": "Can create and approve journal entries"
+      },
+      {
+        "name": "manager",
+        "description": "Can approve large transactions"
+      },
+      {
+        "name": "viewer",
+        "description": "Read-only access"
+      }
+    ]
+  },
+  
+  "clients": [
+    {
+      "clientId": "erpx-web",
+      "name": "ERPX Web Application",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://143.244.129.196/*",
+        "http://143.244.129.196:80/*",
+        "http://143.244.129.196:8080/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://143.244.129.196",
+        "http://143.244.129.196:80",
+        "http://143.244.129.196:8080"
+      ],
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ]
+    },
+    {
+      "clientId": "erpx-api",
+      "name": "ERPX API Service",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "secret": "erpx-api-secret-key",
+      "protocol": "openid-connect",
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ]
+    },
+    {
+      "clientId": "erpx-telegram-bot",
+      "name": "ERPX Telegram Bot",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "secret": "erpx-telegram-bot-secret",
+      "protocol": "openid-connect",
+      "serviceAccountsEnabled": true
+    }
+  ],
+  
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@erpx.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["admin", "accountant", "manager"]
+    },
+    {
+      "username": "accountant",
+      "enabled": true,
+      "email": "accountant@erpx.local",
+      "firstName": "Kế Toán",
+      "lastName": "Viên",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "accountant123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["accountant"]
+    },
+    {
+      "username": "manager",
+      "enabled": true,
+      "email": "manager@erpx.local",
+      "firstName": "Quản Lý",
+      "lastName": "Trưởng",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "manager123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["manager", "accountant"]
+    },
+    {
+      "username": "viewer",
+      "enabled": true,
+      "email": "viewer@erpx.local",
+      "firstName": "Người",
+      "lastName": "Xem",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "viewer123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["viewer"]
+    },
+    {
+      "username": "telegram_5322393870",
+      "enabled": true,
+      "email": "telegram@erpx.local",
+      "firstName": "Telegram",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "telegram123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["accountant"]
+    }
+  ],
+  
+  "defaultDefaultClientScopes": [
+    "role_list",
+    "profile",
+    "email",
+    "roles"
+  ],
+  
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  
+  "internationalizationEnabled": true,
+  "supportedLocales": ["en", "vi"],
+  "defaultLocale": "vi"
+}

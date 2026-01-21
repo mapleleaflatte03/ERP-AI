@@ -1,0 +1,53 @@
+{
+  "doc_id": "INV-B8FAD406",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601174954",
+      "ngay_chung_tu": "2026-01-17",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty CP Phần mềm FPT Software"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601174954",
+      "ngay_hoa_don": "2026-01-17",
+      "nha_cung_cap": "Công ty CP Phần mềm FPT Software",
+      "ma_so_thue_ncc": "5071897791"
+    },
+    "thue": {
+      "thue_suat_vat": 5,
+      "tien_thue_vat": 3583325,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "2111",
+        "tai_khoan_co": "112",
+        "so_tien": 71666509,
+        "dien_giai": "Mua hàng - Bàn làm việc 1m2"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 75,249,834 VND",
+      "Thuế suất GTGT: 5%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 75249834,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 5,
+        "source": "ocr"
+      }
+    ]
+  }
+}

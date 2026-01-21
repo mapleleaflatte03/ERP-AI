@@ -1,0 +1,47 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601174954",
+  "invoice_date": "2026-01-17",
+  "vendor_name": "Công ty CP Phần mềm FPT Software",
+  "vendor_tax_code": "5071897791",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Bàn làm việc 1m2",
+      "quantity": 9,
+      "unit": "cái",
+      "unit_price": 2944572,
+      "amount": 26501150
+    },
+    {
+      "line_no": 2,
+      "description": "Nước uống đóng chai",
+      "quantity": 8,
+      "unit": "thùng",
+      "unit_price": 25730,
+      "amount": 205836
+    },
+    {
+      "line_no": 3,
+      "description": "Bàn làm việc 1m2",
+      "quantity": 8,
+      "unit": "cái",
+      "unit_price": 2964042,
+      "amount": 23712339
+    },
+    {
+      "line_no": 4,
+      "description": "Màn hình LCD 24 inch",
+      "quantity": 5,
+      "unit": "cái",
+      "unit_price": 4249437,
+      "amount": 21247184
+    }
+  ],
+  "subtotal": 71666509,
+  "vat_rate": 5,
+  "vat_amount": 3583325,
+  "grand_total": 75249834,
+  "payment_method": "bank_transfer",
+  "currency": "VND"
+}

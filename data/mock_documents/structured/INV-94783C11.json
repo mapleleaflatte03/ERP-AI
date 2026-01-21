@@ -1,0 +1,39 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601192832",
+  "invoice_date": "2026-01-19",
+  "vendor_name": "Công ty TNHH Logistics Bắc Nam",
+  "vendor_tax_code": "6687206971",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Dịch vụ vận chuyển",
+      "quantity": 5,
+      "unit": "chuyến",
+      "unit_price": 2369726,
+      "amount": 11848631
+    },
+    {
+      "line_no": 2,
+      "description": "Chuột không dây",
+      "quantity": 10,
+      "unit": "cái",
+      "unit_price": 381286,
+      "amount": 3812865
+    },
+    {
+      "line_no": 3,
+      "description": "Màn hình LCD 24 inch",
+      "quantity": 8,
+      "unit": "cái",
+      "unit_price": 4784421,
+      "amount": 38275367
+    }
+  ],
+  "subtotal": 53936863,
+  "vat_rate": 5,
+  "vat_amount": 2696843,
+  "grand_total": 56633706,
+  "payment_method": "cash",
+  "currency": "VND"
+}

@@ -1,0 +1,22 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601174954
+Ngày: 17/01/2026
+
+Đơn vị bán hàng: Công ty CP Phần mềm FPT Software
+Mã số thuế: 5071897791
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Bàn làm việc 1m2 | cái | 9 | 2,944,572 | 26,501,150
+2. Nước uống đóng chai | thùng | 8 | 25,730 | 205,836
+3. Bàn làm việc 1m2 | cái | 8 | 2,964,042 | 23,712,339
+4. Màn hình LCD 24 inch | cái | 5 | 4,249,437 | 21,247,184
+
+Cộng tiền hàng: 71,666,509 VND
+Thuế suất GTGT: 5%
+Tiền thuế GTGT: 3,583,325 VND
+Tổng cộng tiền thanh toán: 75,249,834 VND
+
+Bằng chữ: 75 triệu 249 nghìn đồng
+
+Hình thức thanh toán: Chuyển khoản

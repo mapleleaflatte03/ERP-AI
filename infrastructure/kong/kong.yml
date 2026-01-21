@@ -1,0 +1,133 @@
+# Kong Gateway Configuration for ERPX AI
+# =======================================
+
+_format_version: "3.0"
+_transform: true
+
+services:
+  # API Service
+  - name: erpx-api
+    url: http://api:8000
+    routes:
+      - name: api-route
+        paths:
+          - /api
+        strip_path: true
+        
+      - name: health-route
+        paths:
+          - /health
+        methods:
+          - GET
+          
+      - name: upload-route
+        paths:
+          - /v1/upload
+        methods:
+          - POST
+          
+      - name: jobs-route
+        paths:
+          - /v1/jobs
+        methods:
+          - GET
+          
+      - name: approve-route
+        paths:
+          - /v1/approve
+        methods:
+          - POST
+
+plugins:
+  # JWT Authentication - Keycloak OIDC
+  # Applied to ALL routes except health check
+  - name: jwt
+    route: api-route
+    config:
+      key_claim_name: iss
+      claims_to_verify:
+        - exp
+      run_on_preflight: false
+      
+  - name: jwt
+    route: upload-route
+    config:
+      key_claim_name: iss
+      claims_to_verify:
+        - exp
+      run_on_preflight: false
+      
+  - name: jwt
+    route: jobs-route
+    config:
+      key_claim_name: iss
+      claims_to_verify:
+        - exp
+      run_on_preflight: false
+      
+  - name: jwt
+    route: approve-route
+    config:
+      key_claim_name: iss
+      claims_to_verify:
+        - exp
+      run_on_preflight: false
+  
+  # Rate limiting
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+      
+  # CORS
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Authorization
+        - Content-Type
+        - X-Tenant-Id
+        - X-Trace-Id
+      exposed_headers:
+        - X-Request-Id
+      credentials: true
+      max_age: 3600
+      
+  # Request logging
+  - name: file-log
+    config:
+      path: /dev/stdout
+      reopen: true
+      
+  # Request ID
+  - name: correlation-id
+    config:
+      header_name: X-Request-Id
+      generator: uuid
+      echo_downstream: true
+
+# Consumer for API access with Keycloak JWT
+consumers:
+  - username: keycloak-users
+    custom_id: keycloak-erpx
+    jwt_secrets:
+      - key: http://localhost:8180/realms/erpx
+        algorithm: RS256
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoE1qtSGqVLplp92L0VMa
+          D7YcFnYtiQ5r+1P3IN3GOJTDTgyYQY5c/YYN3c9EekXBr5s6xefNeIN3l4OcmsmI
+          jnke1gY0SurUU+9nQSjJsSrDFVh+JyPWYEuYcDOM6LnMtSlI5tSOIwaLxEfiZ4C3
+          FLrj16iCEJCJf9oL1kkWTve+pOSeWZ4AjCk6TIL/aix1SzCodSfbwEdz0a6v4TZ3
+          1vSb2vrgP7qBkO9oPBkZahT3tiA6+UHKc4eWZcH1+CMTZ0OZHEf/PXTkJM2SHNc2
+          u2VHt0Q127GAGLhcrODlJpMbi/f2uNLKyo/26dPTnSWedmNipDiBp76UyvilyrkY
+          zQIDAQAB
+          -----END PUBLIC KEY-----

@@ -1,0 +1,21 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601055198
+Ngày: 05/01/2026
+
+Đơn vị bán hàng: Công ty TNHH Logistics Bắc Nam
+Mã số thuế: 5070585433
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Bàn phím cơ Logitech | cái | 10 | 2,247,189 | 22,471,889
+2. Nước uống đóng chai | thùng | 2 | 26,389 | 52,778
+3. Bàn phím cơ Logitech | cái | 5 | 2,027,563 | 10,137,817
+
+Cộng tiền hàng: 32,662,484 VND
+Thuế suất GTGT: 0%
+Tiền thuế GTGT: 0 VND
+Tổng cộng tiền thanh toán: 32,662,484 VND
+
+Bằng chữ: 32 triệu 662 nghìn đồng
+
+Hình thức thanh toán: Chuyển khoản

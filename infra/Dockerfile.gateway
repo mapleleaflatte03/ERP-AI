@@ -1,0 +1,29 @@
+# Dockerfile for ERPX E2E Gateway API
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements (create if needed)
+COPY requirements-e2e.txt /app/requirements-e2e.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements-e2e.txt
+
+# Copy application code
+COPY . /app
+
+# Create directories
+RUN mkdir -p /app/logs /app/data/uploads /app/data/processed
+
+# Expose port
+EXPOSE 8000
+
+# Run the API
+CMD ["python", "-m", "uvicorn", "apps.gateway_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

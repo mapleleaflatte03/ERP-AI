@@ -1,0 +1,38 @@
+{
+  "doc_id": "EXP-E0B4BAE5",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "BC-CP-20260114",
+      "ngay_chung_tu": "2026-01-14",
+      "loai_chung_tu": "BC-CP",
+      "ghi_chu": "Báo cáo chi phí - Phạm Thị Dung"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6426",
+        "tai_khoan_co": "141",
+        "so_tien": 1945700,
+        "dien_giai": "Hoàn ứng chi phí - Phạm Thị Dung"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.85,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng chi phí: 1,945,700 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "total",
+        "value": 1945700,
+        "source": "ocr"
+      }
+    ]
+  }
+}

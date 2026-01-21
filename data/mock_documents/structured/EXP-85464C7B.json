@@ -1,0 +1,17 @@
+{
+  "doc_type": "expense_report",
+  "report_date": "2026-01-16",
+  "employee": "Hoàng Văn Em",
+  "expenses": [
+    {
+      "description": "Khách sạn",
+      "amount": 1495464
+    },
+    {
+      "description": "Vé máy bay",
+      "amount": 2887729
+    }
+  ],
+  "total": 4383193,
+  "currency": "VND"
+}

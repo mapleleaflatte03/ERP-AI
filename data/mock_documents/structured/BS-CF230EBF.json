@@ -1,0 +1,87 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "BIDV",
+  "account_no": "1020123456744",
+  "statement_date": "2026-01-16",
+  "balance": 472718471,
+  "transactions": [
+    {
+      "date": "2026-01-11",
+      "type": "debit",
+      "amount": 1783698,
+      "description": "Thanh toán HD 462479",
+      "reference": "FT20260111924629"
+    },
+    {
+      "date": "2026-01-10",
+      "type": "debit",
+      "amount": 12232589,
+      "description": "TT cho Công ty TNHH MTV Hương Giang",
+      "reference": "FT20260110792094"
+    },
+    {
+      "date": "2026-01-10",
+      "type": "debit",
+      "amount": 11514643,
+      "description": "Chi phí điện",
+      "reference": "FT20260110468203"
+    },
+    {
+      "date": "2026-01-08",
+      "type": "credit",
+      "amount": 48565775,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260108945687"
+    },
+    {
+      "date": "2026-01-07",
+      "type": "debit",
+      "amount": 11444882,
+      "description": "TT cho Công ty CP Vật liệu Xây dựng An Phát",
+      "reference": "FT20260107301158"
+    },
+    {
+      "date": "2026-01-06",
+      "type": "debit",
+      "amount": 20840993,
+      "description": "Thanh toán HD 503906",
+      "reference": "FT20260106299312"
+    },
+    {
+      "date": "2026-01-03",
+      "type": "debit",
+      "amount": 23227018,
+      "description": "Thanh toán HD 745414",
+      "reference": "FT20260103415568"
+    },
+    {
+      "date": "2025-12-30",
+      "type": "credit",
+      "amount": 25442489,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20251230446239"
+    },
+    {
+      "date": "2025-12-28",
+      "type": "debit",
+      "amount": 22759589,
+      "description": "Chi phí điện",
+      "reference": "FT20251228631756"
+    },
+    {
+      "date": "2025-12-27",
+      "type": "debit",
+      "amount": 23300844,
+      "description": "TT cho Công ty TNHH Hóa chất Việt Trì",
+      "reference": "FT20251227373903"
+    },
+    {
+      "date": "2025-12-25",
+      "type": "credit",
+      "amount": 26671940,
+      "description": "CK từ công ty Công ty TNHH Thương mại ABC",
+      "reference": "FT20251225333238"
+    }
+  ],
+  "currency": "VND"
+}

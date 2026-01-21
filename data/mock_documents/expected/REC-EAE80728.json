@@ -1,0 +1,38 @@
+{
+  "doc_id": "REC-EAE80728",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "PT20260118209",
+      "ngay_chung_tu": "2026-01-18",
+      "loai_chung_tu": "PT",
+      "ghi_chu": "Mua Cafe hòa tan G7"
+    },
+    "hoa_don": null,
+    "thue": null,
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6421",
+        "tai_khoan_co": "111",
+        "so_tien": 343609,
+        "dien_giai": "Mua Cafe hòa tan G7"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": false,
+  "review_reasons": [],
+  "confidence_score": 0.88,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng tiền: 343,609 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "amount",
+        "value": 343609,
+        "source": "ocr"
+      }
+    ]
+  }
+}

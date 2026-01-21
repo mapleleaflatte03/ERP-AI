@@ -1,0 +1,23 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: VPBank
+Số tài khoản: 1020123456746
+Ngày sao kê: 10/01/2026
+Số dư hiện tại: 116,761,860 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-09 | Thu | 35,791,878 | CK từ công ty Công ty TNHH MTV Hương Giang | FT20260109755788
+2025-12-29 | Thu | 45,134,841 | CK từ công ty Công ty TNHH MTV Hương Giang | FT20251229533321
+2025-12-28 | Chi | 11,272,927 | TT cho Công ty CP Nhựa Duy Tân | FT20251228445824
+2025-12-28 | Chi | 10,170,984 | Thanh toán HD 953085 | FT20251228138479
+2025-12-27 | Chi | 23,979,166 | Thanh toán HD 624783 | FT20251227617781
+2025-12-27 | Thu | 41,133,561 | Thu hồi công nợ | FT20251227437978
+2025-12-27 | Thu | 22,106,889 | TT từ KH Công ty TNHH MTV Hương Giang | FT20251227910075
+2025-12-27 | Thu | 14,660,562 | TT từ KH Công ty TNHH MTV Hương Giang | FT20251227402020
+2025-12-27 | Chi | 4,574,383 | TT cho Công ty TNHH Thương mại ABC | FT20251227425845
+2025-12-24 | Thu | 38,060,964 | TT từ KH Công ty CP Vật liệu Xây dựng An Phát | FT20251224982277
+2025-12-23 | Chi | 21,799,840 | Chi phí internet | FT20251223464863
+2025-12-22 | Chi | 1,367,881 | Thanh toán HD 807053 | FT20251222715643
+2025-12-17 | Thu | 32,574,775 | CK từ công ty Công ty CP Đầu tư Phú Thành | FT20251217290305
+2025-12-11 | Thu | 46,116,053 | Thu hồi công nợ | FT20251211142185

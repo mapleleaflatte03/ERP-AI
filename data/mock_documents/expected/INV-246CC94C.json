@@ -1,0 +1,55 @@
+{
+  "doc_id": "INV-246CC94C",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601051053",
+      "ngay_chung_tu": "2026-01-05",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty TNHH MTV Hương Giang"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601051053",
+      "ngay_hoa_don": "2026-01-05",
+      "nha_cung_cap": "Công ty TNHH MTV Hương Giang",
+      "ma_so_thue_ncc": "2867302554"
+    },
+    "thue": {
+      "thue_suat_vat": 8,
+      "tien_thue_vat": 16805918,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "1561",
+        "tai_khoan_co": "111",
+        "so_tien": 210073980,
+        "dien_giai": "Mua hàng - Dịch vụ bảo trì CNTT"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": true,
+  "review_reasons": [
+    "amount_threshold"
+  ],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 226,879,898 VND",
+      "Thuế suất GTGT: 8%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 226879898,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 8,
+        "source": "ocr"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+# Zyte Scrapy Cloud deployment configuration
+# Project: asoft_zyte (ERP-AI Invoice Scraping)
+# Zyte Project ID: 845063
+
+project: 844374
+requirements:
+  file: requirements.txt
+
+# Stack settings (Scrapy Cloud standard)
+stack: scrapy:2.11

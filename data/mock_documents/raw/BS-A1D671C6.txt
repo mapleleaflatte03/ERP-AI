@@ -1,0 +1,14 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: Vietcombank
+Số tài khoản: 1020123456778
+Ngày sao kê: 12/01/2026
+Số dư hiện tại: 253,224,098 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-10 | Chi | 28,330,202 | TT cho Công ty CP Nhựa Duy Tân | FT20260110838797
+2026-01-10 | Thu | 45,376,630 | TT từ KH Công ty CP Đầu tư Phú Thành | FT20260110996865
+2026-01-05 | Thu | 26,509,839 | Thu hồi công nợ | FT20260105974628
+2026-01-01 | Thu | 25,842,424 | Thu hồi công nợ | FT20260101379946
+2025-12-21 | Thu | 41,878,089 | Thu hồi công nợ | FT20251221864544

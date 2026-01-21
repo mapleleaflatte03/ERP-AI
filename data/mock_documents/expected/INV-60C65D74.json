@@ -1,0 +1,55 @@
+{
+  "doc_id": "INV-60C65D74",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": {
+    "chung_tu": {
+      "so_chung_tu": "HD202601147658",
+      "ngay_chung_tu": "2026-01-14",
+      "loai_chung_tu": "HD-GTGT",
+      "ghi_chu": "Mua hàng từ Công ty CP Công nghệ XYZ"
+    },
+    "hoa_don": {
+      "so_hoa_don": "HD202601147658",
+      "ngay_hoa_don": "2026-01-14",
+      "nha_cung_cap": "Công ty CP Công nghệ XYZ",
+      "ma_so_thue_ncc": "4645120421"
+    },
+    "thue": {
+      "thue_suat_vat": 10,
+      "tien_thue_vat": 18250940,
+      "co_hoa_don_hop_le": true
+    },
+    "chi_tiet": [
+      {
+        "tai_khoan_no": "6424",
+        "tai_khoan_co": "111",
+        "so_tien": 182509395,
+        "dien_giai": "Mua hàng - Bàn làm việc 1m2"
+      }
+    ]
+  },
+  "reconciliation_result": null,
+  "needs_human_review": true,
+  "review_reasons": [
+    "amount_threshold"
+  ],
+  "confidence_score": 0.92,
+  "evidence": {
+    "key_text_snippets": [
+      "Tổng cộng tiền thanh toán: 200,760,335 VND",
+      "Thuế suất GTGT: 10%"
+    ],
+    "numbers_found": [
+      {
+        "label": "grand_total",
+        "value": 200760335,
+        "source": "ocr"
+      },
+      {
+        "label": "vat_rate",
+        "value": 10,
+        "source": "ocr"
+      }
+    ]
+  }
+}

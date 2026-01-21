@@ -1,0 +1,45 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "Vietcombank",
+  "account_no": "1020123456778",
+  "statement_date": "2026-01-12",
+  "balance": 253224098,
+  "transactions": [
+    {
+      "date": "2026-01-10",
+      "type": "debit",
+      "amount": 28330202,
+      "description": "TT cho Công ty CP Nhựa Duy Tân",
+      "reference": "FT20260110838797"
+    },
+    {
+      "date": "2026-01-10",
+      "type": "credit",
+      "amount": 45376630,
+      "description": "TT từ KH Công ty CP Đầu tư Phú Thành",
+      "reference": "FT20260110996865"
+    },
+    {
+      "date": "2026-01-05",
+      "type": "credit",
+      "amount": 26509839,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260105974628"
+    },
+    {
+      "date": "2026-01-01",
+      "type": "credit",
+      "amount": 25842424,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260101379946"
+    },
+    {
+      "date": "2025-12-21",
+      "type": "credit",
+      "amount": 41878089,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20251221864544"
+    }
+  ],
+  "currency": "VND"
+}

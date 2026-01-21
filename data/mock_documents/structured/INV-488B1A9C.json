@@ -1,0 +1,39 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202601055198",
+  "invoice_date": "2026-01-05",
+  "vendor_name": "Công ty TNHH Logistics Bắc Nam",
+  "vendor_tax_code": "5070585433",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 10,
+      "unit": "cái",
+      "unit_price": 2247189,
+      "amount": 22471889
+    },
+    {
+      "line_no": 2,
+      "description": "Nước uống đóng chai",
+      "quantity": 2,
+      "unit": "thùng",
+      "unit_price": 26389,
+      "amount": 52778
+    },
+    {
+      "line_no": 3,
+      "description": "Bàn phím cơ Logitech",
+      "quantity": 5,
+      "unit": "cái",
+      "unit_price": 2027563,
+      "amount": 10137817
+    }
+  ],
+  "subtotal": 32662484,
+  "vat_rate": 0,
+  "vat_amount": 0,
+  "grand_total": 32662484,
+  "payment_method": "bank_transfer",
+  "currency": "VND"
+}

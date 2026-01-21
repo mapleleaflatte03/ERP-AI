@@ -1,0 +1,356 @@
+{
+  "generated_at": "2026-01-20T09:29:53.319583Z",
+  "total_documents": 50,
+  "documents": [
+    {
+      "doc_id": "INV-5EB7159D",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-5EB7159D.txt",
+      "structured_path": "structured/INV-5EB7159D.json",
+      "expected_path": "expected/INV-5EB7159D.json"
+    },
+    {
+      "doc_id": "INV-FB43558D",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-FB43558D.txt",
+      "structured_path": "structured/INV-FB43558D.json",
+      "expected_path": "expected/INV-FB43558D.json"
+    },
+    {
+      "doc_id": "BS-A1D671C6",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-A1D671C6.txt",
+      "structured_path": "structured/BS-A1D671C6.json",
+      "expected_path": "expected/BS-A1D671C6.json"
+    },
+    {
+      "doc_id": "REC-8F3FBB91",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-8F3FBB91.txt",
+      "structured_path": "structured/REC-8F3FBB91.json",
+      "expected_path": "expected/REC-8F3FBB91.json"
+    },
+    {
+      "doc_id": "BS-1A8A14A0",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-1A8A14A0.txt",
+      "structured_path": "structured/BS-1A8A14A0.json",
+      "expected_path": "expected/BS-1A8A14A0.json"
+    },
+    {
+      "doc_id": "EXP-2D8BED57",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-2D8BED57.txt",
+      "structured_path": "structured/EXP-2D8BED57.json",
+      "expected_path": "expected/EXP-2D8BED57.json"
+    },
+    {
+      "doc_id": "INV-246CC94C",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-246CC94C.txt",
+      "structured_path": "structured/INV-246CC94C.json",
+      "expected_path": "expected/INV-246CC94C.json"
+    },
+    {
+      "doc_id": "INV-94783C11",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-94783C11.txt",
+      "structured_path": "structured/INV-94783C11.json",
+      "expected_path": "expected/INV-94783C11.json"
+    },
+    {
+      "doc_id": "EXP-E93A1BD8",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-E93A1BD8.txt",
+      "structured_path": "structured/EXP-E93A1BD8.json",
+      "expected_path": "expected/EXP-E93A1BD8.json"
+    },
+    {
+      "doc_id": "EXP-423657E1",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-423657E1.txt",
+      "structured_path": "structured/EXP-423657E1.json",
+      "expected_path": "expected/EXP-423657E1.json"
+    },
+    {
+      "doc_id": "REC-09EBF01F",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-09EBF01F.txt",
+      "structured_path": "structured/REC-09EBF01F.json",
+      "expected_path": "expected/REC-09EBF01F.json"
+    },
+    {
+      "doc_id": "INV-F4D17409",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-F4D17409.txt",
+      "structured_path": "structured/INV-F4D17409.json",
+      "expected_path": "expected/INV-F4D17409.json"
+    },
+    {
+      "doc_id": "EXP-088C92A4",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-088C92A4.txt",
+      "structured_path": "structured/EXP-088C92A4.json",
+      "expected_path": "expected/EXP-088C92A4.json"
+    },
+    {
+      "doc_id": "INV-DA869737",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-DA869737.txt",
+      "structured_path": "structured/INV-DA869737.json",
+      "expected_path": "expected/INV-DA869737.json"
+    },
+    {
+      "doc_id": "INV-60C65D74",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-60C65D74.txt",
+      "structured_path": "structured/INV-60C65D74.json",
+      "expected_path": "expected/INV-60C65D74.json"
+    },
+    {
+      "doc_id": "BS-EFA23FD3",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-EFA23FD3.txt",
+      "structured_path": "structured/BS-EFA23FD3.json",
+      "expected_path": "expected/BS-EFA23FD3.json"
+    },
+    {
+      "doc_id": "EXP-2CCED313",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-2CCED313.txt",
+      "structured_path": "structured/EXP-2CCED313.json",
+      "expected_path": "expected/EXP-2CCED313.json"
+    },
+    {
+      "doc_id": "REC-EAE80728",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-EAE80728.txt",
+      "structured_path": "structured/REC-EAE80728.json",
+      "expected_path": "expected/REC-EAE80728.json"
+    },
+    {
+      "doc_id": "REC-3E2F165F",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-3E2F165F.txt",
+      "structured_path": "structured/REC-3E2F165F.json",
+      "expected_path": "expected/REC-3E2F165F.json"
+    },
+    {
+      "doc_id": "BS-23D51705",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-23D51705.txt",
+      "structured_path": "structured/BS-23D51705.json",
+      "expected_path": "expected/BS-23D51705.json"
+    },
+    {
+      "doc_id": "REC-6A128115",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-6A128115.txt",
+      "structured_path": "structured/REC-6A128115.json",
+      "expected_path": "expected/REC-6A128115.json"
+    },
+    {
+      "doc_id": "BS-CF230EBF",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-CF230EBF.txt",
+      "structured_path": "structured/BS-CF230EBF.json",
+      "expected_path": "expected/BS-CF230EBF.json"
+    },
+    {
+      "doc_id": "EXP-87D868B6",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-87D868B6.txt",
+      "structured_path": "structured/EXP-87D868B6.json",
+      "expected_path": "expected/EXP-87D868B6.json"
+    },
+    {
+      "doc_id": "EXP-6AAEB2F2",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-6AAEB2F2.txt",
+      "structured_path": "structured/EXP-6AAEB2F2.json",
+      "expected_path": "expected/EXP-6AAEB2F2.json"
+    },
+    {
+      "doc_id": "REC-B9D6163A",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-B9D6163A.txt",
+      "structured_path": "structured/REC-B9D6163A.json",
+      "expected_path": "expected/REC-B9D6163A.json"
+    },
+    {
+      "doc_id": "REC-1F92B462",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-1F92B462.txt",
+      "structured_path": "structured/REC-1F92B462.json",
+      "expected_path": "expected/REC-1F92B462.json"
+    },
+    {
+      "doc_id": "REC-316C9E99",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-316C9E99.txt",
+      "structured_path": "structured/REC-316C9E99.json",
+      "expected_path": "expected/REC-316C9E99.json"
+    },
+    {
+      "doc_id": "INV-B3F08F98",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-B3F08F98.txt",
+      "structured_path": "structured/INV-B3F08F98.json",
+      "expected_path": "expected/INV-B3F08F98.json"
+    },
+    {
+      "doc_id": "EXP-85464C7B",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-85464C7B.txt",
+      "structured_path": "structured/EXP-85464C7B.json",
+      "expected_path": "expected/EXP-85464C7B.json"
+    },
+    {
+      "doc_id": "REC-552A4E51",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-552A4E51.txt",
+      "structured_path": "structured/REC-552A4E51.json",
+      "expected_path": "expected/REC-552A4E51.json"
+    },
+    {
+      "doc_id": "BS-803EBAB5",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-803EBAB5.txt",
+      "structured_path": "structured/BS-803EBAB5.json",
+      "expected_path": "expected/BS-803EBAB5.json"
+    },
+    {
+      "doc_id": "INV-488B1A9C",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-488B1A9C.txt",
+      "structured_path": "structured/INV-488B1A9C.json",
+      "expected_path": "expected/INV-488B1A9C.json"
+    },
+    {
+      "doc_id": "EXP-E0B4BAE5",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-E0B4BAE5.txt",
+      "structured_path": "structured/EXP-E0B4BAE5.json",
+      "expected_path": "expected/EXP-E0B4BAE5.json"
+    },
+    {
+      "doc_id": "INV-869A7AF7",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-869A7AF7.txt",
+      "structured_path": "structured/INV-869A7AF7.json",
+      "expected_path": "expected/INV-869A7AF7.json"
+    },
+    {
+      "doc_id": "EXP-7BB66A5F",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-7BB66A5F.txt",
+      "structured_path": "structured/EXP-7BB66A5F.json",
+      "expected_path": "expected/EXP-7BB66A5F.json"
+    },
+    {
+      "doc_id": "EXP-EBDF2F41",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-EBDF2F41.txt",
+      "structured_path": "structured/EXP-EBDF2F41.json",
+      "expected_path": "expected/EXP-EBDF2F41.json"
+    },
+    {
+      "doc_id": "REC-CD0BFD0B",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-CD0BFD0B.txt",
+      "structured_path": "structured/REC-CD0BFD0B.json",
+      "expected_path": "expected/REC-CD0BFD0B.json"
+    },
+    {
+      "doc_id": "EXP-5C35D16A",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-5C35D16A.txt",
+      "structured_path": "structured/EXP-5C35D16A.json",
+      "expected_path": "expected/EXP-5C35D16A.json"
+    },
+    {
+      "doc_id": "INV-B8FAD406",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-B8FAD406.txt",
+      "structured_path": "structured/INV-B8FAD406.json",
+      "expected_path": "expected/INV-B8FAD406.json"
+    },
+    {
+      "doc_id": "BS-E1DADC7E",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-E1DADC7E.txt",
+      "structured_path": "structured/BS-E1DADC7E.json",
+      "expected_path": "expected/BS-E1DADC7E.json"
+    },
+    {
+      "doc_id": "REC-956D385F",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-956D385F.txt",
+      "structured_path": "structured/REC-956D385F.json",
+      "expected_path": "expected/REC-956D385F.json"
+    },
+    {
+      "doc_id": "INV-92A6A20D",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-92A6A20D.txt",
+      "structured_path": "structured/INV-92A6A20D.json",
+      "expected_path": "expected/INV-92A6A20D.json"
+    },
+    {
+      "doc_id": "REC-F35916D2",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-F35916D2.txt",
+      "structured_path": "structured/REC-F35916D2.json",
+      "expected_path": "expected/REC-F35916D2.json"
+    },
+    {
+      "doc_id": "BS-ECAC045E",
+      "doc_type": "bank_statement",
+      "raw_path": "raw/BS-ECAC045E.txt",
+      "structured_path": "structured/BS-ECAC045E.json",
+      "expected_path": "expected/BS-ECAC045E.json"
+    },
+    {
+      "doc_id": "INV-262418FA",
+      "doc_type": "invoice",
+      "raw_path": "raw/INV-262418FA.txt",
+      "structured_path": "structured/INV-262418FA.json",
+      "expected_path": "expected/INV-262418FA.json"
+    },
+    {
+      "doc_id": "EXP-9F182444",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-9F182444.txt",
+      "structured_path": "structured/EXP-9F182444.json",
+      "expected_path": "expected/EXP-9F182444.json"
+    },
+    {
+      "doc_id": "EXP-88669808",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-88669808.txt",
+      "structured_path": "structured/EXP-88669808.json",
+      "expected_path": "expected/EXP-88669808.json"
+    },
+    {
+      "doc_id": "EXP-107133D7",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-107133D7.txt",
+      "structured_path": "structured/EXP-107133D7.json",
+      "expected_path": "expected/EXP-107133D7.json"
+    },
+    {
+      "doc_id": "EXP-3A8CBE48",
+      "doc_type": "expense_report",
+      "raw_path": "raw/EXP-3A8CBE48.txt",
+      "structured_path": "structured/EXP-3A8CBE48.json",
+      "expected_path": "expected/EXP-3A8CBE48.json"
+    },
+    {
+      "doc_id": "REC-0EB6207C",
+      "doc_type": "receipt",
+      "raw_path": "raw/REC-0EB6207C.txt",
+      "structured_path": "structured/REC-0EB6207C.json",
+      "expected_path": "expected/REC-0EB6207C.json"
+    }
+  ]
+}

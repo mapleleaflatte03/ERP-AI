@@ -1,0 +1,20 @@
+
+HÓA ĐƠN GIÁ TRỊ GIA TĂNG
+Số: HD202601124657
+Ngày: 12/01/2026
+
+Đơn vị bán hàng: Công ty TNHH Thương mại ABC
+Mã số thuế: 8479902459
+
+STT | Tên hàng hóa, dịch vụ | ĐVT | Số lượng | Đơn giá | Thành tiền
+1. Nước uống đóng chai | thùng | 2 | 25,883 | 51,767
+2. Dịch vụ vận chuyển | chuyến | 9 | 2,293,469 | 20,641,225
+
+Cộng tiền hàng: 20,692,992 VND
+Thuế suất GTGT: 10%
+Tiền thuế GTGT: 2,069,299 VND
+Tổng cộng tiền thanh toán: 22,762,291 VND
+
+Bằng chữ: 22 triệu 762 nghìn đồng
+
+Hình thức thanh toán: Tiền mặt

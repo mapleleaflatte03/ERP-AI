@@ -1,0 +1,74 @@
+# ERPX AI Accounting - Python Dependencies
+# =========================================
+# Production requirements for full stack
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+gunicorn>=21.2.0
+python-multipart>=0.0.6
+
+# Database
+asyncpg>=0.29.0
+sqlalchemy>=2.0.23
+
+# HTTP Client
+httpx>=0.25.0
+tenacity>=8.2.3
+
+# LLM & AI (DO Agent via HTTP - no local models)
+langchain>=0.1.0
+langgraph>=0.0.20
+sentence-transformers>=2.2.0
+
+# Document Processing
+pdfplumber>=0.10.0
+PyMuPDF>=1.23.0
+pandas>=2.1.0
+openpyxl>=3.1.0
+Pillow>=10.0.0
+python-docx>=1.0.0
+
+# OCR
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
+pytesseract>=0.3.10
+
+# Storage & Cache
+minio>=7.2.0
+redis>=5.0.0
+qdrant-client>=1.6.0
+
+# Workflow
+temporalio>=1.3.0
+
+# Observability
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+opentelemetry-exporter-otlp>=1.21.0
+opentelemetry-instrumentation-fastapi>=0.42b0
+opentelemetry-instrumentation-httpx>=0.42b0
+prometheus-client>=0.19.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Telegram Bot
+python-telegram-bot>=20.6
+
+# Utilities
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+structlog>=23.2.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# MLflow
+mlflow>=2.9.0

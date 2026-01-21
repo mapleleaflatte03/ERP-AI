@@ -1,0 +1,21 @@
+
+SÀO KÊ TÀI KHOẢN
+Ngân hàng: Techcombank
+Số tài khoản: 1020123456777
+Ngày sao kê: 11/01/2026
+Số dư hiện tại: 278,440,619 VND
+
+LỊCH SỬ GIAO DỊCH
+Ngày | Loại | Số tiền | Nội dung | Mã GD
+2026-01-06 | Chi | 974,740 | TT cho Công ty TNHH May mặc Việt Tiến | FT20260106157174
+2026-01-04 | Thu | 49,404,572 | TT từ KH Công ty CP Đầu tư Phú Thành | FT20260104878967
+2026-01-04 | Thu | 38,451,647 | Thu hồi công nợ | FT20260104725084
+2026-01-02 | Chi | 16,562,983 | TT cho Công ty TNHH Thực phẩm Sạch Việt | FT20260102364742
+2025-12-25 | Thu | 13,854,097 | CK từ công ty Công ty CP Đầu tư Phú Thành | FT20251225859782
+2025-12-25 | Chi | 23,901,444 | TT cho Công ty TNHH Dịch vụ Sao Mai | FT20251225701949
+2025-12-24 | Chi | 3,873,096 | TT cho Công ty TNHH Hóa chất Việt Trì | FT20251224478411
+2025-12-24 | Thu | 11,182,227 | CK từ công ty Công ty TNHH MTV Hương Giang | FT20251224189318
+2025-12-19 | Chi | 12,304,802 | Chi phí internet | FT20251219363615
+2025-12-17 | Thu | 36,069,249 | CK từ công ty Công ty CP Đầu tư Phú Thành | FT20251217411797
+2025-12-15 | Chi | 10,746,860 | Thanh toán HD 739244 | FT20251215204053
+2025-12-12 | Chi | 4,328,129 | Chi phí điện | FT20251212177680

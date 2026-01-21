@@ -1,0 +1,94 @@
+{
+  "doc_type": "bank_statement",
+  "bank_name": "Techcombank",
+  "account_no": "1020123456777",
+  "statement_date": "2026-01-11",
+  "balance": 278440619,
+  "transactions": [
+    {
+      "date": "2026-01-06",
+      "type": "debit",
+      "amount": 974740,
+      "description": "TT cho Công ty TNHH May mặc Việt Tiến",
+      "reference": "FT20260106157174"
+    },
+    {
+      "date": "2026-01-04",
+      "type": "credit",
+      "amount": 49404572,
+      "description": "TT từ KH Công ty CP Đầu tư Phú Thành",
+      "reference": "FT20260104878967"
+    },
+    {
+      "date": "2026-01-04",
+      "type": "credit",
+      "amount": 38451647,
+      "description": "Thu hồi công nợ",
+      "reference": "FT20260104725084"
+    },
+    {
+      "date": "2026-01-02",
+      "type": "debit",
+      "amount": 16562983,
+      "description": "TT cho Công ty TNHH Thực phẩm Sạch Việt",
+      "reference": "FT20260102364742"
+    },
+    {
+      "date": "2025-12-25",
+      "type": "credit",
+      "amount": 13854097,
+      "description": "CK từ công ty Công ty CP Đầu tư Phú Thành",
+      "reference": "FT20251225859782"
+    },
+    {
+      "date": "2025-12-25",
+      "type": "debit",
+      "amount": 23901444,
+      "description": "TT cho Công ty TNHH Dịch vụ Sao Mai",
+      "reference": "FT20251225701949"
+    },
+    {
+      "date": "2025-12-24",
+      "type": "debit",
+      "amount": 3873096,
+      "description": "TT cho Công ty TNHH Hóa chất Việt Trì",
+      "reference": "FT20251224478411"
+    },
+    {
+      "date": "2025-12-24",
+      "type": "credit",
+      "amount": 11182227,
+      "description": "CK từ công ty Công ty TNHH MTV Hương Giang",
+      "reference": "FT20251224189318"
+    },
+    {
+      "date": "2025-12-19",
+      "type": "debit",
+      "amount": 12304802,
+      "description": "Chi phí internet",
+      "reference": "FT20251219363615"
+    },
+    {
+      "date": "2025-12-17",
+      "type": "credit",
+      "amount": 36069249,
+      "description": "CK từ công ty Công ty CP Đầu tư Phú Thành",
+      "reference": "FT20251217411797"
+    },
+    {
+      "date": "2025-12-15",
+      "type": "debit",
+      "amount": 10746860,
+      "description": "Thanh toán HD 739244",
+      "reference": "FT20251215204053"
+    },
+    {
+      "date": "2025-12-12",
+      "type": "debit",
+      "amount": 4328129,
+      "description": "Chi phí điện",
+      "reference": "FT20251212177680"
+    }
+  ],
+  "currency": "VND"
+}

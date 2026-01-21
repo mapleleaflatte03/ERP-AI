@@ -1,0 +1,28 @@
+{
+  "doc_id": "BS-A1D671C6",
+  "tenant_id": "demo-tenant-001",
+  "asof_payload": null,
+  "reconciliation_result": {
+    "status": "pending",
+    "total_transactions": 5,
+    "matched": 0,
+    "unmatched": 5
+  },
+  "needs_human_review": true,
+  "review_reasons": [
+    "bank_reconciliation"
+  ],
+  "confidence_score": 1.0,
+  "evidence": {
+    "key_text_snippets": [
+      "Số dư hiện tại: 253,224,098 VND"
+    ],
+    "numbers_found": [
+      {
+        "label": "balance",
+        "value": 253224098,
+        "source": "structured"
+      }
+    ]
+  }
+}

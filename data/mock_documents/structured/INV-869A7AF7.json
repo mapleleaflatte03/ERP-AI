@@ -1,0 +1,23 @@
+{
+  "doc_type": "invoice",
+  "invoice_no": "HD202512297071",
+  "invoice_date": "2025-12-29",
+  "vendor_name": "Công ty TNHH Thiết bị Văn phòng Minh Anh",
+  "vendor_tax_code": "7583090712",
+  "items": [
+    {
+      "line_no": 1,
+      "description": "Dịch vụ bảo trì CNTT",
+      "quantity": 6,
+      "unit": "tháng",
+      "unit_price": 13537956,
+      "amount": 81227739
+    }
+  ],
+  "subtotal": 81227739,
+  "vat_rate": 10,
+  "vat_amount": 8122774,
+  "grand_total": 89350513,
+  "payment_method": "bank_transfer",
+  "currency": "VND"
+}
