@@ -284,7 +284,7 @@ async def create_job_state(
         """
         INSERT INTO job_processing_state
         (id, job_id, tenant_id, current_state, request_id)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5::text)
         ON CONFLICT (job_id) DO NOTHING
         """,
         state_id,
@@ -323,12 +323,12 @@ async def update_job_state(
         UPDATE job_processing_state
         SET current_state = $1,
             previous_state = $2,
-            checkpoint_data = COALESCE($3, checkpoint_data),
-            last_error = $4,
-            attempts = CASE WHEN $4 IS NOT NULL THEN attempts + 1 ELSE attempts END,
+            checkpoint_data = COALESCE($3::jsonb, checkpoint_data),
+            last_error = $4::text,
+            attempts = CASE WHEN $4::text IS NOT NULL THEN attempts + 1 ELSE attempts END,
             state_changed_at = NOW(),
             updated_at = NOW(),
-            request_id = $5
+            request_id = $5::text
         WHERE job_id = $6
         """,
         new_state.value,

@@ -98,7 +98,7 @@ async def create_audit_evidence(
             llm_input_preview, llm_output_json, llm_output_raw, llm_latency_ms,
             validation_errors, risk_flags, decision, decision_reason
         ) VALUES (
-            $1, $2, $3, $4, $5,
+            $1, $2, $3, $4::text, $5,
             $6, $7, $8,
             $9, $10, $11,
             $12, $13, $14, $15,
@@ -181,7 +181,7 @@ async def append_audit_event(
     await conn.execute(
         """
         INSERT INTO audit_events (id, job_id, tenant_id, request_id, event_type, event_data, actor)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4::text, $5, $6, $7)
         """,
         uuid.UUID(event_id),
         uuid.UUID(job_id) if job_id else None,

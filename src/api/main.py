@@ -443,31 +443,120 @@ async def persist_to_db(job_id: str, file_info: dict[str, Any], proposal: dict[s
 
 
 # ===========================================================================
-# Background Processing
+# Background Processing (PR13 Integration)
 # ===========================================================================
 
 
 async def process_document_async(job_id: str, file_path: str, file_info: dict[str, Any]):
     """
-    Process document in background.
+    Process document in background with full PR7-12 integration.
 
     Pipeline:
-    1. Extract text (OCR/PDF/Excel)
-    2. Retrieve RAG context
-    3. Call LLM for classification and extraction
-    4. Validate output
-    5. Store result
+    1. Initialize state tracking (PR10)
+    2. Record audit evidence start (PR7)
+    3. Extract text (OCR/PDF/Excel) + track zone (PR10) + metrics (PR12)
+    4. Call LLM for classification + audit (PR7) + metrics (PR12)
+    5. Validate output + policy evaluation (PR9)
+    6. Persist to DB + track zone (PR10)
+    7. Emit outbox events (PR11)
+    8. Complete audit trail (PR7)
     """
+    import time
+
+    from src.api.middleware import get_request_id
+    from src.observability import record_histogram
+    from src.outbox import AggregateType, EventType, publish_event
+    from src.policy.engine import evaluate_proposal as policy_evaluate
+
+    request_id = get_request_id() or job_id
+    tenant_id = file_info.get("tenant_id", "default")
+    pipeline_start = time.time()
+    conn = None
+    tenant_uuid = None  # Initialize for exception handler
+
     try:
-        logger.info(f"Processing job {job_id}: {file_info.get('filename')}")
+        logger.info(f"[{request_id}] Processing job {job_id}: {file_info.get('filename')}")
         job_store.update(job_id, status="processing")
 
-        # Import processing modules
+        # Get DB connection for all tracking
+        conn = await get_db_connection()
+
+        # =========== STEP 0: Create Document + Initialize State ===========
+        # First, ensure tenant exists
+        tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_id)
+        if not tenant_row:
+            tenant_uuid_str = str(uuid.uuid4())
+            await conn.execute(
+                "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                uuid.UUID(tenant_uuid_str),
+                f"Tenant {tenant_id}",
+                tenant_id,
+            )
+            tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_id)
+
+        tenant_uuid = tenant_row["id"]
+        doc_uuid = uuid.UUID(job_id)
+
+        # Create document record first (required for FK in data_zones)
+        await conn.execute(
+            """
+            INSERT INTO documents 
+            (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            doc_uuid,
+            tenant_uuid,
+            job_id,
+            file_info.get("filename", "unknown.bin"),
+            file_info.get("content_type", "application/octet-stream"),
+            file_info.get("size", 0),
+            file_info.get("path", ""),
+            file_info.get("checksum", ""),
+            "processing",
+        )
+
+        # Now initialize state and audit
+        await create_job_state(conn, job_id, JobState.UPLOADED, str(tenant_uuid), request_id)
+        await append_audit_event(
+            conn,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            event_type="received",
+            event_data={
+                "filename": file_info.get("filename"),
+                "content_type": file_info.get("content_type"),
+                "size": file_info.get("size"),
+                "checksum": file_info.get("checksum"),
+            },
+            actor="system",
+            request_id=request_id,
+        )
+
+        # Track RAW zone
+        await track_zone_entry(
+            conn,
+            job_id=job_id,
+            zone=DataZone.RAW,
+            tenant_id=str(tenant_uuid),
+            document_id=job_id,
+            raw_file_uri=file_info.get("path"),
+            checksum=file_info.get("checksum"),
+            byte_count=file_info.get("size"),
+            request_id=request_id,
+        )
+
+        # Record upload metric
+        await record_counter(conn, "uploads_total", 1.0, {"tenant": tenant_id})
+
+        # =========== STEP 1: Extract Text ===========
+        await update_job_state(conn, job_id, JobState.EXTRACTING, request_id=request_id)
+
         from src.llm import get_llm_client
 
-        # Step 1: Extract text based on file type
         content_type = file_info.get("content_type", "")
         text = ""
+        ocr_start = time.time()
 
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
@@ -476,17 +565,54 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
-            # Try as text
             with open(file_path, encoding="utf-8", errors="ignore") as f:
                 text = f.read()
+
+        ocr_latency_ms = int((time.time() - ocr_start) * 1000)
 
         if not text:
             raise ValueError("Failed to extract text from document")
 
-        logger.info(f"Extracted {len(text)} chars from {file_info.get('filename')}")
+        logger.info(f"[{request_id}] Extracted {len(text)} chars in {ocr_latency_ms}ms")
 
-        # Step 2: Build prompt and call LLM
+        # Record OCR metrics
+        await record_counter(conn, "ocr_calls_total", 1.0, {"tenant": tenant_id})
+        await record_histogram(conn, "ocr_latency_ms", float(ocr_latency_ms), labels={"tenant": tenant_id})
+
+        # Update state and track EXTRACTED zone
+        await update_job_state(
+            conn,
+            job_id,
+            JobState.EXTRACTED,
+            checkpoint_data={"text_length": len(text)},
+            request_id=request_id,
+        )
+        await track_zone_entry(
+            conn,
+            job_id=job_id,
+            zone=DataZone.EXTRACTED,
+            tenant_id=str(tenant_uuid),
+            document_id=job_id,
+            extracted_text_preview=text[:4000],
+            byte_count=len(text.encode("utf-8")),
+            processing_time_ms=ocr_latency_ms,
+            request_id=request_id,
+        )
+        await append_audit_event(
+            conn,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            event_type="extracted",
+            event_data={"text_length": len(text), "ocr_latency_ms": ocr_latency_ms},
+            actor="system",
+            request_id=request_id,
+        )
+
+        # =========== STEP 2: Call LLM ===========
+        await update_job_state(conn, job_id, JobState.PROPOSING, request_id=request_id)
+
         llm_client = get_llm_client()
+        model_name = llm_client.config.model
 
         system_prompt = """Bạn là chuyên gia kế toán Việt Nam. Nhiệm vụ:
 1. Phân loại hóa đơn (mua hàng/bán hàng/chi phí/khác)
@@ -519,32 +645,413 @@ Trả về JSON với format:
 
 Trả về JSON theo format đã định."""
 
+        llm_start = time.time()
         response = llm_client.generate_json(
             prompt=user_prompt,
             system=system_prompt,
             temperature=0.2,
             max_tokens=2048,
-            request_id=job_id,
+            request_id=request_id,
             trace_id=job_id,
         )
+        llm_latency_ms = int((time.time() - llm_start) * 1000)
 
-        # Add document ID
+        # Record LLM metrics
+        await record_counter(conn, "llm_calls_total", 1.0, {"tenant": tenant_id, "model": model_name})
+        await record_histogram(conn, "llm_latency_ms", float(llm_latency_ms), labels={"tenant": tenant_id})
+
         response["doc_id"] = job_id
-
-        # Validate response
         proposal = validate_proposal(response)
 
-        # Persist to PostgreSQL golden tables
-        await persist_to_db(job_id, file_info, proposal)
+        logger.info(f"[{request_id}] LLM response in {llm_latency_ms}ms, confidence={proposal.get('confidence')}")
 
-        # Store result in memory
+        await update_job_state(conn, job_id, JobState.PROPOSED, request_id=request_id)
+
+        await append_audit_event(
+            conn,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            event_type="llm_proposed",
+            event_data={
+                "model": model_name,
+                "llm_latency_ms": llm_latency_ms,
+                "confidence": proposal.get("confidence"),
+                "doc_type": proposal.get("doc_type"),
+            },
+            actor="llm",
+            request_id=request_id,
+        )
+
+        # =========== STEP 3: Policy Evaluation ===========
+        policy_result = await policy_evaluate(
+            conn,
+            proposal=proposal,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            request_id=request_id,
+        )
+
+        await append_audit_event(
+            conn,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            event_type="policy_evaluated",
+            event_data={
+                "overall_result": policy_result.overall_result.value,
+                "auto_approved": policy_result.auto_approved,
+                "rules_passed": policy_result.rules_passed,
+                "rules_failed": policy_result.rules_failed,
+            },
+            actor="policy_engine",
+            request_id=request_id,
+        )
+
+        # Create audit evidence with full details
+        await create_audit_evidence(
+            conn,
+            job_id=job_id,
+            tenant_id=str(tenant_uuid),
+            request_id=request_id,
+            document_id=job_id,
+            raw_file_uri=file_info.get("path"),
+            extracted_text=text,
+            prompt_version="v1",
+            model_name=model_name,
+            llm_stage="direct",
+            llm_input=user_prompt,
+            llm_output_json=proposal,
+            llm_output_raw=str(response),
+            llm_latency_ms=llm_latency_ms,
+            validation_errors=proposal.get("risks", []),
+            risk_flags=proposal.get("risks", []),
+            decision="proposed",
+        )
+
+        # Track PROPOSED zone (silver)
+        await track_zone_entry(
+            conn,
+            job_id=job_id,
+            zone=DataZone.PROPOSED,
+            tenant_id=str(tenant_uuid),
+            document_id=job_id,
+            processing_time_ms=llm_latency_ms,
+            request_id=request_id,
+        )
+
+        # =========== STEP 4: Persist to Golden Tables ===========
+        await update_job_state(conn, job_id, JobState.POSTING, request_id=request_id)
+
+        # Call existing persist function with our connection
+        persist_result = await persist_to_db_with_conn(conn, job_id, file_info, proposal, str(tenant_uuid), request_id)
+
+        # Track POSTED zone (gold)
+        await track_zone_entry(
+            conn,
+            job_id=job_id,
+            zone=DataZone.POSTED,
+            tenant_id=str(tenant_uuid),
+            document_id=job_id,
+            proposal_id=persist_result.get("proposal_id"),
+            ledger_entry_id=persist_result.get("ledger_id"),
+            request_id=request_id,
+        )
+
+        # Determine approval status based on policy
+        if policy_result.auto_approved:
+            await append_audit_event(
+                conn,
+                job_id,
+                str(tenant_uuid),
+                "auto_approved",
+                {"reason": "Policy rules passed"},
+                "policy_engine",
+                request_id,
+            )
+            await record_counter(conn, "auto_approved_total", 1.0, {"tenant": str(tenant_uuid)})
+            await update_audit_decision(conn, job_id, "auto_approved", "Policy rules passed", request_id)
+        else:
+            await append_audit_event(
+                conn,
+                job_id,
+                str(tenant_uuid),
+                "needs_approval",
+                {"reason": f"Policy result: {policy_result.overall_result.value}"},
+                "policy_engine",
+                request_id,
+            )
+            await record_counter(conn, "approvals_pending_total", 1.0, {"tenant": str(tenant_uuid)})
+            await update_audit_decision(conn, job_id, "needs_approval", policy_result.overall_result.value, request_id)
+
+        # =========== STEP 5: Emit Outbox Event ===========
+        await publish_event(
+            conn,
+            event_type=EventType.LEDGER_POSTED,
+            aggregate_type=AggregateType.LEDGER,
+            aggregate_id=persist_result.get("ledger_id", job_id),
+            payload={
+                "job_id": job_id,
+                "proposal_id": persist_result.get("proposal_id"),
+                "ledger_entry_id": persist_result.get("ledger_id"),
+                "invoice_no": proposal.get("invoice_no"),
+                "vendor": proposal.get("vendor"),
+                "total_amount": proposal.get("total_amount"),
+                "currency": "VND",
+            },
+            tenant_id=str(tenant_uuid),
+            request_id=request_id,
+        )
+
+        await record_counter(conn, "ledger_posted_total", 1.0, {"tenant": str(tenant_uuid)})
+        await append_audit_event(
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "posted_to_ledger",
+            {"ledger_id": persist_result.get("ledger_id"), "entry_number": persist_result.get("entry_number")},
+            "system",
+            request_id,
+        )
+
+        # =========== STEP 6: Complete ===========
+        await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
+
+        e2e_latency_ms = int((time.time() - pipeline_start) * 1000)
+        await record_histogram(
+            conn, "end_to_end_latency_ms", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)}
+        )
+
+        await append_audit_event(
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "completed",
+            {"e2e_latency_ms": e2e_latency_ms, "doc_type": proposal.get("doc_type")},
+            "system",
+            request_id,
+        )
+
         job_store.update(job_id, status="completed", result=proposal)
-
-        logger.info(f"Job {job_id} completed: {proposal.get('doc_type')}")
+        logger.info(f"[{request_id}] Job {job_id} completed in {e2e_latency_ms}ms: {proposal.get('doc_type')}")
 
     except Exception as e:
-        logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Job {job_id} failed: {e}", exc_info=True)
         job_store.update(job_id, status="failed", error=str(e))
+
+        # Try to record failure in audit
+        if conn:
+            try:
+                # Use tenant_uuid if available, fallback to tenant_id string
+                t_id = str(tenant_uuid) if tenant_uuid else tenant_id
+                await update_job_state(conn, job_id, JobState.FAILED, error=str(e), request_id=request_id)
+                await append_audit_event(
+                    conn,
+                    job_id,
+                    t_id,
+                    "failed",
+                    {"error": str(e)[:1000]},
+                    "system",
+                    request_id,
+                )
+                await update_audit_decision(conn, job_id, "failed", str(e)[:500], request_id)
+            except Exception as audit_err:
+                logger.error(f"[{request_id}] Failed to record audit: {audit_err}")
+
+    finally:
+        if conn:
+            await conn.close()
+
+
+async def persist_to_db_with_conn(
+    conn,
+    job_id: str,
+    file_info: dict[str, Any],
+    proposal: dict[str, Any],
+    tenant_id_str: str,
+    request_id: str | None = None,
+) -> dict[str, str]:
+    """
+    Persist processing result to PostgreSQL golden tables using existing connection.
+    Returns dict with created IDs.
+    """
+    # Get or create tenant
+    tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_id_str)
+    if not tenant_row:
+        tenant_uuid = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            uuid.UUID(tenant_uuid),
+            f"Tenant {tenant_id_str}",
+            tenant_id_str,
+        )
+        tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_id_str)
+
+    tenant_uuid = tenant_row["id"]
+    doc_uuid = uuid.UUID(job_id)
+
+    # 0. Insert into documents table (FK requirement)
+    await conn.execute(
+        """
+        INSERT INTO documents 
+        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (id) DO UPDATE SET status = 'processed', updated_at = NOW()
+        """,
+        doc_uuid,
+        tenant_uuid,
+        job_id,
+        file_info.get("filename", "unknown.png"),
+        file_info.get("content_type", "application/octet-stream"),
+        file_info.get("size", 0),
+        file_info.get("path", ""),
+        file_info.get("checksum", ""),
+        "processed",
+    )
+
+    # 1. Insert into extracted_invoices
+    invoice_id = uuid.uuid4()
+    invoice_date_str = proposal.get("invoice_date", datetime.now().strftime("%Y-%m-%d"))
+    try:
+        invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        invoice_date = datetime.now().date()
+
+    await conn.execute(
+        """
+        INSERT INTO extracted_invoices 
+        (id, document_id, tenant_id, vendor_name, vendor_tax_id, invoice_number, 
+         invoice_date, total_amount, currency, ai_confidence)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT DO NOTHING
+        """,
+        invoice_id,
+        doc_uuid,
+        tenant_uuid,
+        proposal.get("vendor", "Unknown"),
+        "",
+        proposal.get("invoice_no", f"INV-{job_id[:8]}"),
+        invoice_date,
+        float(proposal.get("total_amount", 0)),
+        "VND",
+        float(proposal.get("confidence", 0.85)),
+    )
+
+    # 2. Insert into journal_proposals
+    proposal_id = uuid.uuid4()
+    entries = proposal.get("entries", [])
+    confidence = float(proposal.get("confidence", 0.85))
+    risk_level = "low" if confidence > 0.8 else "medium"
+
+    await conn.execute(
+        """
+        INSERT INTO journal_proposals
+        (id, document_id, invoice_id, tenant_id, status, ai_confidence, 
+         ai_model, ai_reasoning, risk_level)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT DO NOTHING
+        """,
+        proposal_id,
+        doc_uuid,
+        invoice_id,
+        tenant_uuid,
+        "pending",
+        confidence,
+        "do-agent-qwen3-32b",
+        proposal.get("explanation", "AI-generated journal proposal"),
+        risk_level,
+    )
+
+    # 3. Insert journal_proposal_entries
+    for idx, entry in enumerate(entries):
+        entry_id = uuid.uuid4()
+        await conn.execute(
+            """
+            INSERT INTO journal_proposal_entries
+            (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            """,
+            entry_id,
+            proposal_id,
+            entry.get("account_code", ""),
+            entry.get("account_name", ""),
+            float(entry.get("debit", 0)),
+            float(entry.get("credit", 0)),
+            idx + 1,
+        )
+
+    # 4. Insert approval with job_id
+    approval_id = uuid.uuid4()
+    await conn.execute(
+        """
+        INSERT INTO approvals
+        (id, proposal_id, tenant_id, job_id, approver_name, action, status, comments)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING
+        """,
+        approval_id,
+        proposal_id,
+        tenant_uuid,
+        doc_uuid,
+        "Auto-Approver",
+        "approved",
+        "approved",
+        "Auto-approved by E2E pipeline",
+    )
+
+    # 5. Update proposal status to approved
+    await conn.execute("UPDATE journal_proposals SET status = 'approved' WHERE id = $1", proposal_id)
+
+    # 6. Insert ledger_entries
+    ledger_id = uuid.uuid4()
+    entry_number = f"JE-{datetime.now().strftime('%Y%m%d')}-{job_id[:4].upper()}"
+    await conn.execute(
+        """
+        INSERT INTO ledger_entries
+        (id, proposal_id, approval_id, tenant_id, entry_date, entry_number,
+         description, posted_by_name)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING
+        """,
+        ledger_id,
+        proposal_id,
+        approval_id,
+        tenant_uuid,
+        datetime.now().date(),
+        entry_number,
+        f"Invoice {proposal.get('invoice_no', 'N/A')} - {proposal.get('vendor', 'Unknown')}",
+        "ERPX-API",
+    )
+
+    # 7. Insert ledger_lines
+    for idx, entry in enumerate(entries):
+        line_id = uuid.uuid4()
+        await conn.execute(
+            """
+            INSERT INTO ledger_lines
+            (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            """,
+            line_id,
+            ledger_id,
+            entry.get("account_code", ""),
+            entry.get("account_name", ""),
+            float(entry.get("debit", 0)),
+            float(entry.get("credit", 0)),
+            idx + 1,
+        )
+
+    logger.info(
+        f"[{request_id}] Job {job_id}: Persisted (invoice={invoice_id}, proposal={proposal_id}, ledger={ledger_id})"
+    )
+
+    return {
+        "invoice_id": str(invoice_id),
+        "proposal_id": str(proposal_id),
+        "approval_id": str(approval_id),
+        "ledger_id": str(ledger_id),
+        "entry_number": entry_number,
+    }
 
 
 async def extract_pdf(file_path: str) -> str:

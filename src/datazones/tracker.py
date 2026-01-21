@@ -73,7 +73,8 @@ async def track_zone_entry(
         (id, job_id, tenant_id, document_id, zone, status,
          raw_file_uri, extracted_text_preview, proposal_id, ledger_entry_id,
          checksum, byte_count, processing_time_ms, request_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::text, $8::text, $9, $10,
+                $11::text, $12::integer, $13::integer, $14::text)
         """,
         zone_id,
         job_id,

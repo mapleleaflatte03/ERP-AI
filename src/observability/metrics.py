@@ -74,7 +74,7 @@ async def record_metric(
         """
         INSERT INTO system_metrics
         (metric_name, metric_type, value, labels, bucket)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5::varchar)
         """,
         metric_name,
         metric_type.value,

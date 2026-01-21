@@ -503,7 +503,7 @@ async def save_policy_evaluation(
             INSERT INTO policy_evaluations
             (job_id, proposal_id, tenant_id, overall_result, rules_passed, 
              rules_failed, rules_warned, details, auto_approved, request_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text)
             """,
             evaluation.job_id,
             uuid.UUID(evaluation.proposal_id) if evaluation.proposal_id else None,

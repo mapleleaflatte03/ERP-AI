@@ -98,7 +98,7 @@ async def publish_event(
         INSERT INTO outbox_events
         (id, event_type, aggregate_type, aggregate_id, payload, 
          tenant_id, request_id, scheduled_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::text, $8)
         """,
         event_id,
         event_type.value,
