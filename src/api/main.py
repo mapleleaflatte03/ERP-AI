@@ -34,6 +34,64 @@ sys.path.insert(0, "/root/erp-ai")
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
 from src.api.middleware import RequestIdMiddleware, get_request_id
 
+# Import approval inbox module
+from src.approval.service import (
+    approve_proposal,
+    get_approval_by_id,
+    list_pending_approvals,
+    reject_proposal,
+)
+
+# Import audit module
+from src.audit.store import (
+    append_audit_event,
+    create_audit_evidence,
+    get_audit_evidence,
+    get_audit_timeline,
+    update_audit_decision,
+)
+
+# Import data zones and idempotency
+from src.datazones import (
+    DataZone,
+    JobState,
+    check_document_duplicate,
+    compute_checksum,
+    create_job_state,
+    get_idempotency_key,
+    get_job_state,
+    get_job_zones,
+    register_document_checksum,
+    track_zone_entry,
+    update_job_state,
+)
+
+# Import observability
+from src.observability import (
+    check_alerts,
+    get_evaluation_run,
+    get_metric_stats,
+    list_active_alerts,
+    list_evaluation_runs,
+    list_metric_names,
+    record_counter,
+)
+
+# Import outbox
+from src.outbox import (
+    get_outbox_stats,
+    get_pending_events,
+)
+
+# Import policy engine
+from src.policy.engine import (
+    evaluate_proposal as policy_evaluate_proposal,
+)
+from src.policy.engine import (
+    get_active_rules,
+    get_policy_evaluation,
+)
+
 # Import schema validation
 from src.schemas.llm_output import coerce_and_validate
 
@@ -83,6 +141,31 @@ class ApprovalResponse(BaseModel):
     approved: bool
     approved_at: str
     approver_id: str
+
+
+# PR-8: Approval Inbox Models
+class ApprovalActionRequest(BaseModel):
+    approver: str
+    comment: str | None = None
+
+
+class ApprovalItem(BaseModel):
+    id: str
+    proposal_id: str | None = None
+    job_id: str | None = None
+    tenant_id: str | None = None
+    status: str | None = None
+    approver_name: str | None = None
+    comment: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    ai_confidence: float | None = None
+    ai_model: str | None = None
+    risk_level: str | None = None
+    vendor_name: str | None = None
+    invoice_number: str | None = None
+    total_amount: float | None = None
+    currency: str | None = None
 
 
 class JournalEntry(BaseModel):
@@ -795,6 +878,566 @@ async def list_jobs(limit: int = 100):
     """List recent jobs"""
     jobs = job_store.list_all(limit)
     return {"jobs": jobs, "count": len(jobs)}
+
+
+# ===========================================================================
+# PR-7: Audit & Evidence Endpoints
+# ===========================================================================
+
+
+async def get_db_connection():
+    """Get async database connection."""
+    import asyncpg
+
+    db_url = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@localhost:5432/erpx")
+    db_url = db_url.replace("postgresql://", "")
+    parts = db_url.split("@")
+    user_pass = parts[0].split(":")
+    host_db = parts[1].split("/")
+    host_port = host_db[0].split(":")
+
+    return await asyncpg.connect(
+        host=host_port[0],
+        port=int(host_port[1]) if len(host_port) > 1 else 5432,
+        user=user_pass[0],
+        password=user_pass[1],
+        database=host_db[1],
+    )
+
+
+@app.get("/v1/jobs/{job_id}/evidence")
+async def get_job_evidence(job_id: str):
+    """
+    Get audit evidence for a job.
+
+    Returns complete audit trail including:
+    - Raw file reference
+    - Extracted text preview
+    - LLM inputs/outputs
+    - Validation results
+    - Decision chain
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            evidence = await get_audit_evidence(conn, job_id)
+            if not evidence:
+                raise HTTPException(status_code=404, detail=f"No evidence found for job: {job_id}")
+            return evidence
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get evidence for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/jobs/{job_id}/timeline")
+async def get_job_timeline(job_id: str):
+    """
+    Get audit timeline for a job.
+
+    Returns chronological list of events:
+    - upload
+    - ocr_complete
+    - llm_complete
+    - validate
+    - approve/reject
+    - post
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            timeline = await get_audit_timeline(conn, job_id)
+            return {"job_id": job_id, "events": timeline, "count": len(timeline)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get timeline for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-8: Approval Inbox Endpoints
+# ===========================================================================
+
+
+@app.get("/v1/approvals")
+async def list_approvals(
+    status: str = "pending",
+    tenant_id: str | None = None,
+    limit: int = 50,
+):
+    """
+    List approvals filtered by status.
+
+    Query params:
+    - status: pending|approved|rejected (default: pending)
+    - tenant_id: filter by tenant (optional)
+    - limit: max results (default: 50)
+
+    Returns list of approvals with proposal context.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            approvals = await list_pending_approvals(
+                conn,
+                tenant_id=tenant_id,
+                status=status,
+                limit=limit,
+            )
+            return {
+                "approvals": approvals,
+                "count": len(approvals),
+                "status_filter": status,
+            }
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list approvals: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/approvals/{approval_id}")
+async def get_approval(approval_id: str):
+    """Get single approval by ID with full context."""
+    try:
+        conn = await get_db_connection()
+        try:
+            approval = await get_approval_by_id(conn, approval_id)
+            if not approval:
+                raise HTTPException(status_code=404, detail=f"Approval not found: {approval_id}")
+            return approval
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get approval {approval_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/approvals/{approval_id}/approve")
+async def approve_approval(
+    approval_id: str,
+    request: ApprovalActionRequest,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Approve a pending proposal.
+
+    This will:
+    1. Update approval status to 'approved'
+    2. Update proposal status to 'approved'
+    3. Trigger ledger posting (create ledger entry + lines)
+
+    Body:
+    - approver: approver name/ID (required)
+    - comment: approval comment (optional)
+    """
+    request_id = x_request_id or get_request_id()
+    try:
+        conn = await get_db_connection()
+        try:
+            result = await approve_proposal(
+                conn,
+                approval_id=approval_id,
+                approver=request.approver,
+                comment=request.comment,
+                request_id=request_id,
+            )
+            return result
+        finally:
+            await conn.close()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to approve {approval_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/approvals/{approval_id}/reject")
+async def reject_approval(
+    approval_id: str,
+    request: ApprovalActionRequest,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Reject a pending proposal.
+
+    This will:
+    1. Update approval status to 'rejected'
+    2. Update proposal status to 'rejected'
+    3. No ledger posting
+
+    Body:
+    - approver: rejector name/ID (required)
+    - comment: rejection reason (optional)
+    """
+    request_id = x_request_id or get_request_id()
+    try:
+        conn = await get_db_connection()
+        try:
+            result = await reject_proposal(
+                conn,
+                approval_id=approval_id,
+                approver=request.approver,
+                comment=request.comment,
+                request_id=request_id,
+            )
+            return result
+        finally:
+            await conn.close()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to reject {approval_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-9: Policy Engine Endpoints
+# ===========================================================================
+
+
+@app.get("/v1/policy/rules")
+async def list_policy_rules(tenant_id: str | None = None):
+    """
+    List active policy rules.
+
+    Query params:
+    - tenant_id: filter by tenant (optional, includes system rules)
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            rules = await get_active_rules(conn, tenant_id)
+            return {"rules": rules, "count": len(rules)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list policy rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/policy/evaluate")
+async def evaluate_policy(
+    proposal: dict,
+    job_id: str,
+    tenant_id: str | None = None,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Evaluate a proposal against policy rules.
+
+    Body:
+    - proposal: The proposal dict with entries, total_amount, vendor, etc.
+    - job_id: Job ID for tracing
+    - tenant_id: Tenant ID (optional)
+
+    Returns:
+    - overall_result: approved, rejected, or requires_review
+    - auto_approved: True if can be auto-approved
+    - details: Per-rule evaluation results
+    """
+    request_id = x_request_id or get_request_id()
+    try:
+        conn = await get_db_connection()
+        try:
+            evaluation = await policy_evaluate_proposal(
+                conn,
+                proposal=proposal,
+                job_id=job_id,
+                tenant_id=tenant_id,
+                request_id=request_id,
+            )
+            return evaluation.to_dict()
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"[{request_id}] Policy evaluation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/jobs/{job_id}/policy")
+async def get_job_policy(job_id: str):
+    """
+    Get policy evaluation for a job.
+
+    Returns the latest policy evaluation result including
+    per-rule pass/fail details.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            evaluation = await get_policy_evaluation(conn, job_id)
+            if not evaluation:
+                raise HTTPException(status_code=404, detail=f"No policy evaluation for job: {job_id}")
+            return evaluation
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get policy for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-10: Data Zones + Idempotency Endpoints
+# ===========================================================================
+
+
+@app.get("/v1/jobs/{job_id}/zones")
+async def get_zones(job_id: str):
+    """
+    Get data zone history for a job.
+
+    Returns chronological list of zones the data passed through:
+    raw -> extracted -> proposed -> posted
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            zones = await get_job_zones(conn, job_id)
+            return {"job_id": job_id, "zones": zones, "count": len(zones)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get zones for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/jobs/{job_id}/state")
+async def get_state(job_id: str):
+    """
+    Get job processing state.
+
+    Returns current state, previous state, checkpoint data for resumption.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            state = await get_job_state(conn, job_id)
+            if not state:
+                raise HTTPException(status_code=404, detail=f"No state for job: {job_id}")
+            return state
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get state for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/documents/check-duplicate")
+async def check_duplicate(
+    checksum: str,
+    file_size: int,
+    tenant_id: str | None = None,
+):
+    """
+    Check if document is a duplicate.
+
+    Query params:
+    - checksum: SHA256 of file content
+    - file_size: File size in bytes
+    - tenant_id: Tenant ID (optional)
+
+    Returns existing job info if duplicate, 404 if not found.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            duplicate = await check_document_duplicate(conn, checksum, file_size, tenant_id)
+            if not duplicate:
+                raise HTTPException(status_code=404, detail="Document not found (not a duplicate)")
+            return {
+                "is_duplicate": True,
+                "original_job_id": duplicate["first_job_id"],
+                "document_id": duplicate["document_id"],
+                "duplicate_count": duplicate["duplicate_count"],
+            }
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to check duplicate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-11: Event Bus / Outbox Endpoints
+# ===========================================================================
+
+
+@app.get("/v1/outbox/stats")
+async def outbox_stats():
+    """
+    Get outbox event statistics.
+
+    Returns counts by status:
+    - pending: Events waiting to be delivered
+    - processing: Events currently being delivered
+    - delivered: Successfully delivered events
+    - failed: Failed events (will retry)
+    - dead_letter: Events that exceeded retry limit
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            stats = await get_outbox_stats(conn)
+            return stats
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get outbox stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/outbox/pending")
+async def list_pending_outbox_events(limit: int = 50):
+    """
+    List pending outbox events.
+
+    Query params:
+    - limit: Max results (default: 50)
+
+    Useful for debugging event delivery issues.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            events = await get_pending_events(conn, limit=limit)
+            return {"events": events, "count": len(events)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list pending events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-12: Observability Endpoints
+# ===========================================================================
+
+
+@app.get("/v1/metrics")
+async def list_metrics():
+    """List all available metric names."""
+    try:
+        conn = await get_db_connection()
+        try:
+            names = await list_metric_names(conn)
+            return {"metrics": names, "count": len(names)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/metrics/{metric_name}")
+async def get_metric(metric_name: str, hours: int = 24):
+    """
+    Get statistics for a specific metric.
+
+    Query params:
+    - hours: Time window in hours (default: 24)
+
+    Returns aggregate stats: avg, min, max, p50, p95, p99.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            stats = await get_metric_stats(conn, metric_name, hours)
+            return stats
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get metric {metric_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/evaluations")
+async def list_evals(limit: int = 20):
+    """
+    List recent evaluation runs.
+
+    Query params:
+    - limit: Max results (default: 20)
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            runs = await list_evaluation_runs(conn, limit)
+            return {"evaluations": runs, "count": len(runs)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list evaluations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/evaluations/{run_id}")
+async def get_eval(run_id: str):
+    """Get details of a specific evaluation run."""
+    try:
+        conn = await get_db_connection()
+        try:
+            run = await get_evaluation_run(conn, run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail=f"Evaluation run not found: {run_id}")
+            return run
+        finally:
+            await conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get evaluation {run_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/alerts")
+async def list_alerts():
+    """List currently firing alerts."""
+    try:
+        conn = await get_db_connection()
+        try:
+            alerts = await list_active_alerts(conn)
+            return {"alerts": alerts, "count": len(alerts)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/alerts/check")
+async def trigger_alert_check():
+    """
+    Manually trigger alert rule evaluation.
+
+    Returns list of alerts that fired.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            fired = await check_alerts(conn)
+            return {
+                "checked": True,
+                "fired_alerts": fired,
+                "count": len(fired),
+            }
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to check alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/v1/approve/{job_id}", response_model=ApprovalResponse)

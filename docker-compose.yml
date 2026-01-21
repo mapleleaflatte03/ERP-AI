@@ -89,6 +89,7 @@ services:
       - ./data/kb:/root/erp-ai/data/kb
       - ./configs:/root/erp-ai/configs:ro
       - ./src:/root/erp-ai/src:ro
+      - ./core:/root/erp-ai/core:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -295,6 +296,7 @@ services:
     volumes:
       - ./data/uploads:/root/erp-ai/data/uploads
       - ./src:/root/erp-ai/src:ro
+      - ./core:/root/erp-ai/core:ro
     depends_on:
       - temporal
       - postgres
@@ -327,6 +329,7 @@ services:
     volumes:
       - ./data/uploads/telegram:/root/erp-ai/data/uploads/telegram
       - ./src:/root/erp-ai/src:ro
+      - ./core:/root/erp-ai/core:ro
     depends_on:
       - api
     networks:
