@@ -37,6 +37,7 @@ class JobState(str, Enum):
     PROPOSING = "proposing"
     PROPOSED = "proposed"
     APPROVING = "approving"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
     POSTING = "posting"
     COMPLETED = "completed"
     FAILED = "failed"

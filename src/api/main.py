@@ -372,19 +372,21 @@ async def persist_to_db(job_id: str, file_info: dict[str, Any], proposal: dict[s
                 idx + 1,
             )
 
-        # 4. Auto-approve (for smoke test) - insert approval
+        # 4. Auto-approve (for smoke test) - insert approval with job_id
         approval_id = uuid.uuid4()
         await conn.execute(
             """
             INSERT INTO approvals
-            (id, proposal_id, tenant_id, approver_name, action, comments)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            (id, proposal_id, tenant_id, job_id, approver_name, action, status, comments)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT DO NOTHING
         """,
             approval_id,
             proposal_id,
             tenant_uuid,
+            doc_uuid,
             "Auto-Approver",
+            "approved",
             "approved",
             "Auto-approved by E2E pipeline",
         )
@@ -738,7 +740,88 @@ Trả về JSON theo format đã định."""
             request_id=request_id,
         )
 
-        # =========== STEP 4: Persist to Golden Tables ===========
+        # =========== STEP 4: GOVERNANCE GATING (PR13.3) ===========
+        # Branch based on policy result - MUST check BEFORE posting ledger
+        needs_approval = policy_result.overall_result.value == "requires_review" or not policy_result.auto_approved
+
+        if needs_approval:
+            # =========== BRANCH A: NEEDS APPROVAL ===========
+            # MUST NOT post ledger, MUST NOT emit outbox, MUST stop workflow
+            logger.info(f"[{request_id}] Job {job_id} requires approval - NOT posting ledger")
+
+            # 1. Insert approval PENDING with job_id (NOT NULL)
+            approval_id = uuid.uuid4()
+            await conn.execute(
+                """
+                INSERT INTO approvals
+                (id, proposal_id, tenant_id, job_id, approver_name, action, status, comments)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT DO NOTHING
+                """,
+                approval_id,
+                None,  # proposal_id - will link later when approved
+                tenant_uuid,
+                doc_uuid,  # job_id = canonical_job_id (NOT NULL)
+                "System",
+                "pending",
+                "pending",
+                f"Pending approval (policy: {policy_result.overall_result.value})",
+            )
+
+            # 2. Audit events
+            await append_audit_event(
+                conn,
+                job_id,
+                str(tenant_uuid),
+                "needs_approval",
+                {
+                    "reason": f"Policy result: {policy_result.overall_result.value}",
+                    "rules_failed": policy_result.rules_failed,
+                    "auto_approved": policy_result.auto_approved,
+                },
+                "policy_engine",
+                request_id,
+            )
+            await update_audit_decision(
+                conn, job_id, "waiting_approval", policy_result.overall_result.value, request_id
+            )
+
+            # 3. State machine - WAITING_FOR_APPROVAL
+            await update_job_state(conn, job_id, JobState.WAITING_FOR_APPROVAL, request_id=request_id)
+
+            # 4. Metrics
+            await record_counter(conn, "approvals_pending_total", 1.0, {"tenant": str(tenant_uuid)})
+
+            # 5. Update job store and STOP
+            e2e_latency_ms = int((time.time() - pipeline_start) * 1000)
+            await record_histogram(
+                conn, "end_to_end_latency_ms", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)}
+            )
+
+            job_store.update(job_id, status="waiting_for_approval", result=proposal)
+            logger.info(f"[{request_id}] Job {job_id} stopped at WAITING_FOR_APPROVAL in {e2e_latency_ms}ms")
+
+            # STOP WORKFLOW - do NOT continue to ledger/outbox
+            return
+
+        # =========== BRANCH B: AUTO APPROVED ===========
+        # Continue to post ledger and emit outbox
+        logger.info(f"[{request_id}] Job {job_id} auto-approved - posting ledger")
+
+        # 1. Audit auto_approved
+        await append_audit_event(
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "auto_approved",
+            {"reason": "Policy rules passed", "rules_passed": policy_result.rules_passed},
+            "policy_engine",
+            request_id,
+        )
+        await record_counter(conn, "auto_approved_total", 1.0, {"tenant": str(tenant_uuid)})
+        await update_audit_decision(conn, job_id, "auto_approved", "Policy rules passed", request_id)
+
+        # =========== STEP 5: Persist to Golden Tables (only if auto-approved) ===========
         await update_job_state(conn, job_id, JobState.POSTING, request_id=request_id)
 
         # Call existing persist function with our connection
@@ -756,33 +839,7 @@ Trả về JSON theo format đã định."""
             request_id=request_id,
         )
 
-        # Determine approval status based on policy
-        if policy_result.auto_approved:
-            await append_audit_event(
-                conn,
-                job_id,
-                str(tenant_uuid),
-                "auto_approved",
-                {"reason": "Policy rules passed"},
-                "policy_engine",
-                request_id,
-            )
-            await record_counter(conn, "auto_approved_total", 1.0, {"tenant": str(tenant_uuid)})
-            await update_audit_decision(conn, job_id, "auto_approved", "Policy rules passed", request_id)
-        else:
-            await append_audit_event(
-                conn,
-                job_id,
-                str(tenant_uuid),
-                "needs_approval",
-                {"reason": f"Policy result: {policy_result.overall_result.value}"},
-                "policy_engine",
-                request_id,
-            )
-            await record_counter(conn, "approvals_pending_total", 1.0, {"tenant": str(tenant_uuid)})
-            await update_audit_decision(conn, job_id, "needs_approval", policy_result.overall_result.value, request_id)
-
-        # =========== STEP 5: Emit Outbox Event ===========
+        # =========== STEP 6: Emit Outbox Event (only if auto-approved) ===========
         await publish_event(
             conn,
             event_type=EventType.LEDGER_POSTED,
@@ -807,12 +864,15 @@ Trả về JSON theo format đã định."""
             job_id,
             str(tenant_uuid),
             "posted_to_ledger",
-            {"ledger_id": persist_result.get("ledger_id"), "entry_number": persist_result.get("entry_number")},
+            {
+                "ledger_id": persist_result.get("ledger_id"),
+                "entry_number": persist_result.get("entry_number"),
+            },
             "system",
             request_id,
         )
 
-        # =========== STEP 6: Complete ===========
+        # =========== STEP 7: Complete ===========
         await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
 
         e2e_latency_ms = int((time.time() - pipeline_start) * 1000)
