@@ -466,7 +466,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
     import time
 
     from src.api.middleware import get_request_id
-    from src.observability import record_histogram
+    from src.observability import record_latency
     from src.outbox import AggregateType, EventType, publish_event
     from src.policy.engine import evaluate_proposal as policy_evaluate
 
@@ -577,9 +577,9 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         logger.info(f"[{request_id}] Extracted {len(text)} chars in {ocr_latency_ms}ms")
 
-        # Record OCR metrics
+        # Record OCR metrics (ms-based histogram buckets)
         await record_counter(conn, "ocr_calls_total", 1.0, {"tenant": tenant_id})
-        await record_histogram(conn, "ocr_latency_ms", float(ocr_latency_ms), labels={"tenant": tenant_id})
+        await record_latency(conn, "ocr_latency", float(ocr_latency_ms), labels={"tenant": tenant_id})
 
         # Update state and track EXTRACTED zone
         await update_job_state(
@@ -658,9 +658,9 @@ Trả về JSON theo format đã định."""
         )
         llm_latency_ms = int((time.time() - llm_start) * 1000)
 
-        # Record LLM metrics
+        # Record LLM metrics (ms-based histogram buckets)
         await record_counter(conn, "llm_calls_total", 1.0, {"tenant": tenant_id, "model": model_name})
-        await record_histogram(conn, "llm_latency_ms", float(llm_latency_ms), labels={"tenant": tenant_id})
+        await record_latency(conn, "llm_latency", float(llm_latency_ms), labels={"tenant": tenant_id})
 
         response["doc_id"] = job_id
         proposal = validate_proposal(response)
@@ -794,9 +794,7 @@ Trả về JSON theo format đã định."""
 
             # 5. Update job store and STOP
             e2e_latency_ms = int((time.time() - pipeline_start) * 1000)
-            await record_histogram(
-                conn, "end_to_end_latency_ms", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)}
-            )
+            await record_latency(conn, "end_to_end_latency", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)})
 
             job_store.update(job_id, status="waiting_for_approval", result=proposal)
             logger.info(f"[{request_id}] Job {job_id} stopped at WAITING_FOR_APPROVAL in {e2e_latency_ms}ms")
@@ -876,9 +874,7 @@ Trả về JSON theo format đã định."""
         await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
 
         e2e_latency_ms = int((time.time() - pipeline_start) * 1000)
-        await record_histogram(
-            conn, "end_to_end_latency_ms", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)}
-        )
+        await record_latency(conn, "end_to_end_latency", float(e2e_latency_ms), labels={"tenant": str(tenant_uuid)})
 
         await append_audit_event(
             conn,
