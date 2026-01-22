@@ -51,6 +51,10 @@ class Config:
     # Observability
     OTEL_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
+    # Feature Flags (PR14: Durable Ingestion)
+    ENABLE_MINIO: bool = os.getenv("ENABLE_MINIO", "1") == "1"
+    ENABLE_QDRANT: bool = os.getenv("ENABLE_QDRANT", "1") == "1"
+
     # Guardrails
     MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.6"))
     HUMAN_REVIEW_THRESHOLD: float = float(os.getenv("HUMAN_REVIEW_THRESHOLD", "0.8"))

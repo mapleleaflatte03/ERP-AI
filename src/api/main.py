@@ -518,6 +518,47 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
             "processing",
         )
 
+        # =========== PR14: MinIO Durable Storage ===========
+        from src.core import config as core_config
+        
+        minio_bucket = None
+        minio_key = None
+        
+        if core_config.ENABLE_MINIO:
+            try:
+                from src.storage import upload_document as minio_upload
+                
+                # Read file content
+                with open(file_path, "rb") as f:
+                    file_data = f.read()
+                
+                minio_bucket, minio_key, minio_checksum, minio_size = minio_upload(
+                    file_data=file_data,
+                    filename=file_info.get("filename", "unknown.bin"),
+                    content_type=file_info.get("content_type", "application/octet-stream"),
+                    company_id=tenant_id,
+                    job_id=job_id,
+                )
+                
+                # Update document record with MinIO location
+                await conn.execute(
+                    """
+                    UPDATE documents 
+                    SET minio_bucket = $1, minio_key = $2, checksum = $3
+                    WHERE id = $4
+                    """,
+                    minio_bucket,
+                    minio_key,
+                    minio_checksum,
+                    doc_uuid,
+                )
+                
+                logger.info(f"[{request_id}] MinIO upload: s3://{minio_bucket}/{minio_key}")
+            except Exception as minio_err:
+                logger.warning(f"[{request_id}] MinIO upload failed (non-fatal): {minio_err}")
+        else:
+            logger.info(f"[{request_id}] MinIO disabled (ENABLE_MINIO=0)")
+
         # Now initialize state and audit
         await create_job_state(conn, job_id, JobState.UPLOADED, str(tenant_uuid), request_id)
         await append_audit_event(
@@ -609,6 +650,41 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
             actor="system",
             request_id=request_id,
         )
+
+        # =========== PR14: Qdrant Embedding Storage ===========
+        qdrant_points_upserted = 0
+        
+        if core_config.ENABLE_QDRANT:
+            try:
+                from src.rag import generate_embedding, get_qdrant_client
+                
+                # Generate embedding for extracted text (truncate to 4k chars)
+                text_for_embedding = text[:4000] if len(text) > 4000 else text
+                embedding = generate_embedding(text_for_embedding)
+                
+                if embedding:
+                    qdrant_client = get_qdrant_client()
+                    
+                    # Upsert to documents_ingested collection
+                    qdrant_points_upserted = qdrant_client.upsert_documents(
+                        texts=[text_for_embedding],
+                        metadatas=[{
+                            "job_id": job_id,
+                            "tenant_id": str(tenant_uuid),
+                            "filename": file_info.get("filename", "unknown"),
+                            "doc_type": "invoice",
+                            "source": "upload",
+                        }],
+                        collection_name="documents_ingested",
+                    )
+                    
+                    logger.info(f"[{request_id}] Qdrant upsert: {qdrant_points_upserted} points to documents_ingested")
+                else:
+                    logger.warning(f"[{request_id}] Qdrant: embedding generation returned None")
+            except Exception as qdrant_err:
+                logger.warning(f"[{request_id}] Qdrant upsert failed (non-fatal): {qdrant_err}")
+        else:
+            logger.info(f"[{request_id}] Qdrant disabled (ENABLE_QDRANT=0)")
 
         # =========== STEP 2: Call LLM ===========
         await update_job_state(conn, job_id, JobState.PROPOSING, request_id=request_id)

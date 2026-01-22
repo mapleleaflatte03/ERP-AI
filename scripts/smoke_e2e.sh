@@ -206,6 +206,27 @@ if [ "$SMOKE_MODE" = "static" ]; then
     echo ""
     if [ "$BASELINE_OK" = true ]; then
         echo -e "${GREEN}✅ SMOKE_E2E PASSED (static baseline)${NC}"
+        
+        # PR14 Evidence: Show MinIO and Qdrant status
+        echo ""
+        echo -e "${CYAN}📊 PR14 Evidence (Durable Ingestion):${NC}"
+        
+        # MinIO evidence
+        MINIO_DOCS=$(db_query "SELECT count(*) FROM documents WHERE minio_bucket IS NOT NULL AND minio_key IS NOT NULL")
+        if [ "$MINIO_DOCS" != "0" ] && [ -n "$MINIO_DOCS" ]; then
+            echo -e "  ${GREEN}✓${NC} MinIO: $MINIO_DOCS documents with minio_bucket/minio_key"
+        else
+            echo -e "  ${YELLOW}⚠${NC} MinIO: 0 documents (ENABLE_MINIO may be off)"
+        fi
+        
+        # Qdrant evidence
+        QDRANT_POINTS=$(curl -s http://localhost:6333/collections/documents_ingested 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('points_count',0))" 2>/dev/null || echo "0")
+        if [ "$QDRANT_POINTS" != "0" ] && [ -n "$QDRANT_POINTS" ]; then
+            echo -e "  ${GREEN}✓${NC} Qdrant: $QDRANT_POINTS points in documents_ingested"
+        else
+            echo -e "  ${YELLOW}⚠${NC} Qdrant: 0 points (ENABLE_QDRANT may be off)"
+        fi
+        
         exit 0
     else
         echo -e "${RED}❌ SMOKE_E2E FAILED: Missing baseline data${NC}"
@@ -383,6 +404,15 @@ verify_governance_outcome() {
     local audit_events=$(get_audit_events "$job_id")
     echo -e "  ${CYAN}ℹ${NC}  Audit events: $audit_events"
     
+    # 7. PR14 Evidence: MinIO bucket/key populated
+    local minio_bucket=$(db_query "SELECT minio_bucket FROM documents WHERE job_id = '$job_id' LIMIT 1")
+    local minio_key=$(db_query "SELECT minio_key FROM documents WHERE job_id = '$job_id' LIMIT 1")
+    if [ -n "$minio_bucket" ] && [ -n "$minio_key" ]; then
+        echo -e "  ${GREEN}✓${NC} MinIO: s3://$minio_bucket/$minio_key"
+    else
+        echo -e "  ${YELLOW}⚠${NC} MinIO: not populated (ENABLE_MINIO may be off)"
+    fi
+    
     if [ "$PASS" = true ]; then
         return 0
     else
@@ -543,7 +573,11 @@ SELECT '  Total invoices: ' || count(*) FROM extracted_invoices;
 SELECT '  Total approvals: ' || count(*) || ' (approved=' || count(*) FILTER (WHERE status='approved') || ', pending=' || count(*) FILTER (WHERE status='pending') || ')' FROM approvals;
 SELECT '  Total ledger entries: ' || count(*) FROM ledger_entries;
 SELECT '  Total outbox events: ' || count(*) FROM outbox_events;
+SELECT '  PR14 MinIO docs: ' || count(*) FROM documents WHERE minio_bucket IS NOT NULL;
 EOF
+            # PR14 Qdrant evidence
+            QDRANT_POINTS=$(curl -s http://localhost:6333/collections/documents_ingested 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('points_count',0))" 2>/dev/null || echo "0")
+            echo "  PR14 Qdrant points: $QDRANT_POINTS"
             exit 0
             ;;
         1)

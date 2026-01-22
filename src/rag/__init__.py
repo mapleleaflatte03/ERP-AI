@@ -12,15 +12,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from src.core import config as core_config
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
+# Use core config QDRANT_URL, fallback to QDRANT_HOST env
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
-QDRANT_URL = f"http://{QDRANT_HOST}:{QDRANT_PORT}"
+QDRANT_URL = core_config.QDRANT_URL or f"http://{QDRANT_HOST}:{QDRANT_PORT}"
 
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "accounting_kb")
 EMBEDDING_DIM = 384  # For sentence-transformers/all-MiniLM-L6-v2
