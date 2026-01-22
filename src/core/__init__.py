@@ -49,11 +49,15 @@ class Config:
     OPA_URL: str = os.getenv("OPA_URL", "http://localhost:8181")
 
     # Observability
-    OTEL_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    OTEL_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
 
     # Feature Flags (PR14: Durable Ingestion)
     ENABLE_MINIO: bool = os.getenv("ENABLE_MINIO", "1") == "1"
     ENABLE_QDRANT: bool = os.getenv("ENABLE_QDRANT", "1") == "1"
+    
+    # Feature Flags (PR15: Observability)
+    ENABLE_OTEL: bool = os.getenv("ENABLE_OTEL", "1") == "1"
+    OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "erpx-api")
 
     # Guardrails
     MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.6"))

@@ -1307,6 +1307,61 @@ def validate_proposal(data: dict[str, Any]) -> dict[str, Any]:
 # ===========================================================================
 
 
+def setup_otel_instrumentation(app: FastAPI):
+    """
+    Setup OpenTelemetry instrumentation for FastAPI (PR15).
+    Fail-open: log warning if OTEL unavailable, don't crash.
+    """
+    from src.core import config as core_config
+    
+    if not core_config.ENABLE_OTEL:
+        logger.info("OTEL disabled (ENABLE_OTEL=0)")
+        return
+    
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        
+        # Configure resource with service name
+        resource = Resource.create({
+            "service.name": core_config.OTEL_SERVICE_NAME,
+            "service.version": "1.0.0",
+        })
+        
+        # Create tracer provider
+        tracer_provider = TracerProvider(resource=resource)
+        
+        # Configure OTLP exporter
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=core_config.OTEL_ENDPOINT,
+            insecure=True,  # Use insecure for internal docker network
+        )
+        
+        # Add batch processor for efficiency
+        tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        
+        # Set global tracer provider
+        trace.set_tracer_provider(tracer_provider)
+        
+        # Instrument FastAPI
+        FastAPIInstrumentor.instrument_app(app)
+        
+        # Instrument httpx for outbound calls (LLM, etc.)
+        HTTPXClientInstrumentor().instrument()
+        
+        logger.info(f"OTEL enabled: service={core_config.OTEL_SERVICE_NAME}, endpoint={core_config.OTEL_ENDPOINT}")
+        
+    except ImportError as e:
+        logger.warning(f"OTEL packages not available (non-fatal): {e}")
+    except Exception as e:
+        logger.warning(f"OTEL initialization failed (non-fatal): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
@@ -1341,6 +1396,9 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+
+    # PR15: Setup OTEL instrumentation (before middlewares)
+    setup_otel_instrumentation(app)
 
     # Request ID middleware (must be first for tracing)
     app.add_middleware(RequestIdMiddleware)

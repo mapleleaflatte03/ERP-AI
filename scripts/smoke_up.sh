@@ -188,6 +188,40 @@ if [ $FAILED -eq 0 ]; then
     echo -e "${GREEN}✅ SMOKE_UP PASSED: Critical services ready${NC}"
     echo "   - postgres, redis, api, kong: healthy ✓"
     echo "   - Ports 5432, 8000, 8080: reachable ✓"
+    
+    # PR15 Evidence: Jaeger services + MinIO Prometheus scrape
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${YELLOW}📊 PR15 Evidence (Observability)${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Jaeger services count
+    JAEGER_SERVICES=$(curl -s "http://localhost:16686/api/services" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',[])))" 2>/dev/null || echo "0")
+    if [ "$JAEGER_SERVICES" -gt "0" ]; then
+        echo -e "  ${GREEN}✓${NC} Jaeger: $JAEGER_SERVICES services registered"
+    else
+        echo -e "  ${YELLOW}⚠${NC} Jaeger: $JAEGER_SERVICES services (OTEL may need traffic)"
+    fi
+    
+    # MinIO Prometheus scrape status
+    MINIO_SCRAPE_ERROR=$(curl -s http://localhost:9090/api/v1/targets 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for t in data.get('data', {}).get('activeTargets', []):
+        if 'minio' in t.get('labels', {}).get('job', '').lower():
+            err = t.get('lastError', '')
+            print(err if err else '')
+            break
+except: pass
+" 2>/dev/null || echo "unknown")
+    
+    if [ -z "$MINIO_SCRAPE_ERROR" ]; then
+        echo -e "  ${GREEN}✓${NC} MinIO Prometheus scrape: OK"
+    else
+        echo -e "  ${RED}✗${NC} MinIO Prometheus scrape: $MINIO_SCRAPE_ERROR"
+    fi
+    
     exit 0
 else
     echo -e "${RED}❌ SMOKE_UP FAILED: Critical service(s) not ready${NC}"
