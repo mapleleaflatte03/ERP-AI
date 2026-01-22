@@ -43,7 +43,9 @@ class Config:
     QDRANT_TOP_K: int = int(os.getenv("QDRANT_TOP_K", "5"))
 
     # Workflow
-    TEMPORAL_ADDRESS: str = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
+    TEMPORAL_ADDRESS: str = os.getenv("TEMPORAL_ADDRESS", "temporal:7233")
+    TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
+    TEMPORAL_TASK_QUEUE: str = os.getenv("TEMPORAL_TASK_QUEUE", "erpx-document-queue")
 
     # Policy
     OPA_URL: str = os.getenv("OPA_URL", "http://localhost:8181")
@@ -58,6 +60,9 @@ class Config:
     # Feature Flags (PR15: Observability)
     ENABLE_OTEL: bool = os.getenv("ENABLE_OTEL", "1") == "1"
     OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "erpx-api")
+    
+    # Feature Flags (PR16: Temporal Background Agent)
+    ENABLE_TEMPORAL: bool = os.getenv("ENABLE_TEMPORAL", "0") == "1"
 
     # Guardrails
     MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.6"))

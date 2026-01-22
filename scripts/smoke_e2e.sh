@@ -285,6 +285,21 @@ upload_and_poll() {
     echo -e "  ${GREEN}✓${NC} Job created: $JOB_ID"
     export LAST_JOB_ID="$JOB_ID"
 
+    # PR16 Evidence: Check upload response status and Temporal workflow
+    local UPLOAD_STATUS=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+    echo ""
+    echo -e "${CYAN}📊 PR16 Evidence (Temporal Workflow):${NC}"
+    echo "  Upload response status: $UPLOAD_STATUS"
+    if [ "$UPLOAD_STATUS" = "queued" ]; then
+        echo -e "  ${GREEN}✓${NC} Temporal workflow started (status=queued)"
+        # Query Temporal for workflow info
+        local TEMPORAL_WF=$(docker exec erpx-temporal temporal workflow describe --workflow-id "$JOB_ID" 2>/dev/null | head -10 || echo "  (Temporal query failed)")
+        echo "  Workflow ID: $JOB_ID"
+        echo "$TEMPORAL_WF" | grep -E "Status|Type|TaskQueue" | head -3 || true
+    else
+        echo -e "  ${YELLOW}⚠${NC} Fallback async processing (status=$UPLOAD_STATUS, ENABLE_TEMPORAL may be off)"
+    fi
+
     echo ""
     echo -e "${YELLOW}⏳ Polling job until terminal state (max ${TIMEOUT_SECONDS}s)${NC}"
 

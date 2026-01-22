@@ -73,6 +73,8 @@ services:
       
       # Temporal
       - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=erpx-document-queue
+      - ENABLE_TEMPORAL=1
       
       # OPA
       - OPA_URL=http://opa:8181
@@ -282,7 +284,7 @@ services:
       dockerfile: Dockerfile
     container_name: erpx-worker
     restart: unless-stopped
-    command: python -m src.workflows
+    command: python -m src.workflows.worker_pr16
     environment:
       - LLM_PROVIDER=do_agent
       - DO_AGENT_URL=${DO_AGENT_URL:-https://gdfyu2bkvuq4idxkb6x2xkpe.agents.do-ai.run}
@@ -291,8 +293,13 @@ services:
       - DISABLE_LOCAL_LLM=1
       - DATABASE_URL=postgresql://erpx:erpx_secret@postgres:5432/erpx
       - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=erpx-document-queue
+      - ENABLE_TEMPORAL=1
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=erpx_minio
+      - MINIO_SECRET_KEY=erpx_minio_secret
+      - MINIO_BUCKET=erpx-documents
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=erpx-worker
     volumes:

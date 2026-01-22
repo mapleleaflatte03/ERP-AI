@@ -95,6 +95,9 @@ from src.policy.engine import (
 # Import schema validation
 from src.schemas.llm_output import coerce_and_validate
 
+# Import Temporal workflow starter (PR16)
+from src.workflows.temporal_client import start_document_workflow
+
 # Setup safe logging (no KeyError on request_id)
 logger = setup_logging(logging.INFO)
 logger = logging.getLogger("erpx.api")
@@ -1549,12 +1552,70 @@ async def upload_document(
 
     logger.info(f"Upload received: job_id={job_id} file={file.filename} size={len(content)}")
 
-    # Start background processing
-    background_tasks.add_task(process_document_async, job_id, str(file_path), file_info)
+    # PR16: Start Temporal workflow if ENABLE_TEMPORAL=1, else fallback to background task
+    from src.core import config as core_config
+    
+    use_temporal = getattr(core_config, 'ENABLE_TEMPORAL', False)
+    workflow_started = False
+    
+    if use_temporal:
+        try:
+            # PR16: Upload to MinIO and create document record BEFORE starting workflow
+            from src.storage import upload_document
+            import asyncpg
+            
+            # 1. Upload to MinIO
+            minio_bucket, minio_key, file_checksum, file_size = upload_document(
+                content, file.filename, content_type, x_tenant_id, job_id
+            )
+            logger.info(f"MinIO upload: s3://{minio_bucket}/{minio_key}")
+            
+            # 2. Insert document record with MinIO info
+            db_url = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@postgres:5432/erpx")
+            conn = await asyncpg.connect(db_url)
+            
+            # Ensure tenant exists
+            tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
+            if not tenant_row:
+                tenant_uuid = uuid.uuid4()
+                await conn.execute(
+                    "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING",
+                    tenant_uuid, f"Tenant {x_tenant_id}", x_tenant_id,
+                )
+                tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
+            
+            tenant_uuid = tenant_row["id"]
+            doc_uuid = uuid.UUID(job_id)
+            
+            await conn.execute(
+                """
+                INSERT INTO documents 
+                (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, 
+                 minio_bucket, minio_key, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                doc_uuid, tenant_uuid, job_id, file.filename, content_type, len(content),
+                str(file_path), checksum, minio_bucket, minio_key, "pending",
+            )
+            await conn.close()
+            logger.info(f"Document record created: {job_id}")
+            
+            # 3. Start Temporal workflow (async)
+            workflow_id = await start_document_workflow(job_id)
+            workflow_started = True
+            logger.info(f"Temporal workflow started: workflow_id={workflow_id} job_id={job_id}")
+        except Exception as e:
+            logger.warning(f"Temporal workflow start failed, falling back to async: {e}")
+            workflow_started = False
+    
+    if not workflow_started:
+        # Fallback: Start background processing (original behavior)
+        background_tasks.add_task(process_document_async, job_id, str(file_path), file_info)
 
     return UploadResponse(
         job_id=job_id,
-        status="pending",
+        status="queued" if workflow_started else "pending",
         message="Document uploaded successfully. Processing started.",
         file_info=file_info,
     )
@@ -1564,6 +1625,47 @@ async def upload_document(
 async def get_job_status(job_id: str):
     """Get job status and result"""
     job = job_store.get(job_id)
+    
+    # PR16: If job_store has pending status, check database for actual state
+    # (Temporal worker updates DB directly, not job_store)
+    if job and job.get("status") in ("pending", "queued"):
+        try:
+            conn = await get_db_connection()
+            try:
+                # Check job_processing_state for terminal state
+                state_row = await conn.fetchrow(
+                    "SELECT current_state FROM job_processing_state WHERE job_id = $1",
+                    job_id,
+                )
+                if state_row:
+                    db_state = state_row["current_state"]
+                    # Map DB state to API status
+                    state_map = {
+                        "completed": "completed",
+                        "waiting_for_approval": "waiting_for_approval",
+                        "failed": "failed",
+                    }
+                    if db_state in state_map:
+                        job["status"] = state_map[db_state]
+                else:
+                    # Check approvals table as fallback
+                    approval_row = await conn.fetchrow(
+                        "SELECT status FROM approvals WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1",
+                        job_id,
+                    )
+                    if approval_row:
+                        approval_status = approval_row["status"]
+                        if approval_status == "pending":
+                            job["status"] = "waiting_for_approval"
+                        elif approval_status == "approved":
+                            job["status"] = "completed"
+                        elif approval_status == "rejected":
+                            job["status"] = "failed"
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.warning(f"Failed to check DB state for job {job_id}: {e}")
+    
     if not job:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
