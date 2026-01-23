@@ -819,6 +819,90 @@ run_e2e_attempt() {
                     echo -e "  ${RED}❌ PR19 FAILED: Duplicates created${NC}"
                     CASE_B_PASS=false
                 fi
+                
+                # ================================================================
+                # PR20 Evidence: Cashflow Forecast + Scenario Simulation
+                # ================================================================
+                echo ""
+                echo -e "${CYAN}📊 PR20 Evidence (Forecast + Simulation):${NC}"
+                
+                # Trigger cashflow forecast
+                echo "  Triggering cashflow forecast..."
+                local FORECAST_RESPONSE=$(curl -s -X POST "http://localhost:8080/api/v1/forecast/cashflow" \
+                    -H "Authorization: Bearer $AUTH_TOKEN" \
+                    -H "X-Tenant-Id: default" 2>/dev/null || echo "{}")
+                
+                local FORECAST_ID=$(echo "$FORECAST_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('forecast_id',''))" 2>/dev/null || echo "")
+                
+                local PR20_PASS=true
+                
+                if [ -n "$FORECAST_ID" ] && [ "$FORECAST_ID" != "null" ]; then
+                    echo -e "  ${GREEN}✓${NC} Forecast created: $FORECAST_ID"
+                    
+                    # Verify DB row
+                    local forecast_count=$(docker exec erpx-postgres bash -c "PGPASSWORD=erpx_secret psql -U erpx -d erpx -t -c \"SELECT COUNT(*) FROM cashflow_forecasts WHERE id='$FORECAST_ID'\"" 2>/dev/null | tr -d ' \n')
+                    if [ "$forecast_count" = "1" ]; then
+                        echo -e "  ${GREEN}✓${NC} cashflow_forecasts row exists"
+                    else
+                        echo -e "  ${RED}✗${NC} cashflow_forecasts row missing"
+                        PR20_PASS=false
+                    fi
+                else
+                    echo -e "  ${RED}✗${NC} Forecast creation failed"
+                    PR20_PASS=false
+                fi
+                
+                # Trigger simulation
+                echo "  Triggering scenario simulation..."
+                local SIM_RESPONSE=$(curl -s -X POST "http://localhost:8080/api/v1/simulations" \
+                    -H "Authorization: Bearer $AUTH_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -H "X-Tenant-Id: default" \
+                    -d '{"window_days":30,"assumptions":{"revenue_multiplier":1.0,"cost_multiplier":1.1,"payment_delay_days":7}}' 2>/dev/null || echo "{}")
+                
+                local SIM_ID=$(echo "$SIM_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('simulation_id',''))" 2>/dev/null || echo "")
+                
+                if [ -n "$SIM_ID" ] && [ "$SIM_ID" != "null" ]; then
+                    echo -e "  ${GREEN}✓${NC} Simulation created: $SIM_ID"
+                    
+                    # Verify DB row
+                    local sim_count=$(docker exec erpx-postgres bash -c "PGPASSWORD=erpx_secret psql -U erpx -d erpx -t -c \"SELECT COUNT(*) FROM scenario_simulations WHERE id='$SIM_ID'\"" 2>/dev/null | tr -d ' \n')
+                    if [ "$sim_count" = "1" ]; then
+                        echo -e "  ${GREEN}✓${NC} scenario_simulations row exists"
+                    else
+                        echo -e "  ${RED}✗${NC} scenario_simulations row missing"
+                        PR20_PASS=false
+                    fi
+                    
+                    # Verify GET endpoint
+                    local SIM_GET=$(curl -s "http://localhost:8080/api/v1/simulations/$SIM_ID" \
+                        -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "{}")
+                    local SIM_STATUS=$(echo "$SIM_GET" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+                    
+                    if [ "$SIM_STATUS" = "completed" ]; then
+                        echo -e "  ${GREEN}✓${NC} GET /simulations/{id} returns completed"
+                    else
+                        echo -e "  ${YELLOW}⚠${NC} GET simulation status: $SIM_STATUS"
+                    fi
+                else
+                    echo -e "  ${RED}✗${NC} Simulation creation failed"
+                    PR20_PASS=false
+                fi
+                
+                # Verify audit events
+                local pr20_audit=$(docker exec erpx-postgres bash -c "PGPASSWORD=erpx_secret psql -U erpx -d erpx -t -c \"SELECT COUNT(*) FROM audit_events WHERE event_type IN ('cashflow_forecast_created','scenario_simulation_created')\"" 2>/dev/null | tr -d ' \n')
+                if [ "$pr20_audit" -ge "2" ]; then
+                    echo -e "  ${GREEN}✓${NC} audit_events include forecast + simulation events ($pr20_audit)"
+                else
+                    echo -e "  ${YELLOW}⚠${NC} audit_events count: $pr20_audit (expected >=2)"
+                fi
+                
+                if [ "$PR20_PASS" = true ]; then
+                    echo -e "  ${GREEN}✅ PR20 PASSED: Forecast + Simulation persisted and queryable${NC}"
+                else
+                    echo -e "  ${RED}❌ PR20 FAILED: Missing DB records${NC}"
+                    CASE_B_PASS=false
+                fi
             else
                 echo -e "  ${RED}❌ CASE B FAILED: Post-approval outcome mismatch${NC}"
             fi
@@ -875,6 +959,7 @@ while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
             echo "   ✓ Case B: NEEDS_APPROVAL + manual approval verified"
             echo "   ✓ PR18: DB-backed job status (survives restart)"
             echo "   ✓ PR19: Durable DB idempotency (no duplicates)"
+            echo "   ✓ PR20: Cashflow forecast + scenario simulation"
             if [ $ATTEMPT -gt 1 ]; then
                 echo -e "   - ${YELLOW}Succeeded after $ATTEMPT attempts (flaky LLM recovered)${NC}"
             fi

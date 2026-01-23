@@ -2808,6 +2808,260 @@ async def approve_job(job_id: str, request: ApprovalRequest, x_user_id: str | No
 
 
 # ===========================================================================
+# PR20: Cashflow Forecast + Scenario Simulation
+# ===========================================================================
+
+
+class ForecastResponse(BaseModel):
+    forecast_id: str
+    tenant_id: str
+    as_of_date: str
+    window_days: int
+    forecast: dict[str, Any]
+    status: str = "completed"
+
+
+class SimulationRequest(BaseModel):
+    window_days: int = 30
+    assumptions: dict[str, Any] = {}
+
+
+class SimulationResponse(BaseModel):
+    simulation_id: str
+    status: str = "completed"
+
+
+class SimulationDetailResponse(BaseModel):
+    simulation_id: str
+    tenant_id: str
+    base_forecast_id: str | None
+    base_as_of_date: str | None
+    inputs: dict[str, Any]
+    result: dict[str, Any]
+    created_at: str | None
+    status: str = "completed"
+
+
+async def _get_tenant_uuid(conn, tenant_code: str = "default") -> uuid.UUID:
+    """Get or create tenant UUID from code."""
+    row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_code)
+    if row:
+        return row["id"]
+    
+    # Create tenant if not exists
+    tenant_uuid = uuid.uuid4()
+    await conn.execute(
+        "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        tenant_uuid,
+        f"Tenant {tenant_code}",
+        tenant_code,
+    )
+    row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_code)
+    return row["id"]
+
+
+@app.post("/v1/forecast/cashflow", response_model=ForecastResponse)
+async def create_cashflow_forecast(x_tenant_id: str | None = Header(default="default")):
+    """
+    Generate a baseline cashflow forecast from ledger data.
+    
+    PR20: Computes deterministic forecast using rolling average of historical ledger flows.
+    Persists result to cashflow_forecasts table.
+    
+    Feature flag: ENABLE_FORECAST (default: 1)
+    """
+    # Check feature flag
+    if os.getenv("ENABLE_FORECAST", "1") != "1":
+        raise HTTPException(status_code=403, detail="Forecast feature is disabled")
+    
+    try:
+        # Import forecast module
+        from src.forecast.cashflow import compute_cashflow_forecast, persist_forecast
+        
+        conn = await get_db_connection()
+        try:
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            
+            # Compute forecast
+            forecast = await compute_cashflow_forecast(
+                conn=conn,
+                tenant_id=tenant_uuid,
+                window_days=30,
+                lookback_days=90,
+            )
+            
+            # Persist forecast
+            forecast_id = await persist_forecast(conn, tenant_uuid, forecast)
+            
+            # Record audit event
+            await conn.execute("""
+                INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+            """, uuid.uuid4(), forecast_id, str(tenant_uuid), "cashflow_forecast_created", 
+                f'{{"forecast_id": "{forecast_id}", "window_days": {forecast["window_days"]}}}')
+            
+            logger.info(f"Created cashflow forecast {forecast_id} for tenant {tenant_uuid}")
+            
+            return ForecastResponse(
+                forecast_id=str(forecast_id),
+                tenant_id=str(tenant_uuid),
+                as_of_date=forecast["as_of_date"],
+                window_days=forecast["window_days"],
+                forecast=forecast,
+                status="completed",
+            )
+        finally:
+            await conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create cashflow forecast: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/simulations", response_model=SimulationResponse)
+async def create_simulation(
+    request: SimulationRequest,
+    x_tenant_id: str | None = Header(default="default")
+):
+    """
+    Create a what-if scenario simulation based on latest forecast.
+    
+    PR20: Applies scenario assumptions (multipliers, delays) to baseline forecast.
+    Persists result to scenario_simulations table.
+    
+    Feature flag: ENABLE_SIMULATION (default: 1)
+    """
+    # Check feature flag
+    if os.getenv("ENABLE_SIMULATION", "1") != "1":
+        raise HTTPException(status_code=403, detail="Simulation feature is disabled")
+    
+    try:
+        # Import modules
+        from src.forecast.cashflow import compute_cashflow_forecast, get_latest_forecast, persist_forecast
+        from src.simulations.scenario import persist_simulation, run_scenario_simulation
+        
+        conn = await get_db_connection()
+        try:
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            
+            # Get latest forecast
+            latest = await get_latest_forecast(conn, tenant_uuid)
+            
+            if not latest:
+                # No forecast exists, create one first
+                forecast = await compute_cashflow_forecast(
+                    conn=conn,
+                    tenant_id=tenant_uuid,
+                    window_days=request.window_days,
+                )
+                forecast_id = await persist_forecast(conn, tenant_uuid, forecast)
+                latest = {
+                    "forecast_id": str(forecast_id),
+                    "forecast": forecast,
+                }
+            
+            base_forecast = latest["forecast"]
+            base_forecast_id = uuid.UUID(latest["forecast_id"])
+            
+            # Build inputs
+            inputs = {
+                "window_days": request.window_days,
+                "assumptions": request.assumptions or {
+                    "revenue_multiplier": 1.0,
+                    "cost_multiplier": 1.0,
+                    "payment_delay_days": 0,
+                }
+            }
+            
+            # Run simulation (sync, no DB needed)
+            result = run_scenario_simulation(
+                tenant_id=tenant_uuid,
+                base_forecast=base_forecast,
+                inputs=inputs,
+            )
+            
+            # Persist simulation
+            from datetime import date
+            base_as_of_date = date.fromisoformat(base_forecast.get("as_of_date", date.today().isoformat()))
+            
+            simulation_id = await persist_simulation(
+                conn=conn,
+                tenant_id=tenant_uuid,
+                base_forecast_id=base_forecast_id,
+                base_as_of_date=base_as_of_date,
+                inputs=inputs,
+                result=result,
+            )
+            
+            # Record audit event
+            await conn.execute("""
+                INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+            """, uuid.uuid4(), simulation_id, str(tenant_uuid), "scenario_simulation_created",
+                f'{{"simulation_id": "{simulation_id}", "base_forecast_id": "{base_forecast_id}"}}')
+            
+            logger.info(f"Created scenario simulation {simulation_id} for tenant {tenant_uuid}")
+            
+            return SimulationResponse(
+                simulation_id=str(simulation_id),
+                status="completed",
+            )
+        finally:
+            await conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create simulation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/simulations/{simulation_id}", response_model=SimulationDetailResponse)
+async def get_simulation_endpoint(simulation_id: str):
+    """
+    Get a scenario simulation by ID.
+    
+    PR20: Returns full simulation result including inputs, result, and metadata.
+    """
+    try:
+        from src.simulations.scenario import get_simulation
+        
+        # Validate UUID
+        try:
+            sim_uuid = uuid.UUID(simulation_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid simulation_id format")
+        
+        conn = await get_db_connection()
+        try:
+            simulation = await get_simulation(conn, sim_uuid)
+            
+            if not simulation:
+                raise HTTPException(status_code=404, detail=f"Simulation not found: {simulation_id}")
+            
+            return SimulationDetailResponse(
+                simulation_id=simulation["simulation_id"],
+                tenant_id=simulation["tenant_id"],
+                base_forecast_id=simulation.get("base_forecast_id"),
+                base_as_of_date=simulation.get("base_as_of_date"),
+                inputs=simulation["inputs"],
+                result=simulation["result"],
+                created_at=simulation.get("created_at"),
+                status="completed",
+            )
+        finally:
+            await conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get simulation {simulation_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
 # Run Server
 # ===========================================================================
 
