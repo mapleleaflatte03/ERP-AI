@@ -76,6 +76,7 @@ async def publish_event(
     Publish event to outbox.
 
     Should be called within the same transaction as the business operation.
+    PR19: Idempotent - duplicate events for ledger.posted are ignored.
 
     Args:
         conn: asyncpg connection (should be in transaction)
@@ -93,22 +94,54 @@ async def publish_event(
     event_id = uuid.uuid4()
     schedule = scheduled_at or datetime.utcnow()
 
-    await conn.execute(
-        """
-        INSERT INTO outbox_events
-        (id, event_type, aggregate_type, aggregate_id, payload, 
-         tenant_id, request_id, scheduled_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::text, $8)
-        """,
-        event_id,
-        event_type.value,
-        aggregate_type.value,
-        aggregate_id,
-        json.dumps(payload),
-        uuid.UUID(tenant_id) if tenant_id and len(str(tenant_id)) > 10 else None,
-        request_id,
-        schedule,
-    )
+    # PR19: Check if event already exists (idempotency for ledger.posted)
+    if event_type == EventType.LEDGER_POSTED:
+        existing = await conn.fetchrow(
+            """
+            SELECT id FROM outbox_events 
+            WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3
+            """,
+            aggregate_type.value,
+            aggregate_id,
+            event_type.value,
+        )
+        if existing:
+            logger.info(f"[{request_id}] [PR19] Event {event_type.value} for {aggregate_type.value}:{aggregate_id} already exists (idempotent)")
+            return str(existing["id"])
+
+    try:
+        await conn.execute(
+            """
+            INSERT INTO outbox_events
+            (id, event_type, aggregate_type, aggregate_id, payload, 
+             tenant_id, request_id, scheduled_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::text, $8)
+            """,
+            event_id,
+            event_type.value,
+            aggregate_type.value,
+            aggregate_id,
+            json.dumps(payload),
+            uuid.UUID(tenant_id) if tenant_id and len(str(tenant_id)) > 10 else None,
+            request_id,
+            schedule,
+        )
+    except Exception as e:
+        # PR19: Handle unique constraint violation (race condition)
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            logger.info(f"[{request_id}] [PR19] Event constraint violation (idempotent)")
+            existing = await conn.fetchrow(
+                """
+                SELECT id FROM outbox_events 
+                WHERE aggregate_type = $1 AND aggregate_id = $2 AND event_type = $3
+                """,
+                aggregate_type.value,
+                aggregate_id,
+                event_type.value,
+            )
+            if existing:
+                return str(existing["id"])
+        raise
 
     logger.info(f"[{request_id}] Published event {event_type.value} for {aggregate_type.value}:{aggregate_id}")
     return str(event_id)

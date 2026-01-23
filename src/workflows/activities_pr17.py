@@ -130,13 +130,20 @@ async def finalize_posting_activity(job_id: str) -> str:
         # Update job state to posting
         await update_job_state(conn, job_id, JobState.POSTING, request_id=request_id)
         
-        # Persist to ledger
+        # Persist to ledger (PR19: idempotent)
         from src.api.main import persist_to_db_with_conn
         
         file_info = {"tenant_id": str(tenant_uuid)}
         persist_result = await persist_to_db_with_conn(
             conn, job_id, file_info, proposal, str(tenant_uuid), request_id
         )
+        
+        # PR19: If idempotent result (already posted), skip zone tracking and outbox
+        if persist_result.get("idempotent"):
+            activity.logger.info(f"[{job_id}] [PR19] Ledger already posted, skipping zone/outbox")
+            await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
+            await conn.close()
+            return "completed"
         
         # Track zone
         await track_zone_entry(
@@ -145,7 +152,7 @@ async def finalize_posting_activity(job_id: str) -> str:
             ledger_entry_id=persist_result.get("ledger_id"), request_id=request_id,
         )
         
-        # Publish outbox event
+        # Publish outbox event (PR19: idempotent via DB constraint)
         await publish_event(
             conn, event_type=EventType.LEDGER_POSTED, aggregate_type=AggregateType.LEDGER,
             aggregate_id=persist_result.get("ledger_id", job_id),

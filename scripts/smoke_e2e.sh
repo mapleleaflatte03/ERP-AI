@@ -762,6 +762,63 @@ run_e2e_attempt() {
                         echo -e "  ${YELLOW}⚠${NC} After restart: job status = $PR18_STATUS (expected: completed)"
                     fi
                 fi
+                
+                # ================================================================
+                # PR19 Evidence: Durable DB Idempotency (duplicate approve)
+                # ================================================================
+                echo ""
+                echo -e "${CYAN}📊 PR19 Evidence (Durable DB Idempotency):${NC}"
+                
+                # Capture ledger/outbox counts BEFORE duplicate call
+                local ledger_before_dup=$(db_count "ledger_entries")
+                local outbox_before_dup=$(db_count "outbox_events")
+                
+                # Call approve endpoint AGAIN (duplicate signal simulation)
+                echo "  Calling approve endpoint again (duplicate signal)..."
+                set +e
+                local DUP_RESPONSE=$(approve_job_via_kong "$LAST_JOB_ID")
+                local DUP_RESULT=$?
+                set -e
+                
+                local DUP_STATUS=$(echo "$DUP_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('approval_status','unknown'))" 2>/dev/null || echo "unknown")
+                
+                # Count AFTER duplicate call
+                local ledger_after_dup=$(db_count "ledger_entries")
+                local outbox_after_dup=$(db_count "outbox_events")
+                
+                local ledger_dup_delta=$((ledger_after_dup - ledger_before_dup))
+                local outbox_dup_delta=$((outbox_after_dup - outbox_before_dup))
+                
+                echo "  Duplicate approve response: $DUP_STATUS"
+                
+                local PR19_PASS=true
+                
+                if [ "$DUP_STATUS" = "approved" ]; then
+                    echo -e "  ${GREEN}✓${NC} Second approve call returned OK (idempotent)"
+                else
+                    echo -e "  ${YELLOW}⚠${NC} Second approve response: $DUP_STATUS"
+                fi
+                
+                if [ "$ledger_dup_delta" = "0" ]; then
+                    echo -e "  ${GREEN}✓${NC} Ledger delta: +$ledger_dup_delta (no duplicates)"
+                else
+                    echo -e "  ${RED}✗${NC} Ledger delta: +$ledger_dup_delta (duplicate created!)"
+                    PR19_PASS=false
+                fi
+                
+                if [ "$outbox_dup_delta" = "0" ]; then
+                    echo -e "  ${GREEN}✓${NC} Outbox delta: +$outbox_dup_delta (no duplicates)"
+                else
+                    echo -e "  ${RED}✗${NC} Outbox delta: +$outbox_dup_delta (duplicate created!)"
+                    PR19_PASS=false
+                fi
+                
+                if [ "$PR19_PASS" = true ]; then
+                    echo -e "  ${GREEN}✅ PR19 PASSED: DB-level idempotency enforced${NC}"
+                else
+                    echo -e "  ${RED}❌ PR19 FAILED: Duplicates created${NC}"
+                    CASE_B_PASS=false
+                fi
             else
                 echo -e "  ${RED}❌ CASE B FAILED: Post-approval outcome mismatch${NC}"
             fi
@@ -817,6 +874,7 @@ while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
             echo "   ✓ Case A: AUTO_APPROVED path verified"
             echo "   ✓ Case B: NEEDS_APPROVAL + manual approval verified"
             echo "   ✓ PR18: DB-backed job status (survives restart)"
+            echo "   ✓ PR19: Durable DB idempotency (no duplicates)"
             if [ $ATTEMPT -gt 1 ]; then
                 echo -e "   - ${YELLOW}Succeeded after $ATTEMPT attempts (flaky LLM recovered)${NC}"
             fi

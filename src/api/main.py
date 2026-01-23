@@ -1262,26 +1262,63 @@ async def persist_to_db_with_conn(
     # 5. Update proposal status to approved
     await conn.execute("UPDATE journal_proposals SET status = 'approved' WHERE id = $1", proposal_id)
 
-    # 6. Insert ledger_entries
+    # 6. Insert ledger_entries (PR19: idempotent with DB constraint)
+    # First check if ledger already exists for this proposal (idempotency check)
+    existing_ledger = await conn.fetchrow(
+        "SELECT id, entry_number FROM ledger_entries WHERE proposal_id = $1",
+        proposal_id,
+    )
+    
+    if existing_ledger:
+        # PR19: Ledger already posted, return existing entry (idempotent)
+        logger.info(f"[{request_id}] [PR19] Job {job_id}: Ledger already exists for proposal (idempotent)")
+        return {
+            "invoice_id": str(invoice_id),
+            "proposal_id": str(proposal_id),
+            "approval_id": str(approval_id),
+            "ledger_id": str(existing_ledger["id"]),
+            "entry_number": existing_ledger["entry_number"],
+            "idempotent": True,
+        }
+    
     ledger_id = uuid.uuid4()
     entry_number = f"JE-{datetime.now().strftime('%Y%m%d')}-{job_id[:4].upper()}"
-    await conn.execute(
-        """
-        INSERT INTO ledger_entries
-        (id, proposal_id, approval_id, tenant_id, entry_date, entry_number,
-         description, posted_by_name)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT DO NOTHING
-        """,
-        ledger_id,
-        proposal_id,
-        approval_id,
-        tenant_uuid,
-        datetime.now().date(),
-        entry_number,
-        f"Invoice {proposal.get('invoice_no', 'N/A')} - {proposal.get('vendor', 'Unknown')}",
-        "ERPX-API",
-    )
+    
+    try:
+        await conn.execute(
+            """
+            INSERT INTO ledger_entries
+            (id, proposal_id, approval_id, tenant_id, entry_date, entry_number,
+             description, posted_by_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """,
+            ledger_id,
+            proposal_id,
+            approval_id,
+            tenant_uuid,
+            datetime.now().date(),
+            entry_number,
+            f"Invoice {proposal.get('invoice_no', 'N/A')} - {proposal.get('vendor', 'Unknown')}",
+            "ERPX-API",
+        )
+    except Exception as e:
+        # PR19: Handle unique constraint violation (race condition)
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            logger.info(f"[{request_id}] [PR19] Job {job_id}: Ledger constraint violation (idempotent)")
+            existing = await conn.fetchrow(
+                "SELECT id, entry_number FROM ledger_entries WHERE proposal_id = $1",
+                proposal_id,
+            )
+            if existing:
+                return {
+                    "invoice_id": str(invoice_id),
+                    "proposal_id": str(proposal_id),
+                    "approval_id": str(approval_id),
+                    "ledger_id": str(existing["id"]),
+                    "entry_number": existing["entry_number"],
+                    "idempotent": True,
+                }
+        raise
 
     # 7. Insert ledger_lines
     for idx, entry in enumerate(entries):
