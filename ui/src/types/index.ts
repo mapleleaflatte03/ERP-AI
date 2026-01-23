@@ -1,3 +1,129 @@
+// Document types for accounting
+export type DocumentStatus = 
+  | 'new' 
+  | 'extracting' 
+  | 'extracted' 
+  | 'proposing'
+  | 'proposed' 
+  | 'pending_approval' 
+  | 'approved' 
+  | 'rejected' 
+  | 'posted';
+
+export type DocumentType = 
+  | 'invoice' 
+  | 'receipt' 
+  | 'bank_statement' 
+  | 'contract'
+  | 'payment_voucher'
+  | 'other';
+
+export interface Document {
+  id: string;
+  filename: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  vendor_name?: string;
+  vendor_tax_id?: string;
+  invoice_no?: string;
+  invoice_date?: string;
+  total_amount?: number;
+  vat_amount?: number;
+  currency?: string;
+  extracted_fields?: Record<string, any>;
+  extracted_text?: string;
+  file_url?: string;
+  created_at: string;
+  updated_at: string;
+  job_id?: string;
+}
+
+export interface JournalEntryLine {
+  id?: string;
+  debit_account?: string;
+  debit_account_name?: string;
+  credit_account?: string;
+  credit_account_name?: string;
+  amount: number;
+  description?: string;
+  object_code?: string;  // Mã đối tượng (khách hàng/NCC)
+  object_name?: string;
+  cost_center?: string;
+  confidence?: number;
+  reasoning?: string;  // Giải thích tại sao chọn tài khoản
+}
+
+export interface JournalProposal {
+  id: string;
+  document_id: string;
+  entries: JournalEntryLine[];
+  journal_lines?: JournalEntryLine[];  // Alias for backward compatibility
+  total_debit: number;
+  total_credit: number;
+  is_balanced: boolean;
+  description?: string;
+  posting_date?: string;
+  created_at: string;
+  status: 'draft' | 'pending' | 'approved' | 'rejected';
+}
+
+export interface Approval {
+  id: string;
+  document_id: string;
+  proposal_id: string;
+  document?: Document;
+  proposal?: JournalProposal;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewer?: string;
+  reviewer_note?: string;
+  created_at: string;
+  resolved_at?: string;
+  // For backward compatibility with old Approvals.tsx
+  job_id?: string;
+  filename?: string;
+  vendor_name?: string;
+  total_amount?: number;
+  reason?: string;
+}
+
+export interface EvidenceEvent {
+  id: string;
+  document_id: string;
+  job_id?: string;
+  action: string;
+  timestamp: string;  // When the event occurred
+  actor: string;  // user:email or agent:name
+  payload?: Record<string, any>;  // Additional metadata
+  // Legacy fields for backward compatibility
+  step?: string;
+  input_summary?: string;
+  output_summary?: string;
+  severity?: 'info' | 'warning' | 'error' | 'success';
+  details?: Record<string, any>;
+  trace_id?: string;
+  created_at?: string;
+}
+
+export interface BankTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: 'credit' | 'debit';
+  reference?: string;
+  matched_document_id?: string;
+  status: 'unmatched' | 'matched' | 'suspicious';
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: string[];
+  created_at: string;
+}
+
+// Legacy types for backward compatibility
 export interface Job {
   job_id: string;
   tenant_id: string;
@@ -11,7 +137,6 @@ export interface Job {
   error_message?: string;
   created_at: string;
   updated_at: string;
-  // Extended fields for UI
   filename?: string;
   document_type?: string;
   completed_at?: string;
@@ -20,125 +145,8 @@ export interface Job {
   proposal?: any;
 }
 
-export interface Approval {
-  id: string;
-  job_id: string;
-  tenant_id: string;
-  proposal_id: string;
-  status: string;
-  requested_at: string;
-  resolved_at?: string;
-  resolved_by?: string;
-  // Extended fields for UI
-  filename?: string;
-  vendor_name?: string;
-  total_amount?: number;
-  created_at?: string;
-  reason?: string;
-  proposal?: {
-    journal_lines?: JournalLine[];
-    [key: string]: any;
-  };
-}
-
-export interface JournalLine {
-  account_code: string;
-  account_name?: string;
-  debit: number;
-  credit: number;
-  description?: string;
-}
-
-export interface Forecast {
-  id: string;
-  tenant_id: string;
-  forecast_date?: string;
-  window_days: number;
-  total_inflow: number;
-  total_outflow: number;
-  net_position: number;
-  daily_forecast?: Array<{
-    date: string;
-    inflow: number;
-    outflow: number;
-    net: number;
-  }>;
-  created_at?: string;
-}
-
-export interface Simulation {
-  id: string;
-  tenant_id: string;
-  base_forecast_id?: string;
-  scenario_name?: string;
-  assumptions?: {
-    revenue_multiplier?: number;
-    cost_multiplier?: number;
-    payment_delay_days?: number;
-  };
-  baseline_net: number;
-  projected_net: number;
-  delta: number;
-  percent_change: number;
-  status?: string;
-  created_at?: string;
-  completed_at?: string;
-}
-
-export interface Finding {
-  title: string;
-  description: string;
-  severity: string;
-  metric_value?: string | number;
-}
-
-export interface Recommendation {
-  action: string;
-  rationale: string;
-  priority: string;
-  expected_impact?: string;
-}
-
-export interface Reference {
-  type: string;
-  id: string;
-}
-
-export interface Insight {
-  id: string;
-  tenant_id: string;
-  status: string;
-  source_window_days?: number;
-  summary?: string;
-  error?: string;
-  top_findings?: Finding[];
-  recommendations?: Recommendation[];
-  references?: Reference[];
-  created_at?: string;
-  completed_at?: string;
-}
-
-export interface Evidence {
-  postgres?: Record<string, number>;
-  minio?: {
-    sample_keys: string[];
-  };
-  qdrant?: {
-    points_count: number;
-  };
-  temporal?: {
-    completed_jobs: number;
-  };
-  jaeger?: {
-    services: string[];
-  };
-  mlflow?: {
-    runs_count: number;
-  };
-}
-
 export interface TestbenchTool {
-  tool: string;
+  id: string;
   name: string;
   description: string;
 }

@@ -2,30 +2,41 @@ import { useState } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
-  FlaskConical,
-  Upload,
-  Briefcase,
+  FileText,
+  Edit3,
   CheckSquare,
-  Eye,
+  ArrowLeftRight,
+  MessageCircle,
+  BarChart3,
+  Clock,
   Menu,
   X,
   LogOut,
   CheckCircle2,
   XCircle,
+  Settings,
+  Bot,
 } from 'lucide-react';
 import api from '../lib/api';
 
 const navigation = [
-  { name: 'Tool Testbench', href: '/', icon: FlaskConical },
-  { name: 'Upload & Run', href: '/upload', icon: Upload },
-  { name: 'Jobs Inspector', href: '/jobs', icon: Briefcase },
-  { name: 'Approvals Inbox', href: '/approvals', icon: CheckSquare },
-  { name: 'Evidence', href: '/observability', icon: Eye },
+  { name: 'Chứng từ', href: '/', icon: FileText },
+  { name: 'Đề xuất hạch toán', href: '/proposals', icon: Edit3 },
+  { name: 'Duyệt', href: '/approvals', icon: CheckSquare },
+  { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight },
+  { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle },
+  { name: 'Báo cáo', href: '/reports', icon: BarChart3 },
+  { name: 'Lịch sử', href: '/evidence', icon: Clock },
+];
+
+const adminNavigation = [
+  { name: 'Diagnostics', href: '/admin/diagnostics', icon: Settings },
 ];
 
 export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const isAuthenticated = api.isAuthenticated();
 
   const handleLogout = () => {
@@ -52,10 +63,10 @@ export default function Layout() {
       >
         <div className="flex h-16 items-center justify-between px-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-lg flex items-center justify-center">
-              <FlaskConical className="w-4 h-4 text-white" />
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center">
+              <Bot className="w-4 h-4 text-white" />
             </div>
-            <span className="text-white font-semibold text-sm">Agent Testbench</span>
+            <span className="text-white font-semibold text-sm">AI Kế Toán</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -67,7 +78,8 @@ export default function Layout() {
 
         <nav className="mt-6 px-3 space-y-1">
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
+            const isActive = location.pathname === item.href || 
+              (item.href === '/' && location.pathname.startsWith('/documents'));
             return (
               <Link
                 key={item.name}
@@ -87,29 +99,67 @@ export default function Layout() {
           })}
         </nav>
 
+        {/* Admin toggle */}
+        {showAdmin && (
+          <nav className="mt-4 px-3 pt-4 border-t border-gray-800 space-y-1">
+            <div className="px-3 py-1 text-xs text-gray-500 uppercase tracking-wider">Admin</div>
+            {adminNavigation.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={clsx(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-gray-800 text-white'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                  )}
+                >
+                  <item.icon className="w-5 h-5" />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
+
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               {isAuthenticated ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  <span className="text-xs text-green-500">Authenticated</span>
+                  <span className="text-xs text-green-500">Đã kết nối</span>
                 </>
               ) : (
                 <>
                   <XCircle className="w-4 h-4 text-red-500" />
-                  <span className="text-xs text-red-500">Not Connected</span>
+                  <span className="text-xs text-red-500">Chưa kết nối</span>
                 </>
               )}
             </div>
-            {isAuthenticated && (
+            <div className="flex items-center gap-1">
               <button
-                onClick={handleLogout}
-                className="text-gray-400 hover:text-white p-1.5 rounded hover:bg-gray-800"
+                onClick={() => setShowAdmin(!showAdmin)}
+                className={clsx(
+                  'p-1.5 rounded hover:bg-gray-800',
+                  showAdmin ? 'text-white' : 'text-gray-500'
+                )}
+                title="Toggle Admin Menu"
               >
-                <LogOut className="w-4 h-4" />
+                <Settings className="w-4 h-4" />
               </button>
-            )}
+              {isAuthenticated && (
+                <button
+                  onClick={handleLogout}
+                  className="text-gray-400 hover:text-white p-1.5 rounded hover:bg-gray-800"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </aside>
@@ -125,7 +175,9 @@ export default function Layout() {
             <Menu className="w-5 h-5" />
           </button>
           <h1 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900">
-            {navigation.find((n) => n.href === location.pathname)?.name || 'Accounting Agent Tool Testbench'}
+            {navigation.find((n) => n.href === location.pathname)?.name || 
+             adminNavigation.find((n) => n.href === location.pathname)?.name ||
+             'AI Kế Toán'}
           </h1>
         </header>
 

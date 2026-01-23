@@ -1,0 +1,272 @@
+import axios from 'axios';
+import type { AxiosInstance } from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
+class ApiClient {
+  private client: AxiosInstance;
+  private token: string | null = null;
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: API_BASE_URL,
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    // Load token from localStorage
+    this.token = localStorage.getItem('erpx_token');
+
+    // Request interceptor to add auth header
+    this.client.interceptors.request.use((config) => {
+      if (this.token) {
+        config.headers.Authorization = `Bearer ${this.token}`;
+      }
+      return config;
+    });
+
+    // Response interceptor for error handling
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          this.clearToken();
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  setToken(token: string) {
+    this.token = token;
+    localStorage.setItem('erpx_token', token);
+  }
+
+  clearToken() {
+    this.token = null;
+    localStorage.removeItem('erpx_token');
+  }
+
+  getToken() {
+    return this.token;
+  }
+
+  isAuthenticated() {
+    return !!this.token;
+  }
+
+  // Auth
+  async login(username: string, password: string): Promise<{ access_token: string }> {
+    const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8180';
+    const response = await axios.post(
+      `${keycloakUrl}/realms/erpx/protocol/openid-connect/token`,
+      new URLSearchParams({
+        grant_type: 'password',
+        client_id: 'erpx-api',
+        username,
+        password,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+    return response.data;
+  }
+
+  // Health
+  async getHealth() {
+    const response = await this.client.get('/health');
+    return response.data;
+  }
+
+  // Testbench
+  async getTestbenchTools() {
+    const response = await this.client.get('/v1/testbench/tools');
+    return response.data;
+  }
+
+  async runTestbenchTool(tool: string) {
+    const response = await this.client.post('/v1/testbench/run', { tool });
+    return response.data;
+  }
+
+  // =====================================================
+  // Documents API (for accounting app)
+  // =====================================================
+  
+  async getDocuments(status?: string) {
+    const params = status ? { status } : {};
+    const response = await this.client.get('/v1/documents', { params });
+    return response.data;
+  }
+
+  async getDocument(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}`);
+    return response.data;
+  }
+
+  async uploadDocument(file: File, tenantId: string = 'default') {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('tenant_id', tenantId);
+    const response = await this.client.post('/v1/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async runExtraction(documentId: string) {
+    const response = await this.client.post(`/v1/documents/${documentId}/extract`);
+    return response.data;
+  }
+
+  async runProposal(documentId: string) {
+    const response = await this.client.post(`/v1/documents/${documentId}/propose`);
+    return response.data;
+  }
+
+  async getDocumentProposal(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/proposal`);
+    return response.data;
+  }
+
+  async getDocumentEvidence(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/evidence`);
+    return response.data;
+  }
+
+  // =====================================================
+  // Approvals API (for accounting app)
+  // =====================================================
+  
+  async getApprovals(status?: string) {
+    const params = status ? { status } : {};
+    const response = await this.client.get('/v1/approvals', { params });
+    return response.data;
+  }
+
+  async submitApproval(documentId: string, proposalId: string) {
+    const response = await this.client.post(`/v1/documents/${documentId}/submit`, {
+      proposal_id: proposalId,
+    });
+    return response.data;
+  }
+
+  async approveDocument(approvalId: string, note?: string) {
+    const response = await this.client.post(`/v1/approvals/${approvalId}/approve`, {
+      user_id: 'ui-user',
+      note,
+    });
+    return response.data;
+  }
+
+  async rejectDocument(approvalId: string, reason: string) {
+    const response = await this.client.post(`/v1/approvals/${approvalId}/reject`, {
+      user_id: 'ui-user',
+      reason,
+    });
+    return response.data;
+  }
+
+  // =====================================================
+  // Copilot Chat API
+  // =====================================================
+
+  async sendCopilotMessage(message: string, context?: { document_id?: string }) {
+    const response = await this.client.post('/v1/copilot/chat', {
+      message,
+      context,
+    });
+    return response.data;
+  }
+
+  // =====================================================
+  // Legacy API (keep for backward compatibility)
+  // =====================================================
+
+  // Jobs
+  async getJob(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}`);
+    return response.data;
+  }
+
+  async getJobStatus(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}`);
+    return response.data;
+  }
+
+  async listJobs(limit: number = 20) {
+    const response = await this.client.get(`/v1/jobs?limit=${limit}`);
+    return response.data;
+  }
+
+  async getJobEvidence(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}/evidence`);
+    return response.data;
+  }
+
+  async getJobTimeline(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}/timeline`);
+    return response.data;
+  }
+
+  async getJobPolicy(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}/policy`);
+    return response.data;
+  }
+
+  async getJobState(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}/state`);
+    return response.data;
+  }
+
+  async getJobZones(jobId: string) {
+    const response = await this.client.get(`/v1/jobs/${jobId}/zones`);
+    return response.data;
+  }
+
+  // Legacy Approvals
+  async listPendingApprovals() {
+    const response = await this.client.get('/v1/approvals/pending');
+    return response.data;
+  }
+
+  async approveProposal(approvalId: string, userId: string = 'ui-user') {
+    const response = await this.client.post(`/v1/approvals/${approvalId}/approve`, {
+      user_id: userId,
+    });
+    return response.data;
+  }
+
+  async rejectProposal(approvalId: string, userId: string = 'ui-user', reason: string = '') {
+    const response = await this.client.post(`/v1/approvals/${approvalId}/reject`, {
+      user_id: userId,
+      reason,
+    });
+    return response.data;
+  }
+
+  async approveByJobId(jobId: string, userId: string = 'ui-user') {
+    const response = await this.client.post(`/v1/jobs/${jobId}/approve`, {
+      user_id: userId,
+    });
+    return response.data;
+  }
+
+  async rejectByJobId(jobId: string, userId: string = 'ui-user', reason: string = '') {
+    const response = await this.client.post(`/v1/jobs/${jobId}/reject`, {
+      user_id: userId,
+      reason,
+    });
+    return response.data;
+  }
+
+  // Evidence
+  async getEvidence() {
+    const response = await this.client.get('/v1/evidence/summary');
+    return response.data;
+  }
+}
+
+export const api = new ApiClient();
+export default api;
