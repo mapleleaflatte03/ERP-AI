@@ -2,13 +2,11 @@ import { useState } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
-  LayoutDashboard,
-  Upload,
-  ClipboardCheck,
-  TrendingUp,
   FlaskConical,
-  Brain,
-  Shield,
+  Upload,
+  Briefcase,
+  CheckSquare,
+  Eye,
   Menu,
   X,
   LogOut,
@@ -18,13 +16,11 @@ import {
 import api from '../lib/api';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Upload & Jobs', href: '/jobs', icon: Upload },
-  { name: 'Approvals', href: '/approvals', icon: ClipboardCheck },
-  { name: 'Forecasts', href: '/forecasts', icon: TrendingUp },
-  { name: 'Simulations', href: '/simulations', icon: FlaskConical },
-  { name: 'CFO Insights', href: '/insights', icon: Brain },
-  { name: 'Evidence', href: '/evidence', icon: Shield },
+  { name: 'Tool Testbench', href: '/', icon: FlaskConical },
+  { name: 'Upload & Run', href: '/upload', icon: Upload },
+  { name: 'Jobs Inspector', href: '/jobs', icon: Briefcase },
+  { name: 'Approvals Inbox', href: '/approvals', icon: CheckSquare },
+  { name: 'Evidence', href: '/observability', icon: Eye },
 ];
 
 export default function Layout() {
@@ -56,10 +52,10 @@ export default function Layout() {
       >
         <div className="flex h-16 items-center justify-between px-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">EX</span>
+            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-lg flex items-center justify-center">
+              <FlaskConical className="w-4 h-4 text-white" />
             </div>
-            <span className="text-white font-semibold text-lg">ERPX Console</span>
+            <span className="text-white font-semibold text-sm">Agent Testbench</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -129,7 +125,7 @@ export default function Layout() {
             <Menu className="w-5 h-5" />
           </button>
           <h1 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900">
-            {navigation.find((n) => n.href === location.pathname)?.name || 'ERPX'}
+            {navigation.find((n) => n.href === location.pathname)?.name || 'Accounting Agent Tool Testbench'}
           </h1>
         </header>
 

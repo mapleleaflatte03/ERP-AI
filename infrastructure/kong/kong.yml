@@ -19,28 +19,66 @@ services:
           - /health
         methods:
           - GET
+        strip_path: false
           
       - name: upload-route
         paths:
           - /v1/upload
         methods:
           - POST
+        strip_path: false
           
       - name: jobs-route
         paths:
           - /v1/jobs
-        methods:
-          - GET
+        strip_path: false
           
       - name: approve-route
         paths:
           - /v1/approve
         methods:
           - POST
+        strip_path: false
+
+      # Testbench routes
+      - name: testbench-tools-route
+        paths:
+          - /v1/testbench/tools
+        methods:
+          - GET
+        strip_path: false
+          
+      - name: testbench-run-route
+        paths:
+          - /v1/testbench/run
+        methods:
+          - POST
+        strip_path: false
+
+      # Approvals routes
+      - name: approvals-pending-route
+        paths:
+          - /v1/approvals/pending
+        methods:
+          - GET
+        strip_path: false
+
+      - name: approvals-action-route
+        paths:
+          - /v1/approvals
+        strip_path: false
+
+      # Evidence route
+      - name: evidence-route
+        paths:
+          - /v1/evidence
+        methods:
+          - GET
+        strip_path: false
 
 plugins:
   # JWT Authentication - Keycloak OIDC
-  # Applied to ALL routes except health check
+  # Applied to ALL routes except health check and testbench
   - name: jwt
     route: api-route
     config:

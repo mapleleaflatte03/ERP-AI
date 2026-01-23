@@ -11,6 +11,13 @@ export interface Job {
   error_message?: string;
   created_at: string;
   updated_at: string;
+  // Extended fields for UI
+  filename?: string;
+  document_type?: string;
+  completed_at?: string;
+  error?: string;
+  result?: any;
+  proposal?: any;
 }
 
 export interface Approval {
@@ -22,6 +29,24 @@ export interface Approval {
   requested_at: string;
   resolved_at?: string;
   resolved_by?: string;
+  // Extended fields for UI
+  filename?: string;
+  vendor_name?: string;
+  total_amount?: number;
+  created_at?: string;
+  reason?: string;
+  proposal?: {
+    journal_lines?: JournalLine[];
+    [key: string]: any;
+  };
+}
+
+export interface JournalLine {
+  account_code: string;
+  account_name?: string;
+  debit: number;
+  credit: number;
+  description?: string;
 }
 
 export interface Forecast {
@@ -110,4 +135,21 @@ export interface Evidence {
   mlflow?: {
     runs_count: number;
   };
+}
+
+export interface TestbenchTool {
+  tool: string;
+  name: string;
+  description: string;
+}
+
+export interface TestbenchResult {
+  tool: string;
+  name: string;
+  passed: boolean;
+  latency_ms: number;
+  summary: string;
+  evidence: any;
+  trace_id?: string;
+  warning?: string;
 }

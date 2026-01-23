@@ -3471,6 +3471,610 @@ async def get_latest_simulations(
 
 
 # ===========================================================================
+# Testbench Endpoints (Tool Testing)
+# ===========================================================================
+
+TESTBENCH_TOOLS = [
+    {"id": "keycloak", "name": "Keycloak (OIDC)", "description": "Authentication & authorization"},
+    {"id": "kong", "name": "Kong Gateway", "description": "API gateway with JWT validation"},
+    {"id": "postgres", "name": "PostgreSQL", "description": "Primary database"},
+    {"id": "minio", "name": "MinIO", "description": "Object storage (S3-compatible)"},
+    {"id": "qdrant", "name": "Qdrant", "description": "Vector database for RAG"},
+    {"id": "temporal", "name": "Temporal", "description": "Workflow orchestration"},
+    {"id": "opa", "name": "OPA", "description": "Policy engine"},
+    {"id": "ocr", "name": "OCR/Extract", "description": "Document extraction"},
+    {"id": "jaeger", "name": "Jaeger", "description": "Distributed tracing"},
+    {"id": "metrics", "name": "Metrics", "description": "System metrics"},
+    {"id": "mlflow", "name": "MLflow", "description": "ML experiment tracking"},
+]
+
+
+@app.get("/v1/testbench/tools")
+async def list_testbench_tools():
+    """List all available tools for testing."""
+    return {"tools": TESTBENCH_TOOLS}
+
+
+class TestbenchRunRequest(BaseModel):
+    tool: str
+
+
+class TestbenchResult(BaseModel):
+    tool: str
+    name: str
+    passed: bool
+    latency_ms: float
+    summary: str
+    evidence: dict[str, Any]
+    trace_id: str | None = None
+    warning: str | None = None
+
+
+@app.post("/v1/testbench/run", response_model=TestbenchResult)
+async def run_testbench_tool(request: TestbenchRunRequest):
+    """Run a specific tool test and return results."""
+    import time
+    import httpx
+    
+    tool = request.tool.lower()
+    start = time.time()
+    trace_id = get_request_id()
+    
+    try:
+        if tool == "keycloak":
+            result = await _test_keycloak()
+        elif tool == "kong":
+            result = await _test_kong()
+        elif tool == "postgres":
+            result = await _test_postgres()
+        elif tool == "minio":
+            result = await _test_minio()
+        elif tool == "qdrant":
+            result = await _test_qdrant()
+        elif tool == "temporal":
+            result = await _test_temporal()
+        elif tool == "opa":
+            result = await _test_opa()
+        elif tool == "ocr":
+            result = await _test_ocr()
+        elif tool == "jaeger":
+            result = await _test_jaeger()
+        elif tool == "metrics":
+            result = await _test_metrics()
+        elif tool == "mlflow":
+            result = await _test_mlflow()
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown tool: {tool}")
+        
+        latency_ms = (time.time() - start) * 1000
+        
+        tool_info = next((t for t in TESTBENCH_TOOLS if t["id"] == tool), {"name": tool})
+        
+        return TestbenchResult(
+            tool=tool,
+            name=tool_info.get("name", tool),
+            passed=result["passed"],
+            latency_ms=round(latency_ms, 2),
+            summary=result["summary"],
+            evidence=result.get("evidence", {}),
+            trace_id=trace_id,
+            warning=result.get("warning")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        latency_ms = (time.time() - start) * 1000
+        tool_info = next((t for t in TESTBENCH_TOOLS if t["id"] == tool), {"name": tool})
+        return TestbenchResult(
+            tool=tool,
+            name=tool_info.get("name", tool),
+            passed=False,
+            latency_ms=round(latency_ms, 2),
+            summary=f"Error: {str(e)}",
+            evidence={"error": str(e)},
+            trace_id=trace_id
+        )
+
+
+async def _test_keycloak():
+    """Test Keycloak connectivity and token endpoint."""
+    import httpx
+    
+    keycloak_url = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
+    realm = os.getenv("KEYCLOAK_REALM", "erpx")
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Test realm info
+        try:
+            resp = await client.get(f"{keycloak_url}/realms/{realm}")
+            evidence["realm_status"] = resp.status_code
+            evidence["realm_reachable"] = resp.status_code == 200
+            if resp.status_code == 200:
+                realm_info = resp.json()
+                evidence["realm_name"] = realm_info.get("realm")
+        except Exception as e:
+            evidence["realm_error"] = str(e)
+            evidence["realm_reachable"] = False
+        
+        # Test token endpoint
+        try:
+            token_url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
+            resp = await client.post(
+                token_url,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "erpx-api"),
+                    "client_secret": os.getenv("KEYCLOAK_CLIENT_SECRET", "erpx-secret")
+                }
+            )
+            evidence["token_endpoint_status"] = resp.status_code
+            evidence["token_obtainable"] = resp.status_code == 200
+            if resp.status_code == 200:
+                token_data = resp.json()
+                evidence["token_type"] = token_data.get("token_type")
+                evidence["expires_in"] = token_data.get("expires_in")
+        except Exception as e:
+            evidence["token_error"] = str(e)
+            evidence["token_obtainable"] = False
+    
+    passed = evidence.get("realm_reachable", False) and evidence.get("token_obtainable", False)
+    
+    return {
+        "passed": passed,
+        "summary": "Keycloak reachable and token obtainable" if passed else "Keycloak connectivity issues",
+        "evidence": evidence
+    }
+
+
+async def _test_kong():
+    """Test Kong gateway JWT enforcement."""
+    import httpx
+    
+    kong_url = os.getenv("KONG_ADMIN_URL", "http://kong:8001")
+    api_url = "http://localhost:8080"  # Kong proxy
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Test Kong admin
+        try:
+            resp = await client.get(f"{kong_url}/status")
+            evidence["admin_status"] = resp.status_code
+            evidence["admin_reachable"] = resp.status_code == 200
+        except Exception as e:
+            evidence["admin_error"] = str(e)
+            evidence["admin_reachable"] = False
+        
+        # Test unauthenticated request returns 401
+        try:
+            resp = await client.get(f"{api_url}/api/health")
+            evidence["no_token_status"] = resp.status_code
+            evidence["auth_enforced"] = resp.status_code == 401
+        except Exception as e:
+            evidence["no_token_error"] = str(e)
+            evidence["auth_enforced"] = False
+    
+    passed = evidence.get("admin_reachable", False) and evidence.get("auth_enforced", False)
+    
+    return {
+        "passed": passed,
+        "summary": "Kong gateway auth enforced" if passed else "Kong gateway issues",
+        "evidence": evidence
+    }
+
+
+async def _test_postgres():
+    """Test PostgreSQL connectivity and query counts."""
+    import asyncpg
+    
+    evidence = {}
+    
+    try:
+        conn = await asyncpg.connect(
+            host=os.getenv("DB_HOST", "postgres"),
+            port=int(os.getenv("DB_PORT", "5432")),
+            user=os.getenv("DB_USER", "erpx"),
+            password=os.getenv("DB_PASSWORD", "erpx_password"),
+            database=os.getenv("DB_NAME", "erpx")
+        )
+        
+        try:
+            # Count tables
+            tables = ["job_runs", "approvals", "ledger_entries", "outbox_events", "invoices"]
+            for table in tables:
+                try:
+                    row = await conn.fetchrow(f"SELECT COUNT(*) as cnt FROM {table}")
+                    evidence[f"{table}_count"] = row["cnt"]
+                except Exception as e:
+                    evidence[f"{table}_error"] = str(e)
+            
+            # Check connection info
+            evidence["connected"] = True
+            evidence["server_version"] = conn.get_server_version()
+            
+        finally:
+            await conn.close()
+        
+        passed = evidence.get("connected", False)
+        return {
+            "passed": passed,
+            "summary": f"PostgreSQL connected. job_runs={evidence.get('job_runs_count', 0)}, approvals={evidence.get('approvals_count', 0)}",
+            "evidence": evidence
+        }
+        
+    except Exception as e:
+        return {
+            "passed": False,
+            "summary": f"PostgreSQL connection failed: {str(e)}",
+            "evidence": {"error": str(e)}
+        }
+
+
+async def _test_minio():
+    """Test MinIO object storage."""
+    import httpx
+    
+    minio_url = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+    access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+    secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+    
+    evidence = {}
+    
+    try:
+        from minio import Minio
+        
+        client = Minio(
+            minio_url.replace("http://", "").replace("https://", ""),
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=False
+        )
+        
+        # List buckets
+        buckets = list(client.list_buckets())
+        evidence["buckets"] = [b.name for b in buckets]
+        evidence["bucket_count"] = len(buckets)
+        
+        # Try to list objects in main bucket
+        main_bucket = os.getenv("MINIO_BUCKET", "erpx-documents")
+        if main_bucket in evidence["buckets"]:
+            objects = list(client.list_objects(main_bucket, recursive=False))
+            evidence["objects_in_bucket"] = len(objects)
+        
+        evidence["connected"] = True
+        
+        return {
+            "passed": True,
+            "summary": f"MinIO connected. {evidence['bucket_count']} buckets found",
+            "evidence": evidence
+        }
+        
+    except Exception as e:
+        return {
+            "passed": False,
+            "summary": f"MinIO connection failed: {str(e)}",
+            "evidence": {"error": str(e)}
+        }
+
+
+async def _test_qdrant():
+    """Test Qdrant vector database."""
+    import httpx
+    
+    qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Get collections
+            resp = await client.get(f"{qdrant_url}/collections")
+            if resp.status_code == 200:
+                data = resp.json()
+                collections = data.get("result", {}).get("collections", [])
+                evidence["collections"] = [c["name"] for c in collections]
+                evidence["collection_count"] = len(collections)
+                
+                # Get points count for first collection
+                if collections:
+                    col_name = collections[0]["name"]
+                    col_resp = await client.get(f"{qdrant_url}/collections/{col_name}")
+                    if col_resp.status_code == 200:
+                        col_data = col_resp.json()
+                        evidence["sample_collection"] = col_name
+                        evidence["points_count"] = col_data.get("result", {}).get("points_count", 0)
+                
+                evidence["connected"] = True
+                
+                return {
+                    "passed": True,
+                    "summary": f"Qdrant connected. {evidence['collection_count']} collections",
+                    "evidence": evidence
+                }
+            else:
+                evidence["status"] = resp.status_code
+                evidence["connected"] = False
+                
+        except Exception as e:
+            evidence["error"] = str(e)
+            evidence["connected"] = False
+    
+    return {
+        "passed": False,
+        "summary": "Qdrant connection failed",
+        "evidence": evidence
+    }
+
+
+async def _test_temporal():
+    """Test Temporal workflow engine."""
+    import httpx
+    
+    temporal_url = os.getenv("TEMPORAL_HOST", "temporal:7233")
+    temporal_ui = os.getenv("TEMPORAL_UI_URL", "http://localhost:8088")
+    
+    evidence = {}
+    
+    # Try Temporal via gRPC client
+    try:
+        from temporalio.client import Client
+        
+        client = await Client.connect(temporal_url, namespace="default")
+        evidence["connected"] = True
+        evidence["namespace"] = "default"
+        
+        # Try to list workflows
+        workflows = []
+        async for wf in client.list_workflows(query="", page_size=5):
+            workflows.append({
+                "id": wf.id,
+                "status": str(wf.status)
+            })
+            if len(workflows) >= 5:
+                break
+        
+        evidence["recent_workflows"] = workflows
+        evidence["workflow_count"] = len(workflows)
+        
+        return {
+            "passed": True,
+            "summary": f"Temporal connected. {len(workflows)} recent workflows",
+            "evidence": evidence
+        }
+        
+    except Exception as e:
+        evidence["error"] = str(e)
+        evidence["connected"] = False
+        
+        return {
+            "passed": False,
+            "summary": f"Temporal connection failed: {str(e)}",
+            "evidence": evidence
+        }
+
+
+async def _test_opa():
+    """Test OPA policy engine."""
+    import httpx
+    
+    opa_url = os.getenv("OPA_URL", "http://opa:8181")
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Test health
+            resp = await client.get(f"{opa_url}/health")
+            evidence["health_status"] = resp.status_code
+            evidence["healthy"] = resp.status_code == 200
+            
+            # Test policy evaluation
+            test_input = {
+                "input": {
+                    "amount": 5000,
+                    "vendor_id": "test-vendor",
+                    "user_role": "accountant"
+                }
+            }
+            
+            resp = await client.post(
+                f"{opa_url}/v1/data/erpx/policy/evaluate",
+                json=test_input
+            )
+            evidence["policy_status"] = resp.status_code
+            if resp.status_code == 200:
+                result = resp.json()
+                evidence["policy_result"] = result.get("result", {})
+                evidence["policy_works"] = True
+            else:
+                evidence["policy_works"] = False
+            
+            passed = evidence.get("healthy", False)
+            
+            return {
+                "passed": passed,
+                "summary": "OPA policy engine healthy" if passed else "OPA issues",
+                "evidence": evidence
+            }
+            
+        except Exception as e:
+            return {
+                "passed": False,
+                "summary": f"OPA connection failed: {str(e)}",
+                "evidence": {"error": str(e)}
+            }
+
+
+async def _test_ocr():
+    """Test OCR/document extraction capability."""
+    evidence = {}
+    
+    try:
+        # Test pdfplumber
+        try:
+            import pdfplumber
+            evidence["pdfplumber_available"] = True
+        except ImportError:
+            evidence["pdfplumber_available"] = False
+        
+        # Test pytesseract
+        try:
+            import pytesseract
+            evidence["pytesseract_available"] = True
+            # Check tesseract binary
+            import subprocess
+            result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True)
+            evidence["tesseract_version"] = result.stdout.split("\n")[0] if result.returncode == 0 else "not found"
+        except Exception as e:
+            evidence["pytesseract_available"] = False
+            evidence["tesseract_error"] = str(e)
+        
+        # Test openpyxl
+        try:
+            import openpyxl
+            evidence["openpyxl_available"] = True
+        except ImportError:
+            evidence["openpyxl_available"] = False
+        
+        passed = evidence.get("pdfplumber_available", False) or evidence.get("pytesseract_available", False)
+        
+        return {
+            "passed": passed,
+            "summary": "OCR/extraction libraries available" if passed else "OCR libraries not available",
+            "evidence": evidence
+        }
+        
+    except Exception as e:
+        return {
+            "passed": False,
+            "summary": f"OCR test failed: {str(e)}",
+            "evidence": {"error": str(e)}
+        }
+
+
+async def _test_jaeger():
+    """Test Jaeger tracing."""
+    import httpx
+    
+    jaeger_url = os.getenv("JAEGER_QUERY_URL", "http://jaeger:16686")
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Get services
+            resp = await client.get(f"{jaeger_url}/api/services")
+            if resp.status_code == 200:
+                data = resp.json()
+                services = data.get("data", [])
+                evidence["services"] = services
+                evidence["service_count"] = len(services)
+                evidence["has_erpx_api"] = "erpx-api" in services
+                evidence["connected"] = True
+                
+                passed = evidence.get("has_erpx_api", False)
+                
+                return {
+                    "passed": passed,
+                    "summary": f"Jaeger connected. {len(services)} services",
+                    "evidence": evidence,
+                    "warning": None if passed else "erpx-api service not found in Jaeger"
+                }
+            else:
+                evidence["status"] = resp.status_code
+                evidence["connected"] = False
+                
+        except Exception as e:
+            evidence["error"] = str(e)
+            evidence["connected"] = False
+    
+    return {
+        "passed": False,
+        "summary": "Jaeger connection failed",
+        "evidence": evidence,
+        "warning": "Jaeger may not be configured yet"
+    }
+
+
+async def _test_metrics():
+    """Test metrics endpoint."""
+    evidence = {}
+    
+    try:
+        # Get metrics from our own endpoint
+        from src.observability import list_metric_names, get_metric_stats
+        
+        metric_names = await list_metric_names()
+        evidence["metric_names"] = metric_names
+        evidence["metric_count"] = len(metric_names)
+        
+        if metric_names:
+            # Get sample metric
+            sample = metric_names[0]
+            stats = await get_metric_stats(sample)
+            evidence["sample_metric"] = sample
+            evidence["sample_stats"] = stats
+        
+        passed = len(metric_names) > 0
+        
+        return {
+            "passed": passed,
+            "summary": f"{len(metric_names)} metrics available",
+            "evidence": evidence
+        }
+        
+    except Exception as e:
+        return {
+            "passed": False,
+            "summary": f"Metrics test failed: {str(e)}",
+            "evidence": {"error": str(e)},
+            "warning": "Metrics may not be configured"
+        }
+
+
+async def _test_mlflow():
+    """Test MLflow experiment tracking."""
+    import httpx
+    
+    mlflow_url = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+    
+    evidence = {}
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            # Get experiments
+            resp = await client.get(f"{mlflow_url}/api/2.0/mlflow/experiments/search?max_results=10")
+            if resp.status_code == 200:
+                data = resp.json()
+                experiments = data.get("experiments", [])
+                evidence["experiments"] = [e.get("name") for e in experiments]
+                evidence["experiment_count"] = len(experiments)
+                evidence["connected"] = True
+                
+                return {
+                    "passed": True,
+                    "summary": f"MLflow connected. {len(experiments)} experiments",
+                    "evidence": evidence
+                }
+            else:
+                evidence["status"] = resp.status_code
+                evidence["connected"] = False
+                
+        except Exception as e:
+            evidence["error"] = str(e)
+            evidence["connected"] = False
+    
+    return {
+        "passed": False,
+        "summary": "MLflow connection failed",
+        "evidence": evidence,
+        "warning": "MLflow may not be running"
+    }
+
+
+# ===========================================================================
 # Run Server
 # ===========================================================================
 
