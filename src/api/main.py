@@ -996,6 +996,132 @@ Trả về JSON theo format đã định."""
             await conn.close()
 
 
+async def persist_proposal_only(
+    conn,
+    job_id: str,
+    file_info: dict[str, Any],
+    proposal: dict[str, Any],
+    tenant_id_str: str,
+    request_id: str | None = None,
+) -> dict[str, str]:
+    """
+    PR17: Persist just the extracted_invoice and journal_proposal (not ledger).
+    This is called for BOTH auto-approved AND needs-approval paths,
+    so the finalize activity can access proposal data later.
+    
+    Returns dict with proposal_id and invoice_id.
+    """
+    request_id = request_id or get_request_id()
+    tenant_uuid = uuid.UUID(tenant_id_str)
+    doc_uuid = uuid.UUID(job_id)
+    
+    # Check if already persisted (idempotent)
+    existing = await conn.fetchrow(
+        """SELECT jp.id as proposal_id, ei.id as invoice_id
+           FROM journal_proposals jp 
+           JOIN extracted_invoices ei ON jp.invoice_id = ei.id
+           JOIN documents d ON ei.document_id = d.id
+           WHERE d.job_id = $1""",
+        job_id,
+    )
+    if existing:
+        logger.info(f"[{request_id}] Proposal already persisted for job {job_id}")
+        return {"proposal_id": str(existing["proposal_id"]), "invoice_id": str(existing["invoice_id"])}
+    
+    # 0. Ensure documents table entry exists
+    await conn.execute(
+        """
+        INSERT INTO documents 
+        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (id) DO UPDATE SET status = 'processed'
+        """,
+        doc_uuid,
+        tenant_uuid,
+        job_id,
+        file_info.get("filename", "unknown.png"),
+        file_info.get("content_type", "application/octet-stream"),
+        file_info.get("size", 0),
+        file_info.get("path", ""),
+        file_info.get("checksum", ""),
+        "processed",
+    )
+    
+    # 1. Insert into extracted_invoices
+    invoice_id = uuid.uuid4()
+    invoice_date_str = proposal.get("invoice_date", datetime.now().strftime("%Y-%m-%d"))
+    try:
+        invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        invoice_date = datetime.now().date()
+    
+    await conn.execute(
+        """
+        INSERT INTO extracted_invoices 
+        (id, document_id, tenant_id, vendor_name, vendor_tax_id, invoice_number, 
+         invoice_date, total_amount, currency, ai_confidence, tax_amount, subtotal)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT DO NOTHING
+        """,
+        invoice_id,
+        doc_uuid,
+        tenant_uuid,
+        proposal.get("vendor", "Unknown"),
+        "",  # vendor_tax_id
+        proposal.get("invoice_no", f"INV-{job_id[:8]}"),
+        invoice_date,
+        float(proposal.get("total_amount", 0)),
+        "VND",
+        float(proposal.get("confidence", 0.85)),
+        float(proposal.get("vat_amount", 0)),
+        float(proposal.get("total_amount", 0)) - float(proposal.get("vat_amount", 0)),
+    )
+    
+    # 2. Insert into journal_proposals (status='pending' until approved)
+    proposal_id = uuid.uuid4()
+    entries = proposal.get("entries", [])
+    await conn.execute(
+        """
+        INSERT INTO journal_proposals
+        (id, document_id, invoice_id, tenant_id, status, ai_confidence, 
+         ai_model, ai_reasoning, risk_level)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT DO NOTHING
+        """,
+        proposal_id,
+        doc_uuid,
+        invoice_id,
+        tenant_uuid,
+        "pending",  # Not approved yet
+        float(proposal.get("confidence", 0.85)),
+        "do-agent-qwen3-32b",
+        proposal.get("explanation", "AI-generated journal proposal"),
+        "low" if proposal.get("confidence", 0) > 0.8 else "medium",
+    )
+    
+    # 3. Insert journal_proposal_entries
+    for idx, entry in enumerate(entries):
+        entry_id = uuid.uuid4()
+        await conn.execute(
+            """
+            INSERT INTO journal_proposal_entries
+            (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            """,
+            entry_id,
+            proposal_id,
+            entry.get("account_code", ""),
+            entry.get("account_name", ""),
+            float(entry.get("debit", 0)),
+            float(entry.get("credit", 0)),
+            idx + 1,
+        )
+    
+    logger.info(f"[{request_id}] Persisted proposal {proposal_id} for job {job_id}")
+    return {"proposal_id": str(proposal_id), "invoice_id": str(invoice_id)}
+
+
 async def persist_to_db_with_conn(
     conn,
     job_id: str,
@@ -1626,9 +1752,9 @@ async def get_job_status(job_id: str):
     """Get job status and result"""
     job = job_store.get(job_id)
     
-    # PR16: If job_store has pending status, check database for actual state
+    # PR16/PR17: If job_store has non-terminal status, check database for actual state
     # (Temporal worker updates DB directly, not job_store)
-    if job and job.get("status") in ("pending", "queued"):
+    if job and job.get("status") in ("pending", "queued", "waiting_for_approval"):
         try:
             conn = await get_db_connection()
             try:
@@ -1894,6 +2020,277 @@ async def reject_approval(
     except Exception as e:
         logger.error(f"[{request_id}] Failed to reject {approval_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
+# PR-17: Human-in-the-Loop Approval Endpoints (by job_id)
+# ===========================================================================
+
+
+class ApprovalByJobResponse(BaseModel):
+    job_id: str
+    approval_status: str
+    temporal_signaled: bool
+    message: str
+
+
+@app.get("/v1/approvals/pending")
+async def list_pending_approvals_pr17(
+    tenant_id: str | None = None,
+    limit: int = 50,
+):
+    """
+    List pending approvals (PR17).
+    
+    Query params:
+    - tenant_id: filter by tenant (optional)
+    - limit: max results (default: 50)
+    
+    Returns list of pending approvals with job_id.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            query = """
+                SELECT 
+                    a.id as approval_id,
+                    a.job_id,
+                    a.tenant_id,
+                    a.status,
+                    a.created_at,
+                    a.updated_at,
+                    ei.vendor_name,
+                    ei.invoice_number,
+                    ei.total_amount,
+                    ei.currency
+                FROM approvals a
+                LEFT JOIN journal_proposals jp ON a.proposal_id = jp.id
+                LEFT JOIN extracted_invoices ei ON jp.invoice_id = ei.id
+                WHERE a.status = 'pending'
+            """
+            params = []
+            
+            if tenant_id:
+                query += " AND a.tenant_id = $1"
+                params.append(uuid.UUID(tenant_id) if len(tenant_id) > 10 else tenant_id)
+            
+            query += f" ORDER BY a.created_at DESC LIMIT ${len(params) + 1}"
+            params.append(limit)
+            
+            rows = await conn.fetch(query, *params)
+            
+            return {
+                "approvals": [
+                    {
+                        "approval_id": str(row["approval_id"]),
+                        "job_id": str(row["job_id"]) if row["job_id"] else None,
+                        "tenant_id": str(row["tenant_id"]) if row["tenant_id"] else None,
+                        "status": row["status"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                        "vendor_name": row["vendor_name"],
+                        "invoice_number": row["invoice_number"],
+                        "total_amount": float(row["total_amount"]) if row["total_amount"] else None,
+                        "currency": row["currency"],
+                    }
+                    for row in rows
+                ],
+                "count": len(rows),
+            }
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to list pending approvals: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/approvals/by-job/{job_id}/approve", response_model=ApprovalByJobResponse)
+async def approve_by_job_id(
+    job_id: str,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Approve a pending job and signal Temporal workflow (PR17).
+    
+    This will:
+    1. Update approval status to 'approved' in DB
+    2. Signal Temporal workflow to continue posting
+    
+    Idempotent: repeated calls won't double-post ledger.
+    """
+    request_id = x_request_id or get_request_id()
+    
+    try:
+        conn = await get_db_connection()
+        try:
+            # Find approval by job_id
+            approval_row = await conn.fetchrow(
+                """
+                SELECT id, status FROM approvals 
+                WHERE job_id = $1::uuid
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                uuid.UUID(job_id),
+            )
+            
+            if not approval_row:
+                raise HTTPException(status_code=404, detail=f"No approval found for job_id: {job_id}")
+            
+            approval_id = approval_row["id"]
+            current_status = approval_row["status"]
+            
+            # Check if already approved (idempotent)
+            if current_status == "approved":
+                logger.info(f"[{request_id}] Job {job_id} already approved, returning OK")
+                return ApprovalByJobResponse(
+                    job_id=job_id,
+                    approval_status="approved",
+                    temporal_signaled=False,
+                    message="Already approved (idempotent)",
+                )
+            
+            if current_status not in ["pending", None]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot approve: current status is {current_status}",
+                )
+            
+            # Update approval status
+            await conn.execute(
+                """
+                UPDATE approvals
+                SET status = 'approved', 
+                    action = 'approved',
+                    approver_name = 'api_user', 
+                    approved_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                approval_id,
+            )
+            
+            logger.info(f"[{request_id}] Approval {approval_id} for job {job_id} approved")
+            
+        finally:
+            await conn.close()
+        
+        # Signal Temporal workflow
+        from src.workflows.temporal_client import signal_workflow_approval
+        
+        signal_result = await signal_workflow_approval(job_id, "approve")
+        
+        return ApprovalByJobResponse(
+            job_id=job_id,
+            approval_status="approved",
+            temporal_signaled=signal_result.get("signaled", False),
+            message=signal_result.get("message", "Approval processed"),
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to approve job {job_id}: {e}")
+        # Return 202 with temporal_signaled=false on failure (fail-open)
+        return ApprovalByJobResponse(
+            job_id=job_id,
+            approval_status="approved",
+            temporal_signaled=False,
+            message=f"Approval saved but signal failed: {str(e)}",
+        )
+
+
+@app.post("/v1/approvals/by-job/{job_id}/reject", response_model=ApprovalByJobResponse)
+async def reject_by_job_id(
+    job_id: str,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Reject a pending job and signal Temporal workflow (PR17).
+    
+    This will:
+    1. Update approval status to 'rejected' in DB
+    2. Signal Temporal workflow to finalize rejection
+    
+    Idempotent: repeated calls won't fail.
+    """
+    request_id = x_request_id or get_request_id()
+    
+    try:
+        conn = await get_db_connection()
+        try:
+            # Find approval by job_id
+            approval_row = await conn.fetchrow(
+                """
+                SELECT id, status FROM approvals 
+                WHERE job_id = $1::uuid
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                uuid.UUID(job_id),
+            )
+            
+            if not approval_row:
+                raise HTTPException(status_code=404, detail=f"No approval found for job_id: {job_id}")
+            
+            approval_id = approval_row["id"]
+            current_status = approval_row["status"]
+            
+            # Check if already rejected (idempotent)
+            if current_status == "rejected":
+                logger.info(f"[{request_id}] Job {job_id} already rejected, returning OK")
+                return ApprovalByJobResponse(
+                    job_id=job_id,
+                    approval_status="rejected",
+                    temporal_signaled=False,
+                    message="Already rejected (idempotent)",
+                )
+            
+            if current_status not in ["pending", None]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot reject: current status is {current_status}",
+                )
+            
+            # Update approval status
+            await conn.execute(
+                """
+                UPDATE approvals
+                SET status = 'rejected', 
+                    action = 'rejected',
+                    approver_name = 'api_user', 
+                    approved_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                approval_id,
+            )
+            
+            logger.info(f"[{request_id}] Approval {approval_id} for job {job_id} rejected")
+            
+        finally:
+            await conn.close()
+        
+        # Signal Temporal workflow
+        from src.workflows.temporal_client import signal_workflow_approval
+        
+        signal_result = await signal_workflow_approval(job_id, "reject")
+        
+        return ApprovalByJobResponse(
+            job_id=job_id,
+            approval_status="rejected",
+            temporal_signaled=signal_result.get("signaled", False),
+            message=signal_result.get("message", "Rejection processed"),
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to reject job {job_id}: {e}")
+        # Return 202 with temporal_signaled=false on failure (fail-open)
+        return ApprovalByJobResponse(
+            job_id=job_id,
+            approval_status="rejected",
+            temporal_signaled=False,
+            message=f"Rejection saved but signal failed: {str(e)}",
+        )
 
 
 # ===========================================================================

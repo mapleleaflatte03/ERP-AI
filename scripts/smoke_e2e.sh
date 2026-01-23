@@ -104,6 +104,93 @@ get_approval_status() {
     db_query "SELECT status FROM approvals WHERE job_id = '$job_id' ORDER BY created_at DESC LIMIT 1"
 }
 
+# =============================================================================
+# PR17: Token and approval helpers
+# =============================================================================
+
+KONG_URL="${KONG_URL:-http://localhost:8080}"
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8180}"
+KEYCLOAK_REALM="${KEYCLOAK_REALM:-erpx}"
+KEYCLOAK_CLIENT="${KEYCLOAK_CLIENT:-admin-cli}"
+KEYCLOAK_USER="${KEYCLOAK_USER:-admin}"
+KEYCLOAK_PASS="${KEYCLOAK_PASS:-admin123}"
+AUTH_TOKEN=""
+
+# Get JWT token from Keycloak
+get_auth_token() {
+    TOKEN_RESPONSE=$(curl -s -X POST "$KEYCLOAK_URL/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=password" \
+        -d "client_id=$KEYCLOAK_CLIENT" \
+        -d "username=$KEYCLOAK_USER" \
+        -d "password=$KEYCLOAK_PASS" 2>/dev/null || echo '{"error":"connection_failed"}')
+    
+    AUTH_TOKEN=$(echo "$TOKEN_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || echo "")
+    
+    if [ -n "$AUTH_TOKEN" ] && [ "$AUTH_TOKEN" != "" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Call approve endpoint via Kong (PR17)
+approve_job_via_kong() {
+    local job_id=$1
+    
+    if [ -z "$AUTH_TOKEN" ]; then
+        if ! get_auth_token; then
+            echo "  ${RED}✗${NC} Failed to get auth token"
+            return 1
+        fi
+    fi
+    
+    local RESPONSE=$(curl -s -X POST "$KONG_URL/api/v1/approvals/by-job/$job_id/approve" \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        -H "Content-Type: application/json" \
+        2>/dev/null)
+    
+    local HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$KONG_URL/api/v1/approvals/by-job/$job_id/approve" \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        -H "Content-Type: application/json" \
+        2>/dev/null || echo "000")
+    
+    echo "$RESPONSE"
+    
+    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Poll job until completed after approval
+poll_until_completed() {
+    local job_id=$1
+    local max_wait=${2:-60}
+    local start_time=$(date +%s)
+    
+    while true; do
+        local elapsed=$(($(date +%s) - start_time))
+        
+        if [ $elapsed -gt $max_wait ]; then
+            echo "  ${RED}✗${NC} Timeout waiting for completion"
+            return 1
+        fi
+        
+        local status=$(curl -s "$API_URL/v1/jobs/$job_id" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
+        
+        if [ "$status" = "completed" ]; then
+            return 0
+        elif [ "$status" = "failed" ] || [ "$status" = "rejected" ]; then
+            echo "  Job ended with status: $status"
+            return 1
+        fi
+        
+        sleep 2
+    done
+}
+
 # Check if approval has non-null job_id (critical invariant)
 check_approval_job_id() {
     local job_id=$1
@@ -495,13 +582,24 @@ run_e2e_attempt() {
         return 1
     fi
     
+    # PR17: Get auth token for approval endpoint calls
+    echo ""
+    echo -e "${CYAN}🔑 Acquiring auth token for approval API...${NC}"
+    get_auth_token
+    if [ -z "$AUTH_TOKEN" ]; then
+        echo -e "  ${YELLOW}⚠️ Could not get auth token, will try approval without auth${NC}"
+    else
+        echo -e "  ${GREEN}✓${NC} Auth token acquired"
+    fi
+    
     # ================================================================
     # CASE B: Force NEEDS_APPROVAL (low threshold)
-    # Expected: state=waiting_for_approval, approval=pending, ledger+0, outbox+0
+    # PR17: Then approve via API and verify completion
+    # Expected flow: waiting_for_approval → approve → completed
     # ================================================================
     echo ""
     echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}🅱️  CASE B: NEEDS_APPROVAL Path${NC}"
+    echo -e "${YELLOW}🅱️  CASE B: NEEDS_APPROVAL → Manual Approval Path (PR17)${NC}"
     echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
     
     # Set threshold to 1 to force needs_approval
@@ -513,23 +611,118 @@ run_e2e_attempt() {
     local approvals_before_b=$(db_count "approvals")
     echo "  Before: ledger=$ledger_before_b, outbox=$outbox_before_b, approvals=$approvals_before_b"
     
-    # Upload and poll
+    # Upload and poll until waiting_for_approval
     set +e
     upload_and_poll "Case B (needs_approval)" "waiting_for_approval"
     upload_result=$?
     set -e
     
     if [ $upload_result -eq 0 ]; then
-        # Verify outcome
+        # First verify waiting_for_approval state
         set +e
         verify_governance_outcome "$LAST_JOB_ID" "waiting_for_approval" "pending" "0" "0" "$ledger_before_b" "$outbox_before_b"
-        if [ $? -eq 0 ]; then
-            echo -e "  ${GREEN}✅ CASE B PASSED${NC}"
-            CASE_B_PASS=true
-        else
-            echo -e "  ${RED}❌ CASE B FAILED: Outcome mismatch${NC}"
-        fi
+        local verify_result=$?
         set -e
+        
+        if [ $verify_result -ne 0 ]; then
+            echo -e "  ${RED}❌ CASE B FAILED: Initial outcome mismatch${NC}"
+            restore_policy_config
+            return 1
+        fi
+        
+        echo ""
+        echo -e "${CYAN}📊 PR17 Evidence (Manual Approval Flow):${NC}"
+        
+        # PR17: Approve via Kong API
+        echo "  Calling approve endpoint via Kong..."
+        set +e
+        APPROVE_RESPONSE=$(approve_job_via_kong "$LAST_JOB_ID")
+        APPROVE_RESULT=$?
+        set -e
+        
+        local APPROVAL_STATUS=$(echo "$APPROVE_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('approval_status','unknown'))" 2>/dev/null || echo "unknown")
+        local TEMPORAL_SIGNALED=$(echo "$APPROVE_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('temporal_signaled', False))" 2>/dev/null || echo "false")
+        
+        echo "  Approval response status: $APPROVAL_STATUS"
+        echo "  Temporal signaled: $TEMPORAL_SIGNALED"
+        
+        if [ "$APPROVAL_STATUS" = "approved" ]; then
+            echo -e "  ${GREEN}✓${NC} Approval API succeeded"
+        else
+            echo -e "  ${RED}✗${NC} Approval API failed (status: $APPROVAL_STATUS)"
+            echo "  Response: $APPROVE_RESPONSE"
+            restore_policy_config
+            return 1
+        fi
+        
+        # Wait for workflow to complete
+        echo "  Waiting for workflow to complete..."
+        set +e
+        poll_until_completed "$LAST_JOB_ID" 60
+        POLL_RESULT=$?
+        set -e
+        
+        if [ $POLL_RESULT -eq 0 ]; then
+            echo -e "  ${GREEN}✓${NC} Job completed after approval"
+            
+            # Verify final outcome
+            local final_state=$(get_job_state "$LAST_JOB_ID")
+            local final_approval=$(get_approval_status "$LAST_JOB_ID")
+            local ledger_after_b=$(db_count "ledger_entries")
+            local outbox_after_b=$(db_count "outbox_events")
+            local ledger_delta_b=$((ledger_after_b - ledger_before_b))
+            local outbox_delta_b=$((outbox_after_b - outbox_before_b))
+            local audit_events=$(get_audit_events "$LAST_JOB_ID")
+            
+            echo ""
+            echo -e "${YELLOW}📋 Verifying post-approval outcome...${NC}"
+            
+            local PASS_B=true
+            
+            # Check final state
+            if [ "$final_state" = "completed" ]; then
+                echo -e "  ${GREEN}✓${NC} Job state: completed"
+            else
+                echo -e "  ${RED}✗${NC} Job state: $final_state (expected: completed)"
+                PASS_B=false
+            fi
+            
+            # Check approval status
+            if [ "$final_approval" = "approved" ]; then
+                echo -e "  ${GREEN}✓${NC} Approval status: approved"
+            else
+                echo -e "  ${RED}✗${NC} Approval status: $final_approval (expected: approved)"
+                PASS_B=false
+            fi
+            
+            # Check ledger delta (should be +1 after approval)
+            if [ "$ledger_delta_b" = "1" ]; then
+                echo -e "  ${GREEN}✓${NC} Ledger delta: +$ledger_delta_b"
+            else
+                echo -e "  ${RED}✗${NC} Ledger delta: +$ledger_delta_b (expected: +1)"
+                PASS_B=false
+            fi
+            
+            # Check outbox delta
+            if [ "$outbox_delta_b" = "1" ]; then
+                echo -e "  ${GREEN}✓${NC} Outbox delta: +$outbox_delta_b"
+            else
+                echo -e "  ${RED}✗${NC} Outbox delta: +$outbox_delta_b (expected: +1)"
+                PASS_B=false
+            fi
+            
+            # Show audit events
+            echo -e "  ${CYAN}ℹ${NC}  Audit events: $audit_events"
+            
+            if [ "$PASS_B" = true ]; then
+                echo -e "  ${GREEN}✅ CASE B PASSED (Manual Approval)${NC}"
+                CASE_B_PASS=true
+            else
+                echo -e "  ${RED}❌ CASE B FAILED: Post-approval outcome mismatch${NC}"
+            fi
+        else
+            echo -e "  ${RED}❌ CASE B FAILED: Job did not complete after approval${NC}"
+        fi
     elif [ $upload_result -eq 2 ]; then
         echo -e "  ${YELLOW}⚠️ CASE B: Flaky error, will retry${NC}"
         restore_policy_config

@@ -357,6 +357,14 @@ Trả về JSON theo format đã định."""
         # =========== STEP 4: GOVERNANCE GATING ===========
         needs_approval = policy_result.overall_result.value == "requires_review" or not policy_result.auto_approved
 
+        # PR17: Persist proposal data for BOTH paths (so finalize can access it later)
+        # We DO NOT post to ledger_entries yet - just extracted_invoices + journal_proposals
+        from src.api.main import persist_proposal_only
+        proposal_persist_result = await persist_proposal_only(
+            conn, job_id, file_info, proposal, str(tenant_uuid), request_id
+        )
+        proposal_id = proposal_persist_result.get("proposal_id")
+
         if needs_approval:
             # NEEDS APPROVAL path
             logger.info(f"[{request_id}] Job {job_id} requires approval - NOT posting ledger")
@@ -366,7 +374,7 @@ Trả về JSON theo format đã định."""
                 """INSERT INTO approvals
                 (id, proposal_id, tenant_id, job_id, approver_name, action, status, comments)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING""",
-                approval_id, None, tenant_uuid, doc_uuid, "System", "pending", "pending",
+                approval_id, proposal_id, tenant_uuid, doc_uuid, "System", "pending", "pending",
                 f"Pending approval (policy: {policy_result.overall_result.value})",
             )
 

@@ -284,7 +284,7 @@ services:
       dockerfile: Dockerfile
     container_name: erpx-worker
     restart: unless-stopped
-    command: python -m src.workflows.worker_pr16
+    command: python -m src.workflows.worker_pr17
     environment:
       - LLM_PROVIDER=do_agent
       - DO_AGENT_URL=${DO_AGENT_URL:-https://gdfyu2bkvuq4idxkb6x2xkpe.agents.do-ai.run}
