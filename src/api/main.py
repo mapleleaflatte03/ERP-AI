@@ -1747,55 +1747,154 @@ async def upload_document(
     )
 
 
-@app.get("/v1/jobs/{job_id}", response_model=JobStatus)
-async def get_job_status(job_id: str):
-    """Get job status and result"""
-    job = job_store.get(job_id)
+# ===========================================================================
+# PR18: DB-backed Job Status Helper
+# ===========================================================================
+
+async def get_job_status_from_db(job_id: str) -> dict | None:
+    """
+    Get job status from database (Source of Truth).
     
-    # PR16/PR17: If job_store has non-terminal status, check database for actual state
-    # (Temporal worker updates DB directly, not job_store)
-    if job and job.get("status") in ("pending", "queued", "waiting_for_approval"):
+    PR18: This makes /v1/jobs/{job_id} work even after API restart.
+    
+    Returns dict compatible with JobStatus model, or None if not found.
+    """
+    try:
+        conn = await get_db_connection()
         try:
-            conn = await get_db_connection()
-            try:
-                # Check job_processing_state for terminal state
-                state_row = await conn.fetchrow(
-                    "SELECT current_state FROM job_processing_state WHERE job_id = $1",
+            # 1. Get job processing state (primary source)
+            state_row = await conn.fetchrow(
+                """
+                SELECT current_state, created_at, updated_at, state_changed_at
+                FROM job_processing_state 
+                WHERE job_id = $1
+                """,
+                job_id,
+            )
+            
+            # 2. Get document info
+            doc_row = await conn.fetchrow(
+                """
+                SELECT filename, content_type, file_size, file_path, checksum,
+                       minio_bucket, minio_key, created_at, updated_at
+                FROM documents 
+                WHERE job_id = $1
+                """,
+                job_id,
+            )
+            
+            # If neither exists, job not found
+            if not state_row and not doc_row:
+                return None
+            
+            # Map DB state to API status
+            status = "unknown"
+            if state_row:
+                state_map = {
+                    "uploaded": "queued",
+                    "extracting": "processing",
+                    "extracted": "processing",
+                    "proposing": "processing",
+                    "proposed": "processing",
+                    "approving": "processing",
+                    "waiting_for_approval": "waiting_for_approval",
+                    "posting": "processing",
+                    "completed": "completed",
+                    "failed": "failed",
+                }
+                status = state_map.get(state_row["current_state"], state_row["current_state"])
+            
+            # Build file_info from documents table
+            file_info = None
+            if doc_row:
+                file_info = {
+                    "filename": doc_row["filename"],
+                    "content_type": doc_row["content_type"],
+                    "size": doc_row["file_size"],
+                    "path": doc_row["file_path"],
+                    "checksum": doc_row["checksum"],
+                }
+                if doc_row["minio_bucket"] and doc_row["minio_key"]:
+                    file_info["minio_path"] = f"s3://{doc_row['minio_bucket']}/{doc_row['minio_key']}"
+            
+            # Determine timestamps
+            created_at = (state_row["created_at"] if state_row else doc_row["created_at"]) if (state_row or doc_row) else datetime.now()
+            updated_at = (state_row["updated_at"] if state_row else doc_row["updated_at"]) if (state_row or doc_row) else datetime.now()
+            
+            # 3. Get result info for completed jobs
+            result = None
+            error = None
+            if status == "completed":
+                # Try to get ledger entry info
+                ledger_row = await conn.fetchrow(
+                    """
+                    SELECT le.id, le.entry_number, le.description, le.posted_at
+                    FROM ledger_entries le
+                    JOIN journal_proposals jp ON le.proposal_id = jp.id
+                    JOIN extracted_invoices ei ON jp.invoice_id = ei.id
+                    JOIN documents d ON ei.document_id = d.id
+                    WHERE d.job_id = $1
+                    ORDER BY le.created_at DESC LIMIT 1
+                    """,
                     job_id,
                 )
-                if state_row:
-                    db_state = state_row["current_state"]
-                    # Map DB state to API status
-                    state_map = {
-                        "completed": "completed",
-                        "waiting_for_approval": "waiting_for_approval",
-                        "failed": "failed",
+                if ledger_row:
+                    result = {
+                        "ledger_entry_id": str(ledger_row["id"]),
+                        "entry_number": ledger_row["entry_number"],
+                        "description": ledger_row["description"],
+                        "posted_at": ledger_row["posted_at"].isoformat() if ledger_row["posted_at"] else None,
                     }
-                    if db_state in state_map:
-                        job["status"] = state_map[db_state]
-                else:
-                    # Check approvals table as fallback
-                    approval_row = await conn.fetchrow(
-                        "SELECT status FROM approvals WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1",
+            elif status == "failed":
+                # Get error from job_processing_state
+                if state_row:
+                    error_row = await conn.fetchrow(
+                        "SELECT last_error FROM job_processing_state WHERE job_id = $1",
                         job_id,
                     )
-                    if approval_row:
-                        approval_status = approval_row["status"]
-                        if approval_status == "pending":
-                            job["status"] = "waiting_for_approval"
-                        elif approval_status == "approved":
-                            job["status"] = "completed"
-                        elif approval_status == "rejected":
-                            job["status"] = "failed"
-            finally:
-                await conn.close()
-        except Exception as e:
-            logger.warning(f"Failed to check DB state for job {job_id}: {e}")
-    
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+                    if error_row and error_row["last_error"]:
+                        error = error_row["last_error"]
+            
+            return {
+                "job_id": job_id,
+                "status": status,
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+                "updated_at": updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at),
+                "file_info": file_info,
+                "result": result,
+                "error": error,
+            }
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to get job status from DB for {job_id}: {e}")
+        return None
 
-    return JobStatus(**job)
+
+@app.get("/v1/jobs/{job_id}", response_model=JobStatus)
+async def get_job_status(job_id: str):
+    """
+    Get job status and result.
+    
+    PR18: DB-backed - survives API restart.
+    Priority: DB (source of truth) > job_store (cache)
+    """
+    # PR18: Always try DB first (source of truth)
+    db_status = await get_job_status_from_db(job_id)
+    
+    if db_status:
+        # DB found - return it (DB wins over stale cache)
+        logger.debug(f"[PR18] Job {job_id} status from DB: {db_status['status']}")
+        return JobStatus(**db_status)
+    
+    # Fallback to job_store cache (for jobs not yet in DB)
+    job = job_store.get(job_id)
+    if job:
+        logger.debug(f"[PR18] Job {job_id} status from cache: {job.get('status')}")
+        return JobStatus(**job)
+    
+    # Not found anywhere
+    raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
 
 @app.get("/v1/jobs")

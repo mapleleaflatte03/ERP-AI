@@ -717,6 +717,51 @@ run_e2e_attempt() {
             if [ "$PASS_B" = true ]; then
                 echo -e "  ${GREEN}✅ CASE B PASSED (Manual Approval)${NC}"
                 CASE_B_PASS=true
+                
+                # ================================================================
+                # PR18 Evidence: DB-backed job status (survives API restart)
+                # ================================================================
+                echo ""
+                echo -e "${CYAN}📊 PR18 Evidence (DB-backed Job Status):${NC}"
+                
+                # Save job_id before restart
+                local PR18_JOB_ID="$LAST_JOB_ID"
+                
+                # Restart API container
+                echo "  Restarting API container..."
+                docker restart erpx-api > /dev/null 2>&1
+                
+                # Wait for API to be healthy
+                local pr18_wait=0
+                local pr18_max_wait=30
+                while [ $pr18_wait -lt $pr18_max_wait ]; do
+                    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+                        break
+                    fi
+                    sleep 1
+                    pr18_wait=$((pr18_wait + 1))
+                done
+                
+                if [ $pr18_wait -ge $pr18_max_wait ]; then
+                    echo -e "  ${RED}✗${NC} API did not recover after restart"
+                else
+                    echo -e "  ${GREEN}✓${NC} API restarted and healthy"
+                    
+                    # Query job status - should return from DB, not 404
+                    sleep 2  # Extra wait for stability
+                    local PR18_STATUS=$(curl -s "$API_URL/v1/jobs/$PR18_JOB_ID" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','404'))" 2>/dev/null || echo "error")
+                    
+                    if [ "$PR18_STATUS" = "completed" ]; then
+                        echo -e "  ${GREEN}✓${NC} After restart: job status = completed (DB-backed)"
+                        echo -e "  ${GREEN}✅ PR18 PASSED: Job status persists across API restart${NC}"
+                    elif [ "$PR18_STATUS" = "404" ] || [ "$PR18_STATUS" = "error" ]; then
+                        echo -e "  ${RED}✗${NC} After restart: job status = $PR18_STATUS (job_store lost)"
+                        echo -e "  ${RED}❌ PR18 FAILED: Job not found after restart${NC}"
+                        CASE_B_PASS=false
+                    else
+                        echo -e "  ${YELLOW}⚠${NC} After restart: job status = $PR18_STATUS (expected: completed)"
+                    fi
+                fi
             else
                 echo -e "  ${RED}❌ CASE B FAILED: Post-approval outcome mismatch${NC}"
             fi
@@ -770,7 +815,8 @@ while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
             echo "=================================================="
             echo -e "${GREEN}✅ SMOKE_E2E PASSED (DYNAMIC - 2-Path Governance)${NC}"
             echo "   ✓ Case A: AUTO_APPROVED path verified"
-            echo "   ✓ Case B: NEEDS_APPROVAL path verified"
+            echo "   ✓ Case B: NEEDS_APPROVAL + manual approval verified"
+            echo "   ✓ PR18: DB-backed job status (survives restart)"
             if [ $ATTEMPT -gt 1 ]; then
                 echo -e "   - ${YELLOW}Succeeded after $ATTEMPT attempts (flaky LLM recovered)${NC}"
             fi

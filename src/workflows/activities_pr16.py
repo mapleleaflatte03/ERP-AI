@@ -398,6 +398,25 @@ Trả về JSON theo format đã định."""
         # AUTO APPROVED path
         logger.info(f"[{request_id}] Job {job_id} auto-approved - posting ledger")
 
+        # PR18: Idempotency check - ensure we don't double-post ledger on retry
+        existing_ledger = await conn.fetchrow(
+            """
+            SELECT le.id FROM ledger_entries le
+            JOIN journal_proposals jp ON le.proposal_id = jp.id
+            JOIN extracted_invoices ei ON jp.invoice_id = ei.id
+            JOIN documents d ON ei.document_id = d.id
+            WHERE d.job_id = $1
+            """,
+            job_id,
+        )
+        
+        if existing_ledger:
+            logger.info(f"[{request_id}] [PR18] Job {job_id} already posted to ledger (idempotent skip)")
+            # Just update state to completed and return
+            await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
+            await conn.close()
+            return "completed"
+
         await append_audit_event(
             conn, job_id, str(tenant_uuid), "auto_approved",
             {"reason": "Policy rules passed", "rules_passed": policy_result.rules_passed},
