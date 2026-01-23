@@ -3062,6 +3062,186 @@ async def get_simulation_endpoint(simulation_id: str):
 
 
 # ===========================================================================
+# PR21: AI CFO/Controller Insights
+# ===========================================================================
+
+
+class InsightRequest(BaseModel):
+    window_days: int = 30
+    assumptions: dict[str, Any] | None = None
+
+
+class InsightTriggerResponse(BaseModel):
+    insight_id: str
+    status: str = "queued"
+
+
+class InsightDetailResponse(BaseModel):
+    insight_id: str
+    tenant_id: str
+    status: str
+    source_window_days: int
+    inputs: dict[str, Any] | None
+    result: dict[str, Any] | None
+    error_message: str | None
+    created_at: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+@app.post("/v1/insights/cfo", response_model=InsightTriggerResponse)
+async def trigger_cfo_insight(
+    request: InsightRequest = InsightRequest(),
+    x_tenant_id: str | None = Header(default="default")
+):
+    """
+    Trigger async CFO/Controller insight generation.
+    
+    PR21: Creates insight record with status=queued, then processes in background.
+    Returns immediately with insight_id.
+    
+    Feature flag: ENABLE_CFO_INSIGHTS (default: 1)
+    """
+    import asyncio
+    import json
+    
+    # Check feature flag
+    if os.getenv("ENABLE_CFO_INSIGHTS", "1") != "1":
+        raise HTTPException(status_code=501, detail="CFO Insights feature is disabled")
+    
+    try:
+        from src.insights.cfo import create_insight_record, process_insight_async
+        
+        conn = await get_db_connection()
+        try:
+            # Get tenant UUID
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            
+            # Create insight record with status=queued
+            insight_id = await create_insight_record(
+                conn,
+                tenant_uuid,
+                request.window_days,
+                {"assumptions": request.assumptions} if request.assumptions else None
+            )
+            
+            # Record audit event - created
+            await conn.execute("""
+                INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
+                VALUES ($1, $2, $3, 'cfo_insight_created', $4, NOW())
+            """, uuid.uuid4(), insight_id, str(tenant_uuid), json.dumps({
+                "insight_id": str(insight_id),
+                "tenant_id": str(tenant_uuid),
+                "window_days": request.window_days
+            }))
+            
+            logger.info(f"Created CFO insight {insight_id} for tenant {tenant_uuid}")
+            
+        finally:
+            await conn.close()
+        
+        # Process in background (non-blocking)
+        async def _process_background():
+            bg_conn = await get_db_connection()
+            try:
+                await process_insight_async(bg_conn, insight_id, tenant_uuid, request.window_days)
+            except Exception as e:
+                logger.error(f"Background insight processing failed: {e}")
+            finally:
+                await bg_conn.close()
+        
+        # Start background task
+        asyncio.create_task(_process_background())
+        
+        return InsightTriggerResponse(
+            insight_id=str(insight_id),
+            status="queued"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to trigger CFO insight: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/insights/{insight_id}", response_model=InsightDetailResponse)
+async def get_insight_endpoint(insight_id: str):
+    """
+    Get CFO insight by ID.
+    
+    PR21: Returns full insight including status, result, and metadata.
+    Poll this endpoint until status=completed or status=failed.
+    """
+    try:
+        from src.insights.cfo import get_insight
+        
+        # Validate UUID
+        try:
+            insight_uuid = uuid.UUID(insight_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid insight_id format")
+        
+        conn = await get_db_connection()
+        try:
+            insight = await get_insight(conn, insight_uuid)
+            
+            if not insight:
+                raise HTTPException(status_code=404, detail=f"Insight not found: {insight_id}")
+            
+            return InsightDetailResponse(
+                insight_id=insight["insight_id"],
+                tenant_id=insight["tenant_id"],
+                status=insight["status"],
+                source_window_days=insight["source_window_days"],
+                inputs=insight.get("inputs"),
+                result=insight.get("result"),
+                error_message=insight.get("error_message"),
+                created_at=insight.get("created_at"),
+                started_at=insight.get("started_at"),
+                completed_at=insight.get("completed_at"),
+            )
+        finally:
+            await conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get insight {insight_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/insights/latest/")
+async def get_latest_insights_endpoint(
+    limit: int = 5,
+    x_tenant_id: str | None = Header(default="default")
+):
+    """
+    Get latest CFO insights for a tenant.
+    
+    PR21: Returns list of most recent insights.
+    """
+    try:
+        from src.insights.cfo import get_latest_insights
+        
+        conn = await get_db_connection()
+        try:
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            insights = await get_latest_insights(conn, tenant_uuid, min(limit, 20))
+            
+            return {
+                "insights": insights,
+                "count": len(insights)
+            }
+        finally:
+            await conn.close()
+            
+    except Exception as e:
+        logger.error(f"Failed to get latest insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
 # Run Server
 # ===========================================================================
 

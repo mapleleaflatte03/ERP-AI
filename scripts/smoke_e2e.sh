@@ -903,6 +903,97 @@ run_e2e_attempt() {
                     echo -e "  ${RED}❌ PR20 FAILED: Missing DB records${NC}"
                     CASE_B_PASS=false
                 fi
+                
+                # ================================================================
+                # PR21 Evidence: AI CFO/Controller Insights
+                # ================================================================
+                echo ""
+                echo -e "${CYAN}📊 PR21 Evidence (AI CFO Insights):${NC}"
+                
+                # Trigger CFO insights
+                echo "  Triggering CFO insights..."
+                local INSIGHT_RESPONSE=$(curl -s -X POST "http://localhost:8080/api/v1/insights/cfo" \
+                    -H "Authorization: Bearer $AUTH_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -H "X-Tenant-Id: default" \
+                    -d '{"window_days":30}' 2>/dev/null || echo "{}")
+                
+                local INSIGHT_ID=$(echo "$INSIGHT_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('insight_id',''))" 2>/dev/null || echo "")
+                local INSIGHT_STATUS=$(echo "$INSIGHT_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+                
+                local PR21_PASS=true
+                
+                if [ -n "$INSIGHT_ID" ] && [ "$INSIGHT_ID" != "null" ]; then
+                    echo -e "  ${GREEN}✓${NC} Insight created: $INSIGHT_ID (status: $INSIGHT_STATUS)"
+                    
+                    # Poll until completed (max 30s)
+                    local pr21_wait=0
+                    local pr21_max_wait=30
+                    local pr21_final_status="queued"
+                    
+                    while [ $pr21_wait -lt $pr21_max_wait ]; do
+                        local INSIGHT_GET=$(curl -s "http://localhost:8080/api/v1/insights/$INSIGHT_ID" \
+                            -H "Authorization: Bearer $AUTH_TOKEN" 2>/dev/null || echo "{}")
+                        pr21_final_status=$(echo "$INSIGHT_GET" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+                        
+                        if [ "$pr21_final_status" = "completed" ] || [ "$pr21_final_status" = "failed" ]; then
+                            break
+                        fi
+                        
+                        sleep 1
+                        pr21_wait=$((pr21_wait + 1))
+                    done
+                    
+                    if [ "$pr21_final_status" = "completed" ]; then
+                        echo -e "  ${GREEN}✓${NC} GET /insights/{id} returns completed"
+                        
+                        # Verify result has required fields
+                        local has_findings=$(echo "$INSIGHT_GET" | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('result',{}); print('yes' if r and len(r.get('top_findings',[])) >= 3 else 'no')" 2>/dev/null || echo "no")
+                        local has_recs=$(echo "$INSIGHT_GET" | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('result',{}); print('yes' if r and len(r.get('recommendations',[])) >= 3 else 'no')" 2>/dev/null || echo "no")
+                        
+                        if [ "$has_findings" = "yes" ]; then
+                            echo -e "  ${GREEN}✓${NC} Result has >=3 top_findings"
+                        else
+                            echo -e "  ${YELLOW}⚠${NC} Result has <3 top_findings"
+                        fi
+                        
+                        if [ "$has_recs" = "yes" ]; then
+                            echo -e "  ${GREEN}✓${NC} Result has >=3 recommendations"
+                        else
+                            echo -e "  ${YELLOW}⚠${NC} Result has <3 recommendations"
+                        fi
+                    else
+                        echo -e "  ${RED}✗${NC} Insight status: $pr21_final_status (expected: completed)"
+                        PR21_PASS=false
+                    fi
+                    
+                    # Verify DB row exists
+                    local insight_count=$(docker exec erpx-postgres bash -c "PGPASSWORD=erpx_secret psql -U erpx -d erpx -t -c \"SELECT COUNT(*) FROM cfo_insights WHERE id='$INSIGHT_ID'\"" 2>/dev/null | tr -d ' \n')
+                    if [ "$insight_count" = "1" ]; then
+                        echo -e "  ${GREEN}✓${NC} cfo_insights row exists"
+                    else
+                        echo -e "  ${RED}✗${NC} cfo_insights row missing"
+                        PR21_PASS=false
+                    fi
+                    
+                    # Verify audit events
+                    local pr21_audit=$(docker exec erpx-postgres bash -c "PGPASSWORD=erpx_secret psql -U erpx -d erpx -t -c \"SELECT COUNT(*) FROM audit_events WHERE event_type = 'cfo_insight_created'\"" 2>/dev/null | tr -d ' \n')
+                    if [ "$pr21_audit" -ge "1" ]; then
+                        echo -e "  ${GREEN}✓${NC} audit_events include cfo_insight_created ($pr21_audit)"
+                    else
+                        echo -e "  ${YELLOW}⚠${NC} audit_events count: $pr21_audit (expected >=1)"
+                    fi
+                else
+                    echo -e "  ${RED}✗${NC} Insight creation failed"
+                    PR21_PASS=false
+                fi
+                
+                if [ "$PR21_PASS" = true ]; then
+                    echo -e "  ${GREEN}✅ PR21 PASSED: Insights persisted + queryable${NC}"
+                else
+                    echo -e "  ${RED}❌ PR21 FAILED: Missing insight data${NC}"
+                    CASE_B_PASS=false
+                fi
             else
                 echo -e "  ${RED}❌ CASE B FAILED: Post-approval outcome mismatch${NC}"
             fi
@@ -960,6 +1051,7 @@ while [ $ATTEMPT -le $SMOKE_E2E_RETRIES ]; do
             echo "   ✓ PR18: DB-backed job status (survives restart)"
             echo "   ✓ PR19: Durable DB idempotency (no duplicates)"
             echo "   ✓ PR20: Cashflow forecast + scenario simulation"
+            echo "   ✓ PR21: AI CFO/Controller insights"
             if [ $ATTEMPT -gt 1 ]; then
                 echo -e "   - ${YELLOW}Succeeded after $ATTEMPT attempts (flaky LLM recovered)${NC}"
             fi
@@ -971,6 +1063,7 @@ SELECT '  Total approvals: ' || count(*) || ' (approved=' || count(*) FILTER (WH
 SELECT '  Total ledger entries: ' || count(*) FROM ledger_entries;
 SELECT '  Total outbox events: ' || count(*) FROM outbox_events;
 SELECT '  PR14 MinIO docs: ' || count(*) FROM documents WHERE minio_bucket IS NOT NULL;
+SELECT '  PR21 CFO insights: ' || count(*) FROM cfo_insights;
 EOF
             # PR14 Qdrant evidence
             QDRANT_POINTS=$(curl -s http://localhost:6333/collections/documents_ingested 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('points_count',0))" 2>/dev/null || echo "0")
