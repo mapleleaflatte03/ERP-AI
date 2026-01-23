@@ -3242,6 +3242,235 @@ async def get_latest_insights_endpoint(
 
 
 # ===========================================================================
+# PR22: System Evidence Endpoint for UI
+# ===========================================================================
+
+@app.get("/v1/evidence/summary")
+async def get_system_evidence():
+    """
+    Get system-wide evidence summary for UI dashboard.
+    
+    PR22: Returns evidence from all integrated tools.
+    """
+    evidence = {
+        "postgres": None,
+        "minio": None,
+        "qdrant": None,
+        "temporal": None,
+        "jaeger": None,
+        "mlflow": None
+    }
+    
+    try:
+        # Postgres counters
+        conn = await get_db_connection()
+        try:
+            counters = {}
+            for table in ["documents", "invoices", "proposals", "approvals", "ledger_entries", "jobs"]:
+                try:
+                    result = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
+                    counters[table] = result or 0
+                except Exception:
+                    counters[table] = 0
+            evidence["postgres"] = counters
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.warning(f"Postgres evidence failed: {e}")
+    
+    try:
+        # MinIO objects
+        import boto3
+        from botocore.client import Config
+        
+        s3 = boto3.client(
+            's3',
+            endpoint_url=os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
+            aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "erpx_minio"),
+            aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "erpx_minio_secret"),
+            config=Config(signature_version='s3v4')
+        )
+        
+        sample_keys = []
+        bucket = os.getenv("MINIO_BUCKET", "erpx-documents")
+        try:
+            response = s3.list_objects_v2(Bucket=bucket, MaxKeys=10)
+            for obj in response.get("Contents", []):
+                sample_keys.append(obj["Key"])
+        except Exception:
+            pass
+        
+        evidence["minio"] = {"sample_keys": sample_keys}
+    except Exception as e:
+        logger.warning(f"MinIO evidence failed: {e}")
+    
+    try:
+        # Qdrant points
+        import httpx
+        
+        async with httpx.AsyncClient() as client:
+            qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
+            collection = os.getenv("QDRANT_COLLECTION", "documents")
+            
+            resp = await client.get(f"{qdrant_url}/collections/{collection}")
+            if resp.status_code == 200:
+                data = resp.json()
+                evidence["qdrant"] = {"points_count": data.get("result", {}).get("points_count", 0)}
+    except Exception as e:
+        logger.warning(f"Qdrant evidence failed: {e}")
+    
+    try:
+        # Temporal completed workflows
+        conn = await get_db_connection()
+        try:
+            result = await conn.fetchval(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'completed' AND temporal_workflow_id IS NOT NULL"
+            )
+            evidence["temporal"] = {"completed_jobs": result or 0}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.warning(f"Temporal evidence failed: {e}")
+    
+    try:
+        # Jaeger services
+        import httpx
+        
+        async with httpx.AsyncClient() as client:
+            jaeger_url = os.getenv("JAEGER_URL", "http://jaeger:16686")
+            resp = await client.get(f"{jaeger_url}/api/services", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                evidence["jaeger"] = {"services": data.get("data", [])}
+    except Exception as e:
+        logger.warning(f"Jaeger evidence failed: {e}")
+    
+    try:
+        # MLflow runs
+        import httpx
+        
+        async with httpx.AsyncClient() as client:
+            mlflow_url = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5001")
+            resp = await client.get(f"{mlflow_url}/api/2.0/mlflow/experiments/search", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                total_runs = 0
+                for exp in data.get("experiments", []):
+                    exp_id = exp.get("experiment_id")
+                    if exp_id:
+                        runs_resp = await client.get(
+                            f"{mlflow_url}/api/2.0/mlflow/runs/search",
+                            params={"experiment_ids": exp_id}
+                        )
+                        if runs_resp.status_code == 200:
+                            total_runs += len(runs_resp.json().get("runs", []))
+                evidence["mlflow"] = {"runs_count": total_runs}
+    except Exception as e:
+        logger.warning(f"MLflow evidence failed: {e}")
+    
+    return evidence
+
+
+@app.get("/v1/forecasts/latest")
+async def get_latest_forecasts(
+    limit: int = 10,
+    x_tenant_id: str | None = Header(default="default")
+):
+    """
+    Get latest cashflow forecasts.
+    
+    PR22: Returns recent forecasts for UI listing.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            
+            rows = await conn.fetch("""
+                SELECT 
+                    id, tenant_id, window_days, forecast_date,
+                    total_inflow, total_outflow, net_position,
+                    daily_forecast, created_at
+                FROM forecasts
+                WHERE tenant_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            """, tenant_uuid, limit)
+            
+            forecasts = []
+            for row in rows:
+                forecasts.append({
+                    "id": str(row["id"]),
+                    "tenant_id": str(row["tenant_id"]),
+                    "window_days": row["window_days"],
+                    "forecast_date": row["forecast_date"].isoformat() if row["forecast_date"] else None,
+                    "total_inflow": float(row["total_inflow"]) if row["total_inflow"] else 0,
+                    "total_outflow": float(row["total_outflow"]) if row["total_outflow"] else 0,
+                    "net_position": float(row["net_position"]) if row["net_position"] else 0,
+                    "daily_forecast": row["daily_forecast"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                })
+            
+            return {"forecasts": forecasts, "count": len(forecasts)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get latest forecasts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/simulations/latest")
+async def get_latest_simulations(
+    limit: int = 10,
+    x_tenant_id: str | None = Header(default="default")
+):
+    """
+    Get latest scenario simulations.
+    
+    PR22: Returns recent simulations for UI listing.
+    """
+    try:
+        conn = await get_db_connection()
+        try:
+            tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
+            
+            rows = await conn.fetch("""
+                SELECT 
+                    id, tenant_id, base_forecast_id, scenario_name,
+                    assumptions, baseline_net, projected_net, delta, percent_change,
+                    status, created_at, completed_at
+                FROM simulations
+                WHERE tenant_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            """, tenant_uuid, limit)
+            
+            simulations = []
+            for row in rows:
+                simulations.append({
+                    "id": str(row["id"]),
+                    "tenant_id": str(row["tenant_id"]),
+                    "base_forecast_id": str(row["base_forecast_id"]) if row["base_forecast_id"] else None,
+                    "scenario_name": row["scenario_name"],
+                    "assumptions": row["assumptions"],
+                    "baseline_net": float(row["baseline_net"]) if row["baseline_net"] else 0,
+                    "projected_net": float(row["projected_net"]) if row["projected_net"] else 0,
+                    "delta": float(row["delta"]) if row["delta"] else 0,
+                    "percent_change": float(row["percent_change"]) if row["percent_change"] else 0,
+                    "status": row["status"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None
+                })
+            
+            return {"simulations": simulations, "count": len(simulations)}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to get latest simulations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================================================================
 # Run Server
 # ===========================================================================
 

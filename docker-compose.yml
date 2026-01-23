@@ -530,6 +530,29 @@ services:
     logging: *default-logging
 
   # ==========================================================================
+  # ERPX Agent Console UI
+  # ==========================================================================
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: erpx-ui
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    depends_on:
+      - api
+    networks:
+      - erpx-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-s", "http://localhost:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+
+  # ==========================================================================
   # MinIO Setup - Create Buckets
   # ==========================================================================
   minio-setup:
