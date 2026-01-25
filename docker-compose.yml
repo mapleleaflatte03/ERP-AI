@@ -108,7 +108,7 @@ services:
   # PostgreSQL - Transaction & Audit Database
   # ==========================================================================
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: erpx-postgres
     restart: unless-stopped
     ports:

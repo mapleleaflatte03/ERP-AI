@@ -266,6 +266,19 @@ class ApiClient {
     const response = await this.client.get('/v1/evidence/summary');
     return response.data;
   }
+
+  // ========================================================
+  // Journal Proposals API (list all proposals)
+  // Uses direct path without /api prefix for unauthenticated access
+  // ========================================================
+  
+  async getJournalProposals(status?: string, limit: number = 50, offset: number = 0) {
+    const params: Record<string, string | number> = { limit, offset };
+    if (status) params.status = status;
+    // Use axios directly with absolute path (no /api prefix)
+    const response = await axios.get('/v1/journal-proposals', { params });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

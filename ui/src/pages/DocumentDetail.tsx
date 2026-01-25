@@ -293,13 +293,13 @@ export default function DocumentDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {extractedFields.line_items.map((item: any, idx: number) => (
+                        {extractedFields.line_items.map((item: Record<string, unknown>, idx: number) => (
                           <tr key={idx}>
                             <td className="px-3 py-2">{idx + 1}</td>
-                            <td className="px-3 py-2">{item.name}</td>
-                            <td className="px-3 py-2 text-right">{item.quantity}</td>
-                            <td className="px-3 py-2 text-right">{formatCurrency(item.unit_price)}</td>
-                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.amount)}</td>
+                            <td className="px-3 py-2">{String(item.name ?? '')}</td>
+                            <td className="px-3 py-2 text-right">{String(item.quantity ?? '')}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(item.unit_price as number | undefined)}</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.amount as number | undefined)}</td>
                           </tr>
                         ))}
                       </tbody>

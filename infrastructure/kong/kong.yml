@@ -76,6 +76,22 @@ services:
           - GET
         strip_path: false
 
+      # Journal Proposals route (unauthenticated for UI)
+      - name: journal-proposals-route
+        paths:
+          - /v1/journal-proposals
+        methods:
+          - GET
+        strip_path: false
+
+      # Journal Proposals route via /api prefix
+      - name: journal-proposals-api-route
+        paths:
+          - /api/v1/journal-proposals
+        methods:
+          - GET
+        strip_path: true
+
 plugins:
   # JWT Authentication - Keycloak OIDC
   # Applied to ALL routes except health check and testbench
@@ -152,6 +168,7 @@ plugins:
       generator: uuid
       echo_downstream: true
 
+
 # Consumer for API access with Keycloak JWT
 consumers:
   - username: keycloak-users
@@ -161,11 +178,11 @@ consumers:
         algorithm: RS256
         rsa_public_key: |
           -----BEGIN PUBLIC KEY-----
-          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoE1qtSGqVLplp92L0VMa
-          D7YcFnYtiQ5r+1P3IN3GOJTDTgyYQY5c/YYN3c9EekXBr5s6xefNeIN3l4OcmsmI
-          jnke1gY0SurUU+9nQSjJsSrDFVh+JyPWYEuYcDOM6LnMtSlI5tSOIwaLxEfiZ4C3
-          FLrj16iCEJCJf9oL1kkWTve+pOSeWZ4AjCk6TIL/aix1SzCodSfbwEdz0a6v4TZ3
-          1vSb2vrgP7qBkO9oPBkZahT3tiA6+UHKc4eWZcH1+CMTZ0OZHEf/PXTkJM2SHNc2
-          u2VHt0Q127GAGLhcrODlJpMbi/f2uNLKyo/26dPTnSWedmNipDiBp76UyvilyrkY
-          zQIDAQAB
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dOhgLYwfmpA
+          RYeW4440wbwIEBxyeF4+0Of/EcEnwQBMr0TrImuxLHKW/rIO5nPR+50R
+          ROL+F8v7fPEHifBcxnWUg4AhHqC6YfmuR5N+b4dywObd3qdljc1WhgSz
+          JXrqUw5b51HIlOeQYIkrBoVTk5LuOUXG1uDdLBI4wZCW4Hwy4pLfMXtv
+          Nw7UCNh59RoTfiWbdX7KidTJNA1pImXOS7wKN+z169ozgy8dFe25572q
+          NKtCjABo1LnvkoMDzwjkEYzLf8lbHAqdBgtFNIwXnTV9U5ZzUNVA+qNs
+          e4LmDE62+w9EtavoiJ85hyYtgy9eEYuJC3TWjsIzBeP1uIraQQIDAQAB
           -----END PUBLIC KEY-----

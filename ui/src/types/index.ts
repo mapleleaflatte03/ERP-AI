@@ -30,7 +30,7 @@ export interface Document {
   total_amount?: number;
   vat_amount?: number;
   currency?: string;
-  extracted_fields?: Record<string, any>;
+  extracted_fields?: Record<string, unknown>;
   extracted_text?: string;
   file_url?: string;
   created_at: string;
@@ -93,13 +93,13 @@ export interface EvidenceEvent {
   action: string;
   timestamp: string;  // When the event occurred
   actor: string;  // user:email or agent:name
-  payload?: Record<string, any>;  // Additional metadata
+  payload?: Record<string, unknown>;  // Additional metadata
   // Legacy fields for backward compatibility
   step?: string;
   input_summary?: string;
   output_summary?: string;
   severity?: 'info' | 'warning' | 'error' | 'success';
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   trace_id?: string;
   created_at?: string;
 }
@@ -141,8 +141,8 @@ export interface Job {
   document_type?: string;
   completed_at?: string;
   error?: string;
-  result?: any;
-  proposal?: any;
+  result?: unknown;
+  proposal?: unknown;
 }
 
 export interface TestbenchTool {
@@ -157,7 +157,7 @@ export interface TestbenchResult {
   passed: boolean;
   latency_ms: number;
   summary: string;
-  evidence: any;
+  evidence: unknown;
   trace_id?: string;
   warning?: string;
 }

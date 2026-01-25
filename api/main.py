@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantMiddleware
 from api.routes import router
+from api.document_routes import router as document_router
 from core.constants import API_PREFIX, API_VERSION
 from core.exceptions import ERPXBaseException, QuotaExceeded, TenantNotFound, ValidationError
 from core.schemas import (
@@ -74,6 +75,8 @@ def create_app() -> FastAPI:
     # Include routes
     app.include_router(router, prefix=API_PREFIX)
 
+    # Document routes (UI-facing)
+    app.include_router(document_router, prefix=API_PREFIX)
     # Exception handlers
     @app.exception_handler(ERPXBaseException)
     async def erpx_exception_handler(request: Request, exc: ERPXBaseException):

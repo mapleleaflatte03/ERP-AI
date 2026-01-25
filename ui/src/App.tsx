@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import DocumentsInbox from './pages/DocumentsInbox';
 import DocumentDetail from './pages/DocumentDetail';
 import JournalProposal from './pages/JournalProposal';
+import ProposalsInbox from './pages/ProposalsInbox';
 import ApprovalsInbox from './pages/ApprovalsInbox';
 import Reconciliation from './pages/Reconciliation';
 import CopilotChat from './pages/CopilotChat';
@@ -35,8 +36,8 @@ export default function App() {
             <Route path="documents/:id" element={<DocumentDetail />} />
             <Route path="documents/:id/proposal" element={<JournalProposal />} />
             
-            {/* Proposals list - reuses JournalProposal with empty doc context */}
-            <Route path="proposals" element={<JournalProposal />} />
+            {/* Proposals list */}
+            <Route path="proposals" element={<ProposalsInbox />} />
             
             {/* Approvals */}
             <Route path="approvals" element={<ApprovalsInbox />} />

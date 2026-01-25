@@ -90,55 +90,30 @@ def process_image_ocr(image_data: bytes) -> ProcessingResult:
                 document_text=text,
                 tables=[],
                 key_fields=extract_key_fields(text),
-                confidence=0.7,
-                extraction_method="tesseract_ocr",
-            )
-        except Exception as e:
-            logger.error(f"Tesseract OCR failed: {e}")
-            return ProcessingResult(
-                success=False,
-                document_text="",
-                tables=[],
-                key_fields={},
-                confidence=0.0,
-                extraction_method="failed",
-                error_message=str(e),
-            )
-
+    """Process image using Tesseract OCR (Fallback for PaddleOCR)"""
     try:
-        # Save to temp file for PaddleOCR
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(image_data)
-            tmp_path = tmp.name
+        import pytesseract
+        from PIL import Image
+        import io
 
-        # Run OCR
-        result = ocr.ocr(tmp_path, cls=True)
-
-        # Clean up
-        os.unlink(tmp_path)
-
-        # Extract text
-        lines = []
-        if result and result[0]:
-            for line in result[0]:
-                if len(line) >= 2:
-                    text = line[1][0]  # text content
-                    conf = line[1][1]  # confidence
-                    lines.append(text)
-
-        full_text = "\n".join(lines)
+        # Load image
+        image = Image.open(io.BytesIO(image_data))
+        
+        # Run Tesseract
+        # Assume tesseract is in PATH or configured
+        text = pytesseract.image_to_string(image, lang="eng")
 
         return ProcessingResult(
             success=True,
-            document_text=full_text,
+            document_text=text,
             tables=[],
-            key_fields=extract_key_fields(full_text),
-            confidence=0.85,
-            extraction_method="paddleocr",
+            key_fields=extract_key_fields(text),
+            confidence=0.80,
+            extraction_method="tesseract",
         )
 
     except Exception as e:
-        logger.error(f"PaddleOCR failed: {e}")
+        logger.error(f"OCR processing failed: {e}")
         return ProcessingResult(
             success=False,
             document_text="",

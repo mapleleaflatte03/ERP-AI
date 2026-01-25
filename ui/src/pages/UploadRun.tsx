@@ -103,7 +103,7 @@ export default function UploadRun() {
           
           // Fetch detailed evidence
           try {
-            const [evidence, _timeline, policy, zones] = await Promise.all([
+            const [evidence, /* _timeline */, policy, zones] = await Promise.all([
               api.getJobEvidence(id),
               api.getJobTimeline(id),
               api.getJobPolicy(id),

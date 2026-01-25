@@ -146,3 +146,24 @@ runtime/reports/*
 _archive/
 !_archive/.gitkeep
 
+
+# -----------------------------------------------------------------
+# Kaggle & Test Data (E2E runs)
+# -----------------------------------------------------------------
+data/kaggle_runs/
+data/test_batch/
+test_reports/
+*.sha256
+
+# Kaggle credentials
+.kaggle/
+kaggle.json
+
+# Node test artifacts
+ui/test-results/
+ui/playwright-report/
+ui/coverage/
+
+# Samples & generated test data
+samples/
+generate_test_data.py
