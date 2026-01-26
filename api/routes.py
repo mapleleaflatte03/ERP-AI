@@ -91,7 +91,8 @@ async def process_document(request: Request, coding_request: CodingRequest):
         copilot = get_copilot_instance(mode=coding_request.mode, tenant_id=tenant_id)
 
         # Process document
-        result = copilot.process(
+        result = await asyncio.to_thread(
+            copilot.process,
             ocr_text=coding_request.ocr_text,
             structured_fields=coding_request.structured_fields,
             file_metadata={"source_file": coding_request.file_path} if coding_request.file_path else None,
@@ -154,7 +155,8 @@ async def process_file(
         copilot = get_copilot_instance(mode=mode.upper(), tenant_id=tenant_id)
 
         # Process
-        result = copilot.process(
+        result = await asyncio.to_thread(
+            copilot.process,
             ocr_text=ocr_text,
             structured_fields=structured_fields,
             file_metadata={"source_file": filename},
@@ -299,7 +301,8 @@ async def process_batch(
 
         for i, doc in enumerate(documents):
             try:
-                result = copilot.process(
+                result = await asyncio.to_thread(
+                    copilot.process,
                     ocr_text=doc.get("ocr_text"),
                     structured_fields=doc.get("structured_fields"),
                     file_metadata=doc.get("file_metadata"),
