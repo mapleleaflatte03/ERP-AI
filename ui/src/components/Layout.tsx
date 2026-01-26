@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
@@ -13,11 +13,12 @@ import {
   X,
   LogOut,
   CheckCircle2,
-  XCircle,
+  
   Settings,
   Bot,
 } from 'lucide-react';
 import api from '../lib/api';
+import LoginModal from './LoginModal';
 
 const navigation = [
   { name: 'Chứng từ', href: '/', icon: FileText },
@@ -37,12 +38,22 @@ export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const isAuthenticated = api.isAuthenticated();
+  // Use state to track auth and trigger re-render after login
+  const [isAuthenticated, setIsAuthenticated] = useState(() => api.isAuthenticated());
+
+  const handleLoginSuccess = useCallback(() => {
+    setIsAuthenticated(true);
+  }, []);
 
   const handleLogout = () => {
     api.clearToken();
-    window.location.reload();
+    setIsAuthenticated(false);
   };
+
+  // Show login modal if not authenticated
+  if (!isAuthenticated) {
+    return <LoginModal onSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -128,17 +139,8 @@ export default function Layout() {
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {isAuthenticated ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  <span className="text-xs text-green-500">Đã kết nối</span>
-                </>
-              ) : (
-                <>
-                  <XCircle className="w-4 h-4 text-red-500" />
-                  <span className="text-xs text-red-500">Chưa kết nối</span>
-                </>
-              )}
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              <span className="text-xs text-green-500">Đã kết nối</span>
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -151,14 +153,12 @@ export default function Layout() {
               >
                 <Settings className="w-4 h-4" />
               </button>
-              {isAuthenticated && (
-                <button
-                  onClick={handleLogout}
-                  className="text-gray-400 hover:text-white p-1.5 rounded hover:bg-gray-800"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              )}
+              <button
+                onClick={handleLogout}
+                className="text-gray-400 hover:text-white p-1.5 rounded hover:bg-gray-800"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
@@ -175,9 +175,9 @@ export default function Layout() {
             <Menu className="w-5 h-5" />
           </button>
           <h1 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900">
-            {navigation.find((n) => n.href === location.pathname)?.name || 
-             adminNavigation.find((n) => n.href === location.pathname)?.name ||
-             'AI Kế Toán'}
+            {navigation.find((n) => n.href === location.pathname)?.name ||
+              adminNavigation.find((n) => n.href === location.pathname)?.name ||
+              'AI Kế Toán'}
           </h1>
         </header>
 
