@@ -1698,6 +1698,30 @@ async def health_check():
         services["storage"] = {"status": "unhealthy", "error": error_msg}
         overall_status = "degraded"
 
+    # Check Vector DB (Qdrant)
+    try:
+        from src.rag import get_qdrant_client
+
+        qdrant_client = get_qdrant_client()
+        # Health check with timeout
+        is_qdrant_healthy = await asyncio.wait_for(
+            qdrant_client.health_check(),
+            timeout=2.0
+        )
+
+        if is_qdrant_healthy:
+            services["vector_db"] = {"status": "healthy", "url": qdrant_client.url}
+        else:
+            services["vector_db"] = {"status": "unhealthy", "error": "Health check returned False"}
+            overall_status = "degraded"
+
+    except asyncio.TimeoutError:
+        services["vector_db"] = {"status": "unhealthy", "error": "Connection timed out (2.0s)"}
+        overall_status = "degraded"
+    except Exception as e:
+        services["vector_db"] = {"status": "unhealthy", "error": str(e)}
+        overall_status = "degraded"
+
     return HealthResponse(
         status=overall_status,
         version="1.0.0",
