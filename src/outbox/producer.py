@@ -340,6 +340,82 @@ async def log_delivery_attempt(
     )
 
 
+async def log_delivery_attempts_batch(conn, attempts: list[dict]):
+    """
+    Batch log event delivery attempts.
+
+    Args:
+        conn: Database connection
+        attempts: List of dicts containing:
+            - event_id
+            - subscription_id
+            - attempt_number
+            - status
+            - response_code (optional)
+            - response_body (optional)
+            - response_time_ms (optional)
+            - error_message (optional)
+    """
+    if not attempts:
+        return
+
+    # Unpack data for bulk insert
+    event_ids = []
+    sub_ids = []
+    nums = []
+    statuses = []
+    codes = []
+    bodies = []
+    times = []
+    errors = []
+
+    for a in attempts:
+        eid = a["event_id"]
+        event_ids.append(eid if isinstance(eid, uuid.UUID) else uuid.UUID(str(eid)))
+
+        sid = a.get("subscription_id")
+        if sid:
+            sub_ids.append(sid if isinstance(sid, uuid.UUID) else uuid.UUID(str(sid)))
+        else:
+            sub_ids.append(None)
+
+        nums.append(a["attempt_number"])
+        statuses.append(a["status"])
+        codes.append(a.get("response_code"))
+
+        body = a.get("response_body")
+        bodies.append(body[:4000] if body else None)
+
+        times.append(a.get("response_time_ms"))
+        errors.append(a.get("error_message"))
+
+    await conn.execute(
+        """
+        INSERT INTO event_deliveries
+        (event_id, subscription_id, attempt_number, status,
+         response_code, response_body, response_time_ms, error_message)
+        SELECT * FROM UNNEST(
+            $1::uuid[],
+            $2::uuid[],
+            $3::int[],
+            $4::text[],
+            $5::int[],
+            $6::text[],
+            $7::int[],
+            $8::text[]
+        )
+        """,
+        event_ids,
+        sub_ids,
+        nums,
+        statuses,
+        codes,
+        bodies,
+        times,
+        errors,
+    )
+
+
 # ===========================================================================
 # Convenience Functions for Common Events
 # ===========================================================================
