@@ -470,22 +470,29 @@ async def post_ledger_entry(
             )
 
             # Insert ledger lines
+            ledger_lines_data = []
             for idx, entry in enumerate(entries):
                 line_id = str(uuid.uuid4())
-                await conn.execute(
-                    """
-                    INSERT INTO ledger_lines (id, entry_id, account_code, account_name, debit, credit, description, line_order)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    """,
-                    line_id,
-                    entry_id,
-                    entry["account_code"],
-                    entry.get("account_name", ""),
-                    entry.get("debit", 0),
-                    entry.get("credit", 0),
-                    entry.get("description", ""),
-                    idx,
+                ledger_lines_data.append(
+                    (
+                        line_id,
+                        entry_id,
+                        entry["account_code"],
+                        entry.get("account_name", ""),
+                        entry.get("debit", 0),
+                        entry.get("credit", 0),
+                        entry.get("description", ""),
+                        idx,
+                    )
                 )
+
+            await conn.executemany(
+                """
+                INSERT INTO ledger_lines (id, entry_id, account_code, account_name, debit, credit, description, line_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                ledger_lines_data,
+            )
 
             # Update job
             await conn.execute(
