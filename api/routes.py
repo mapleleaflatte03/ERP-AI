@@ -9,6 +9,7 @@ import sys
 import time
 import uuid
 from datetime import datetime
+from functools import lru_cache
 
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 
@@ -27,6 +28,17 @@ try:
     from agents.accounting_coding.erpx_copilot import ERPXAccountingCopilot
 except ImportError:
     ERPXAccountingCopilot = None
+
+
+@lru_cache(maxsize=128)
+def get_copilot_instance(mode: str, tenant_id: str | None):
+    """
+    Get a cached instance of the ERPXAccountingCopilot.
+    """
+    if ERPXAccountingCopilot is None:
+        raise HTTPException(status_code=500, detail="Copilot not available")
+    return ERPXAccountingCopilot(mode=mode, tenant_id=tenant_id)
+
 
 # Import orchestrator
 try:
@@ -75,11 +87,8 @@ async def process_document(request: Request, coding_request: CodingRequest):
     tenant_id = get_tenant_id(request) or coding_request.tenant_id
 
     try:
-        # Initialize copilot
-        if ERPXAccountingCopilot is None:
-            raise HTTPException(status_code=500, detail="Copilot not available")
-
-        copilot = ERPXAccountingCopilot(mode=coding_request.mode, tenant_id=tenant_id)
+        # Get copilot instance
+        copilot = get_copilot_instance(mode=coding_request.mode, tenant_id=tenant_id)
 
         # Process document
         result = await asyncio.to_thread(
@@ -142,11 +151,8 @@ async def process_file(
             ocr_text = f"[File uploaded: {filename}, size: {len(content)} bytes]"
             structured_fields = None
 
-        # Initialize copilot
-        if ERPXAccountingCopilot is None:
-            raise HTTPException(status_code=500, detail="Copilot not available")
-
-        copilot = ERPXAccountingCopilot(mode=mode.upper(), tenant_id=tenant_id)
+        # Get copilot instance
+        copilot = get_copilot_instance(mode=mode.upper(), tenant_id=tenant_id)
 
         # Process
         result = await asyncio.to_thread(
@@ -195,10 +201,8 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
 
     try:
         # Initialize copilot for reconciliation
-        if ERPXAccountingCopilot is None:
-            raise HTTPException(status_code=500, detail="Copilot not available")
-
-        copilot = ERPXAccountingCopilot(tenant_id=reconcile_request.tenant_id)
+        # Use STRICT mode by default for reconciliation if not specified
+        copilot = get_copilot_instance(mode="STRICT", tenant_id=reconcile_request.tenant_id)
 
         # Convert bank_txns to dict format
         bank_txns = [
@@ -213,10 +217,15 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
         ]
 
         # Process each invoice and reconcile
-        results = []
+        tasks = []
         for invoice in reconcile_request.invoices:
-            result = await asyncio.to_thread(copilot.process, structured_fields=invoice, bank_txns=bank_txns)
-            results.append(result)
+            tasks.append(
+                asyncio.to_thread(
+                    copilot.process, structured_fields=invoice, bank_txns=bank_txns
+                )
+            )
+
+        results = await asyncio.gather(*tasks)
 
         # Aggregate reconciliation results
         all_matched = []
@@ -285,10 +294,7 @@ async def process_batch(
     tenant_id = get_tenant_id(request) or x_tenant_id
 
     try:
-        if ERPXAccountingCopilot is None:
-            raise HTTPException(status_code=500, detail="Copilot not available")
-
-        copilot = ERPXAccountingCopilot(mode=mode.upper(), tenant_id=tenant_id)
+        copilot = get_copilot_instance(mode=mode.upper(), tenant_id=tenant_id)
 
         results = []
         errors = []
