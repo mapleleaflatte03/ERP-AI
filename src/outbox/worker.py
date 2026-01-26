@@ -9,6 +9,7 @@ Runs as background task or separate process.
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any
@@ -49,11 +50,25 @@ class OutboxWorker:
         self.max_attempts = max_attempts
         self._running = False
         self._http_client: httpx.AsyncClient | None = None
+        self._temporal_client = None
 
     async def start(self):
         """Start the worker."""
         self._running = True
         self._http_client = httpx.AsyncClient(timeout=30.0)
+
+        # Initialize Temporal Client
+        try:
+            from temporalio.client import Client
+            temporal_host = os.getenv("TEMPORAL_HOST", "temporal:7233")
+            self._temporal_client = await Client.connect(temporal_host)
+            logger.info(f"Connected to Temporal at {temporal_host}")
+        except ImportError:
+            logger.info("Temporal library not found. Temporal delivery will be disabled.")
+        except Exception as e:
+            logger.error(f"Failed to connect to Temporal at startup: {e}")
+            # We don't raise here to allow the worker to start for other tasks
+
         logger.info("Outbox worker started")
 
         while self._running:
@@ -69,6 +84,10 @@ class OutboxWorker:
         self._running = False
         if self._http_client:
             await self._http_client.aclose()
+        # Temporal client does not require explicit close for the connection object usually,
+        # but if we wanted to be thorough we could check for a close method.
+        # The temporalio.client.Client doesn't expose a close/aclose method directly
+        # (it manages connection internally).
         logger.info("Outbox worker stopped")
 
     async def _process_batch(self):
@@ -219,34 +238,41 @@ class OutboxWorker:
 
     async def _deliver_temporal(self, event: dict, config: dict) -> dict:
         """Deliver event to Temporal workflow."""
-        # Import Temporal client lazily
-        try:
-            from temporalio.client import Client
+        if not self._temporal_client:
+            # Check if it was because of ImportError
+            try:
+                import temporalio
+            except ImportError:
+                logger.warning("Temporal client not available, skipping")
+                return {"status_code": 200, "skipped": True}
 
-            workflow = config.get("workflow", "process_document_workflow")
-            task_queue = config.get("task_queue", "erpx-ai")
-            workflow_id_prefix = config.get("workflow_id_prefix", "event-")
+            # If library exists but client is None, it means connection failed earlier.
+            # We can try to reconnect here (lazy recovery)
+            try:
+                from temporalio.client import Client
+                temporal_host = os.getenv("TEMPORAL_HOST", "temporal:7233")
+                self._temporal_client = await Client.connect(temporal_host)
+                logger.info(f"Connected to Temporal (lazy) at {temporal_host}")
+            except Exception as e:
+                raise Exception(f"Temporal client not connected: {e}")
 
-            # Create workflow ID
-            workflow_id = f"{workflow_id_prefix}{event['aggregate_id']}"
+        workflow = config.get("workflow", "process_document_workflow")
+        task_queue = config.get("task_queue", "erpx-ai")
+        workflow_id_prefix = config.get("workflow_id_prefix", "event-")
 
-            # Connect to Temporal
-            client = await Client.connect("temporal:7233")
+        # Create workflow ID
+        workflow_id = f"{workflow_id_prefix}{event['aggregate_id']}"
 
-            # Start workflow
-            await client.execute_workflow(
-                workflow,
-                event["payload"],
-                id=workflow_id,
-                task_queue=task_queue,
-            )
+        # Start workflow
+        await self._temporal_client.execute_workflow(
+            workflow,
+            event["payload"],
+            id=workflow_id,
+            task_queue=task_queue,
+        )
 
-            logger.info(f"Started Temporal workflow: {workflow_id}")
-            return {"status_code": 200, "workflow_id": workflow_id}
-
-        except ImportError:
-            logger.warning("Temporal client not available, skipping")
-            return {"status_code": 200, "skipped": True}
+        logger.info(f"Started Temporal workflow: {workflow_id}")
+        return {"status_code": 200, "workflow_id": workflow_id}
 
     async def _deliver_internal(self, event: dict, config: dict) -> dict:
         """Deliver event to internal handler."""
@@ -268,7 +294,7 @@ class OutboxWorker:
 
 async def run_outbox_worker():
     """Run the outbox worker as standalone process."""
-    import os
+    # os is already imported at top level
 
     import asyncpg
 
