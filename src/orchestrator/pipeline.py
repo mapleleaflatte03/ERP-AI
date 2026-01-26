@@ -289,7 +289,7 @@ Phân tích và đề xuất bút toán kế toán (JSON)."""
         return state
 
 
-def node_validate_policy(state: PipelineState) -> PipelineState:
+async def node_validate_policy(state: PipelineState) -> PipelineState:
     """Validate journal proposal against OPA policies"""
     import httpx
 
@@ -312,8 +312,8 @@ def node_validate_policy(state: PipelineState) -> PipelineState:
         }
 
         # Call OPA
-        with httpx.Client(timeout=10.0) as client:
-            response = client.post(f"{opa_url}/v1/data/erpx/journal/validate", json=opa_input)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{opa_url}/v1/data/erpx/journal/validate", json=opa_input)
 
             if response.status_code == 200:
                 result = response.json()
@@ -461,7 +461,7 @@ async def run_simple_pipeline(state: PipelineState) -> PipelineState:
         return node_finalize(state)
 
     # Validate with OPA
-    state = node_validate_policy(state)
+    state = await node_validate_policy(state)
 
     # Finalize
     return node_finalize(state)
