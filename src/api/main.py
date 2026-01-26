@@ -1625,6 +1625,18 @@ app = create_app()
 # ===========================================================================
 
 
+async def check_database_connection():
+    """Check database connection asynchronously using shared pool."""
+    try:
+        from src.db import get_connection
+
+        async with get_connection() as conn:
+            await conn.execute("SELECT 1")
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 def check_storage_sync() -> bool:
     """
     Sync storage check for threading.
@@ -1644,6 +1656,14 @@ async def health_check():
     """Health check endpoint"""
     services = {}
     overall_status = "healthy"
+
+    # Check Database
+    is_db_healthy, db_error = await check_database_connection()
+    if is_db_healthy:
+        services["database"] = {"status": "healthy"}
+    else:
+        services["database"] = {"status": "unhealthy", "error": str(db_error)}
+        overall_status = "degraded"
 
     # Check LLM
     try:
