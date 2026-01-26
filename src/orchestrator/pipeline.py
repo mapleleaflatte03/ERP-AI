@@ -238,7 +238,7 @@ OUTPUT JSON:
 Phân tích và đề xuất bút toán kế toán (JSON)."""
 
         # Call LLM
-        response = client.generate(
+        response = client.generate_sync(
             prompt=user_prompt,
             system=system_prompt,
             json_schema={"type": "object"},

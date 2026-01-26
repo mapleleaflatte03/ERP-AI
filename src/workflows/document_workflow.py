@@ -203,7 +203,7 @@ OUTPUT JSON:
 
 Đề xuất bút toán kế toán (JSON)."""
 
-            response = client.generate(
+            response = await client.generate(
                 prompt=user_prompt,
                 system=system_prompt,
                 json_schema={"type": "object"},

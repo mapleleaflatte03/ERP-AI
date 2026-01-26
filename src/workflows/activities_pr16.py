@@ -292,7 +292,7 @@ Trả về JSON với format:
 Trả về JSON theo format đã định."""
 
         llm_start = time.time()
-        response = llm_client.generate_json(
+        response = await llm_client.generate_json(
             prompt=user_prompt,
             system=system_prompt,
             temperature=0.2,
