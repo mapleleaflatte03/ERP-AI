@@ -21,6 +21,7 @@ from .producer import (
     get_pending_events,
     get_subscriptions_for_event,
     log_delivery_attempt,
+    log_delivery_attempts_batch,
     mark_event_delivered,
     mark_event_failed,
     mark_event_processing,
@@ -131,10 +132,19 @@ class OutboxWorker:
 
             # Deliver to each subscription
             all_success = True
-            for subscription in subscriptions:
-                success = await self._deliver_to_subscription(conn, event, subscription)
-                if not success:
-                    all_success = False
+            delivery_attempts = []
+
+            try:
+                for subscription in subscriptions:
+                    success, log_entry = await self._deliver_to_subscription(conn, event, subscription)
+                    if log_entry:
+                        delivery_attempts.append(log_entry)
+                    if not success:
+                        all_success = False
+            finally:
+                # Batch log deliveries
+                if delivery_attempts:
+                    await log_delivery_attempts_batch(conn, delivery_attempts)
 
             if all_success:
                 await mark_event_delivered(conn, event_id, request_id)
@@ -159,7 +169,7 @@ class OutboxWorker:
         conn,
         event: dict,
         subscription: dict,
-    ) -> bool:
+    ) -> tuple[bool, dict | None]:
         """Deliver event to a subscription."""
         delivery_type = subscription["delivery_type"]
         config = subscription["delivery_config"]
@@ -174,39 +184,34 @@ class OutboxWorker:
                 result = await self._deliver_internal(event, config)
             else:
                 logger.warning(f"Unknown delivery type: {delivery_type}")
-                return True  # Skip unknown types
+                return True, None  # Skip unknown types
 
             response_time_ms = int((time.time() - start_time) * 1000)
 
-            # Log successful delivery
-            await log_delivery_attempt(
-                conn,
-                event["id"],
-                subscription["id"],
-                event["attempts"] + 1,
-                "success",
-                response_code=result.get("status_code", 200),
-                response_time_ms=response_time_ms,
-            )
-
-            return True
+            # Return success log entry
+            return True, {
+                "event_id": event["id"],
+                "subscription_id": subscription["id"],
+                "attempt_number": event["attempts"] + 1,
+                "status": "success",
+                "response_code": result.get("status_code", 200),
+                "response_time_ms": response_time_ms,
+            }
 
         except Exception as e:
             response_time_ms = int((time.time() - start_time) * 1000)
 
-            # Log failed delivery
-            await log_delivery_attempt(
-                conn,
-                event["id"],
-                subscription["id"],
-                event["attempts"] + 1,
-                "failed",
-                response_time_ms=response_time_ms,
-                error_message=str(e),
-            )
-
             logger.warning(f"Delivery failed to {subscription['name']}: {e}")
-            return False
+
+            # Return failed log entry
+            return False, {
+                "event_id": event["id"],
+                "subscription_id": subscription["id"],
+                "attempt_number": event["attempts"] + 1,
+                "status": "failed",
+                "response_time_ms": response_time_ms,
+                "error_message": str(e),
+            }
 
     async def _deliver_webhook(self, event: dict, config: dict) -> dict:
         """Deliver event via webhook."""
