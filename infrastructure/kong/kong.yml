@@ -174,15 +174,42 @@ consumers:
   - username: keycloak-users
     custom_id: keycloak-erpx
     jwt_secrets:
+      # Production HTTPS issuer (current)
+      - key: https://auth.welliam.codes/realms/erpx
+        algorithm: RS256
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dOhgLYwfmpARYeW4440
+          wbwIEBxyeF4+0Of/EcEnwQBMr0TrImuxLHKW/rIO5nPR+50RROL+F8v7fPEHifBc
+          xnWUg4AhHqC6YfmuR5N+b4dywObd3qdljc1WhgSzJXrqUw5b51HIlOeQYIkrBoVT
+          k5LuOUXG1uDdLBI4wZCW4Hwy4pLfMXtvNw7UCNh59RoTfiWbdX7KidTJNA1pImXO
+          S7wKN+z169ozgy8dFe25572qNKtCjABo1LnvkoMDzwjkEYzLf8lbHAqdBgtFNIwX
+          nTV9U5ZzUNVA+qNse4LmDE62+w9EtavoiJ85hyYtgy9eEYuJC3TWjsIzBeP1uIra
+          QQIDAQAB
+          -----END PUBLIC KEY-----
+      # Legacy HTTP issuer (backward compatibility)
+      - key: http://auth.welliam.codes/realms/erpx
+        algorithm: RS256
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dOhgLYwfmpARYeW4440
+          wbwIEBxyeF4+0Of/EcEnwQBMr0TrImuxLHKW/rIO5nPR+50RROL+F8v7fPEHifBc
+          xnWUg4AhHqC6YfmuR5N+b4dywObd3qdljc1WhgSzJXrqUw5b51HIlOeQYIkrBoVT
+          k5LuOUXG1uDdLBI4wZCW4Hwy4pLfMXtvNw7UCNh59RoTfiWbdX7KidTJNA1pImXO
+          S7wKN+z169ozgy8dFe25572qNKtCjABo1LnvkoMDzwjkEYzLf8lbHAqdBgtFNIwX
+          nTV9U5ZzUNVA+qNse4LmDE62+w9EtavoiJ85hyYtgy9eEYuJC3TWjsIzBeP1uIra
+          QQIDAQAB
+          -----END PUBLIC KEY-----
+      # Local development issuer
       - key: http://localhost:8180/realms/erpx
         algorithm: RS256
         rsa_public_key: |
           -----BEGIN PUBLIC KEY-----
-          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dOhgLYwfmpA
-          RYeW4440wbwIEBxyeF4+0Of/EcEnwQBMr0TrImuxLHKW/rIO5nPR+50R
-          ROL+F8v7fPEHifBcxnWUg4AhHqC6YfmuR5N+b4dywObd3qdljc1WhgSz
-          JXrqUw5b51HIlOeQYIkrBoVTk5LuOUXG1uDdLBI4wZCW4Hwy4pLfMXtv
-          Nw7UCNh59RoTfiWbdX7KidTJNA1pImXOS7wKN+z169ozgy8dFe25572q
-          NKtCjABo1LnvkoMDzwjkEYzLf8lbHAqdBgtFNIwXnTV9U5ZzUNVA+qNs
-          e4LmDE62+w9EtavoiJ85hyYtgy9eEYuJC3TWjsIzBeP1uIraQQIDAQAB
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8dOhgLYwfmpARYeW4440
+          wbwIEBxyeF4+0Of/EcEnwQBMr0TrImuxLHKW/rIO5nPR+50RROL+F8v7fPEHifBc
+          xnWUg4AhHqC6YfmuR5N+b4dywObd3qdljc1WhgSzJXrqUw5b51HIlOeQYIkrBoVT
+          k5LuOUXG1uDdLBI4wZCW4Hwy4pLfMXtvNw7UCNh59RoTfiWbdX7KidTJNA1pImXO
+          S7wKN+z169ozgy8dFe25572qNKtCjABo1LnvkoMDzwjkEYzLf8lbHAqdBgtFNIwX
+          nTV9U5ZzUNVA+qNse4LmDE62+w9EtavoiJ85hyYtgy9eEYuJC3TWjsIzBeP1uIra
+          QQIDAQAB
           -----END PUBLIC KEY-----
