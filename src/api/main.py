@@ -11,6 +11,7 @@ Endpoints:
     GET /ready - Readiness check
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -1780,6 +1781,12 @@ async def list_journal_proposals(
         }
 
 
+def write_file_content(path: Path | str, content: bytes):
+    """Write content to file synchronously (for use in executor)."""
+    with open(path, "wb") as f:
+        f.write(content)
+
+
 @app.post("/v1/upload", response_model=UploadResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -1833,8 +1840,8 @@ async def upload_document(
     file_ext = Path(file.filename).suffix if file.filename else ".bin"
     file_path = upload_dir / f"{job_id}{file_ext}"
 
-    with open(file_path, "wb") as f:
-        f.write(content)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, write_file_content, file_path, content)
 
     # Create job record
     file_info = {
