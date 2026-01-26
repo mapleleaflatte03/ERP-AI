@@ -3,6 +3,7 @@ ERPX AI Accounting - API Routes
 ===============================
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -81,7 +82,8 @@ async def process_document(request: Request, coding_request: CodingRequest):
         copilot = ERPXAccountingCopilot(mode=coding_request.mode, tenant_id=tenant_id)
 
         # Process document
-        result = copilot.process(
+        result = await asyncio.to_thread(
+            copilot.process,
             ocr_text=coding_request.ocr_text,
             structured_fields=coding_request.structured_fields,
             file_metadata={"source_file": coding_request.file_path} if coding_request.file_path else None,
@@ -147,7 +149,8 @@ async def process_file(
         copilot = ERPXAccountingCopilot(mode=mode.upper(), tenant_id=tenant_id)
 
         # Process
-        result = copilot.process(
+        result = await asyncio.to_thread(
+            copilot.process,
             ocr_text=ocr_text,
             structured_fields=structured_fields,
             file_metadata={"source_file": filename},
@@ -212,7 +215,7 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
         # Process each invoice and reconcile
         results = []
         for invoice in reconcile_request.invoices:
-            result = copilot.process(structured_fields=invoice, bank_txns=bank_txns)
+            result = await asyncio.to_thread(copilot.process, structured_fields=invoice, bank_txns=bank_txns)
             results.append(result)
 
         # Aggregate reconciliation results
@@ -292,7 +295,8 @@ async def process_batch(
 
         for i, doc in enumerate(documents):
             try:
-                result = copilot.process(
+                result = await asyncio.to_thread(
+                    copilot.process,
                     ocr_text=doc.get("ocr_text"),
                     structured_fields=doc.get("structured_fields"),
                     file_metadata=doc.get("file_metadata"),
