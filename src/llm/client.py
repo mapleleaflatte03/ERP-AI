@@ -155,14 +155,18 @@ class LLMClient:
     - Request/response logging with trace_id
     - JSON schema enforcement
     - Circuit breaker (basic)
+    - Async support (new)
 
     Usage:
         client = LLMClient()
-        response = client.generate(
+        # Async
+        response = await client.generate(
             prompt="Extract invoice fields...",
             system="You are an accounting expert",
             json_schema={"type": "object", ...}
         )
+        # Sync (legacy)
+        response = client.generate_sync(...)
     """
 
     def __init__(self, config: LLMConfig | None = None):
@@ -204,20 +208,8 @@ class LLMClient:
             self._circuit_open_until = time.time() + 60  # 60s cooldown
             logger.error(f"Circuit breaker TRIPPED after {self._consecutive_failures} failures")
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
-        reraise=True,
-    )
-    def _call_do_agent(self, request: LLMRequest) -> LLMResponse:
-        """
-        Call DO Agent API
-
-        OpenAI-compatible endpoint format.
-        """
-        start_time = time.time()
-
+    def _prepare_request_body_and_headers(self, request: LLMRequest):
+        """Prepare request body and headers (shared between sync and async)"""
         # Build messages
         messages = []
         if request.system:
@@ -244,48 +236,64 @@ class LLMClient:
         if request.trace_id:
             headers["X-Trace-ID"] = request.trace_id
 
-        logger.info(f"[{request.request_id}] DO Agent request: model={self.config.model}")
+        return body, headers
+
+    def _process_response_data(self, data: dict, start_time: float, request: LLMRequest) -> LLMResponse:
+        """Process response data (shared between sync and async)"""
+        latency_ms = (time.time() - start_time) * 1000
+
+        # Extract response content
+        content = ""
+        if "choices" in data and len(data["choices"]) > 0:
+            message = data["choices"][0].get("message", {})
+            content = message.get("content", "")
+            # Qwen3 uses reasoning_content for thinking, fallback if content is empty
+            if not content and "reasoning_content" in message:
+                content = f"[Reasoning] {message.get('reasoning_content', '')}"
+
+        # Token usage
+        usage = data.get("usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+
+        logger.info(
+            f"[{request.request_id}] DO Agent response: "
+            f"latency={latency_ms:.0f}ms tokens={input_tokens}+{output_tokens}"
+        )
+
+        return LLMResponse(
+            content=content,
+            model=self.config.model,
+            provider="do_agent",
+            request_id=request.request_id,
+            trace_id=request.trace_id,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            metadata={"raw_response": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        reraise=True,
+    )
+    def _call_do_agent_sync(self, request: LLMRequest) -> LLMResponse:
+        """Call DO Agent API (Synchronous)"""
+        start_time = time.time()
+        body, headers = self._prepare_request_body_and_headers(request)
+
+        logger.info(f"[{request.request_id}] DO Agent request (sync): model={self.config.model}")
         logger.debug(f"[{request.request_id}] Prompt: {request.prompt[:100]}...")
 
         try:
             with httpx.Client(timeout=self.config.timeout) as client:
-                # Use /api/v1/chat/completions endpoint (DO Agent specific)
                 response = client.post(f"{self.config.url}/api/v1/chat/completions", json=body, headers=headers)
                 response.raise_for_status()
 
-            latency_ms = (time.time() - start_time) * 1000
             data = response.json()
-
-            # Extract response content
-            content = ""
-            if "choices" in data and len(data["choices"]) > 0:
-                message = data["choices"][0].get("message", {})
-                content = message.get("content", "")
-                # Qwen3 uses reasoning_content for thinking, fallback if content is empty
-                if not content and "reasoning_content" in message:
-                    content = f"[Reasoning] {message.get('reasoning_content', '')}"
-
-            # Token usage
-            usage = data.get("usage", {})
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
-
-            logger.info(
-                f"[{request.request_id}] DO Agent response: "
-                f"latency={latency_ms:.0f}ms tokens={input_tokens}+{output_tokens}"
-            )
-
-            return LLMResponse(
-                content=content,
-                model=self.config.model,
-                provider="do_agent",
-                request_id=request.request_id,
-                trace_id=request.trace_id,
-                latency_ms=latency_ms,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                metadata={"raw_response": data, "timestamp": datetime.utcnow().isoformat()},
-            )
+            return self._process_response_data(data, start_time, request)
 
         except httpx.TimeoutException as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -300,39 +308,44 @@ class LLMClient:
             )
             raise LLMInferenceError(f"DO Agent HTTP {e.response.status_code}: {e.response.text[:200]}") from e
 
-    def generate(
-        self,
-        prompt: str,
-        system: str = "",
-        json_schema: dict | None = None,
-        temperature: float = 0.3,
-        max_tokens: int = 2048,
-        request_id: str = "",
-        trace_id: str = "",
-    ) -> LLMResponse:
-        """
-        Generate LLM response.
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        reraise=True,
+    )
+    async def _call_do_agent(self, request: LLMRequest) -> LLMResponse:
+        """Call DO Agent API (Async)"""
+        start_time = time.time()
+        body, headers = self._prepare_request_body_and_headers(request)
 
-        Args:
-            prompt: User prompt
-            system: System message
-            json_schema: Optional JSON schema for response validation
-            temperature: Sampling temperature (0.0-1.0)
-            max_tokens: Maximum response tokens
-            request_id: Request ID for tracking
-            trace_id: Trace ID for distributed tracing
+        logger.info(f"[{request.request_id}] DO Agent request (async): model={self.config.model}")
+        logger.debug(f"[{request.request_id}] Prompt: {request.prompt[:100]}...")
 
-        Returns:
-            LLMResponse with content and metadata
+        try:
+            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+                response = await client.post(f"{self.config.url}/api/v1/chat/completions", json=body, headers=headers)
+                response.raise_for_status()
 
-        Raises:
-            LLMProviderError: If provider is misconfigured
-            LLMInferenceError: If inference fails
-            LLMTimeoutError: If request times out
-        """
+            data = response.json()
+            return self._process_response_data(data, start_time, request)
+
+        except httpx.TimeoutException as e:
+            latency_ms = (time.time() - start_time) * 1000
+            logger.error(f"[{request.request_id}] DO Agent TIMEOUT after {latency_ms:.0f}ms")
+            raise LLMTimeoutError(f"DO Agent timeout after {latency_ms:.0f}ms") from e
+
+        except httpx.HTTPStatusError as e:
+            latency_ms = (time.time() - start_time) * 1000
+            logger.error(
+                f"[{request.request_id}] DO Agent HTTP error: "
+                f"status={e.response.status_code} body={e.response.text[:200]}"
+            )
+            raise LLMInferenceError(f"DO Agent HTTP {e.response.status_code}: {e.response.text[:200]}") from e
+
+    def _prepare_request_object(self, prompt, system, json_schema, temperature, max_tokens, request_id, trace_id):
         self._check_circuit()
-
-        request = LLMRequest(
+        return LLMRequest(
             prompt=prompt,
             system=system,
             temperature=temperature,
@@ -342,16 +355,47 @@ class LLMClient:
             trace_id=trace_id or "",
         )
 
+    def generate_sync(
+        self,
+        prompt: str,
+        system: str = "",
+        json_schema: dict | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+        request_id: str = "",
+        trace_id: str = "",
+    ) -> LLMResponse:
+        """Generate LLM response (Synchronous)"""
+        request = self._prepare_request_object(prompt, system, json_schema, temperature, max_tokens, request_id, trace_id)
         try:
-            response = self._call_do_agent(request)
+            response = self._call_do_agent_sync(request)
             self._record_success()
             return response
-
         except Exception:
             self._record_failure()
             raise
 
-    def generate_json(
+    async def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        json_schema: dict | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+        request_id: str = "",
+        trace_id: str = "",
+    ) -> LLMResponse:
+        """Generate LLM response (Async)"""
+        request = self._prepare_request_object(prompt, system, json_schema, temperature, max_tokens, request_id, trace_id)
+        try:
+            response = await self._call_do_agent(request)
+            self._record_success()
+            return response
+        except Exception:
+            self._record_failure()
+            raise
+
+    def generate_json_sync(
         self,
         prompt: str,
         system: str = "",
@@ -362,32 +406,8 @@ class LLMClient:
         trace_id: str = "",
         allow_self_fix: bool = True,
     ) -> dict[str, Any]:
-        """
-        Generate and parse JSON response with robust multi-stage parsing.
-
-        Pipeline:
-        1. Direct json.loads
-        2. Extract JSON block from markdown/text
-        3. Light repair (smart quotes, trailing commas, etc.)
-        4. Self-fix retry with LLM (if allow_self_fix=True)
-
-        Args:
-            prompt: User prompt
-            system: System message
-            schema: Optional JSON schema hint
-            temperature: Sampling temperature
-            max_tokens: Maximum response tokens
-            request_id: Request ID for tracking
-            trace_id: Trace ID for distributed tracing
-            allow_self_fix: Allow LLM self-fix retry (default: True)
-
-        Returns:
-            Parsed JSON dict
-
-        Raises:
-            ValueError: If response is not valid JSON after all attempts
-        """
-        response = self.generate(
+        """Generate JSON (Synchronous)"""
+        response = self.generate_sync(
             prompt=prompt,
             system=system,
             json_schema=schema,
@@ -396,98 +416,121 @@ class LLMClient:
             request_id=request_id,
             trace_id=trace_id,
         )
+        return self._process_json_response_sync(response, request_id, trace_id, allow_self_fix)
 
+    async def generate_json(
+        self,
+        prompt: str,
+        system: str = "",
+        schema: dict | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+        request_id: str = "",
+        trace_id: str = "",
+        allow_self_fix: bool = True,
+    ) -> dict[str, Any]:
+        """Generate JSON (Async)"""
+        response = await self.generate(
+            prompt=prompt,
+            system=system,
+            json_schema=schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            request_id=request_id,
+            trace_id=trace_id,
+        )
+        return await self._process_json_response_async(response, request_id, trace_id, allow_self_fix)
+
+    def _process_json_response_sync(self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool) -> dict[str, Any]:
+        """Shared logic for parsing JSON response (Sync)"""
         content = response.content.strip()
         raw_preview = content[:200] if len(content) > 200 else content
 
-        # Stage 1-3: Try robust parsing (direct → extract → repair)
         obj, err, stage = try_parse_json_robust(content)
         if obj is not None:
             if stage != "direct":
-                logger.info(
-                    f"[{request_id}] JSON parsed via '{stage}' stage "
-                    f"(provider={self.config.provider}, model={self.config.model})"
-                )
+                logger.info(f"[{request_id}] JSON parsed via '{stage}'")
             return obj
 
-        # Log warning for stages 1-3 failure
-        logger.warning(f"[{request_id}] JSON parse failed stages 1-3: {err}. Raw preview: {raw_preview}...")
+        logger.warning(f"[{request_id}] JSON parse failed stages 1-3: {err}")
 
-        # Stage 4: Self-fix retry with LLM
         if allow_self_fix:
-            logger.info(f"[{request_id}] Attempting LLM self-fix for invalid JSON")
+            logger.info(f"[{request_id}] Attempting LLM self-fix (Sync)")
             try:
-                fixed_content = self._llm_fix_json(
-                    broken_json=content,
-                    request_id=f"{request_id}-fix",
-                    trace_id=trace_id,
-                )
+                fixed_content = self._llm_fix_json_sync(content, f"{request_id}-fix", trace_id)
                 obj, err, stage = try_parse_json_robust(fixed_content)
                 if obj is not None:
-                    logger.info(
-                        f"[{request_id}] JSON recovered via self-fix "
-                        f"(provider={self.config.provider}, model={self.config.model})"
-                    )
                     return obj
-                logger.warning(f"[{request_id}] Self-fix produced invalid JSON: {err}")
             except Exception as e:
-                logger.warning(f"[{request_id}] Self-fix attempt failed: {e}")
+                logger.warning(f"[{request_id}] Self-fix failed: {e}")
 
-        # All stages failed - raise with details
-        error_details = {
-            "provider": self.config.provider,
-            "model": self.config.model,
-            "stage": "all_failed",
-            "raw_preview": raw_preview,
-            "last_error": err,
-        }
-        logger.error(f"[{request_id}] LLM JSON parse failed all stages. Details: {json.dumps(error_details)}")
-        raise ValueError(
-            f"LLM response is not valid JSON after all parse attempts. Last error: {err}. Raw preview: {raw_preview}..."
-        )
+        raise ValueError(f"LLM response is not valid JSON. Error: {err}")
 
-    def _llm_fix_json(
-        self,
-        broken_json: str,
-        request_id: str = "",
-        trace_id: str = "",
-    ) -> str:
-        """
-        Attempt to fix broken JSON using LLM.
+    async def _process_json_response_async(self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool) -> dict[str, Any]:
+        """Shared logic for parsing JSON response (Async)"""
+        content = response.content.strip()
+        raw_preview = content[:200] if len(content) > 200 else content
 
-        Uses minimal tokens and temperature=0 for deterministic output.
-        """
-        # Truncate broken JSON if too long
-        max_input = 2000
-        if len(broken_json) > max_input:
-            broken_json = broken_json[:max_input] + "..."
+        obj, err, stage = try_parse_json_robust(content)
+        if obj is not None:
+            if stage != "direct":
+                logger.info(f"[{request_id}] JSON parsed via '{stage}'")
+            return obj
 
-        fix_prompt = f"""Convert the following into valid JSON. Output JSON ONLY. No commentary, no explanation, no markdown.
+        logger.warning(f"[{request_id}] JSON parse failed stages 1-3: {err}")
 
-```
-{broken_json}
-```
+        if allow_self_fix:
+            logger.info(f"[{request_id}] Attempting LLM self-fix (Async)")
+            try:
+                fixed_content = await self._llm_fix_json(content, f"{request_id}-fix", trace_id)
+                obj, err, stage = try_parse_json_robust(fixed_content)
+                if obj is not None:
+                    return obj
+            except Exception as e:
+                logger.warning(f"[{request_id}] Self-fix failed: {e}")
 
-Valid JSON:"""
+        raise ValueError(f"LLM response is not valid JSON. Error: {err}")
 
-        fix_system = "You are a JSON repair tool. Output only valid JSON, nothing else."
-
-        response = self.generate(
+    def _llm_fix_json_sync(self, broken_json: str, request_id: str = "", trace_id: str = "") -> str:
+        """Fix JSON using LLM (Sync)"""
+        fix_prompt, fix_system = self._prepare_fix_prompt(broken_json)
+        response = self.generate_sync(
             prompt=fix_prompt,
             system=fix_system,
-            temperature=0,  # Deterministic
+            temperature=0,
             max_tokens=2048,
             request_id=request_id,
             trace_id=trace_id,
         )
-
         return response.content.strip()
 
+    async def _llm_fix_json(self, broken_json: str, request_id: str = "", trace_id: str = "") -> str:
+        """Fix JSON using LLM (Async)"""
+        fix_prompt, fix_system = self._prepare_fix_prompt(broken_json)
+        response = await self.generate(
+            prompt=fix_prompt,
+            system=fix_system,
+            temperature=0,
+            max_tokens=2048,
+            request_id=request_id,
+            trace_id=trace_id,
+        )
+        return response.content.strip()
+
+    def _prepare_fix_prompt(self, broken_json: str):
+        max_input = 2000
+        if len(broken_json) > max_input:
+            broken_json = broken_json[:max_input] + "..."
+
+        fix_prompt = f"Convert the following into valid JSON. Output JSON ONLY. No commentary.\n\n```\n{broken_json}\n```\nValid JSON:"
+        fix_system = "You are a JSON repair tool. Output only valid JSON."
+        return fix_prompt, fix_system
+
     def health_check(self) -> dict[str, Any]:
-        """Check LLM service health"""
+        """Check LLM service health (Sync)"""
         try:
             start = time.time()
-            response = self.generate(prompt="Say 'OK' in one word.", max_tokens=10)
+            response = self.generate_sync(prompt="Say 'OK' in one word.", max_tokens=10)
             latency = (time.time() - start) * 1000
 
             return {
@@ -513,8 +556,8 @@ def get_llm_client() -> LLMClient:
     return _client
 
 
-# Convenience function
-def generate(
+# Convenience functions
+def generate_sync(
     prompt: str,
     system: str = "",
     json_schema: dict | None = None,
@@ -523,8 +566,8 @@ def generate(
     request_id: str = "",
     trace_id: str = "",
 ) -> LLMResponse:
-    """Generate LLM response using global client"""
-    return get_llm_client().generate(
+    """Generate LLM response using global client (Sync)"""
+    return get_llm_client().generate_sync(
         prompt=prompt,
         system=system,
         json_schema=json_schema,
@@ -534,6 +577,25 @@ def generate(
         trace_id=trace_id,
     )
 
+async def generate(
+    prompt: str,
+    system: str = "",
+    json_schema: dict | None = None,
+    temperature: float = 0.3,
+    max_tokens: int = 2048,
+    request_id: str = "",
+    trace_id: str = "",
+) -> LLMResponse:
+    """Generate LLM response using global client (Async)"""
+    return await get_llm_client().generate(
+        prompt=prompt,
+        system=system,
+        json_schema=json_schema,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        request_id=request_id,
+        trace_id=trace_id,
+    )
 
 if __name__ == "__main__":
     # Test the client

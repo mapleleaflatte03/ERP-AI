@@ -226,7 +226,7 @@ async def run_accuracy_eval(conn, args):
         start_time = time.time()
         try:
             # Call LLM
-            response = llm_client.generate_json(
+            response = await llm_client.generate_json(
                 prompt=f"Phân tích hóa đơn sau và trả về JSON:\n{case['input']['text']}",
                 system="Bạn là chuyên gia kế toán. Trả về JSON với doc_type, vendor, invoice_no, total_amount, vat_amount, entries.",
                 temperature=0.2,
@@ -333,7 +333,7 @@ async def run_latency_eval(conn, args):
     for i in range(args.samples):
         start_time = time.time()
         try:
-            response = llm_client.generate_json(
+            response = await llm_client.generate_json(
                 prompt=f"Parse invoice: {sample_text}",
                 system="Return JSON with vendor and amount.",
                 temperature=0.0,

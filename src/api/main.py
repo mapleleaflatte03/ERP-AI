@@ -31,9 +31,10 @@ from pydantic import BaseModel
 sys.path.insert(0, "/root/erp-ai")
 
 # Import middleware and logging config
+from src.api.document_routes import get_db_pool
+from src.api.document_routes import router as document_router
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
 from src.api.middleware import RequestIdMiddleware, get_request_id
-from src.api.document_routes import router as document_router, get_db_pool
 
 # Import approval inbox module
 from src.approval.service import (
@@ -728,7 +729,7 @@ Trả về JSON với format:
 Trả về JSON theo format đã định."""
 
         llm_start = time.time()
-        response = llm_client.generate_json(
+        response = await llm_client.generate_json(
             prompt=user_prompt,
             system=system_prompt,
             temperature=0.2,
@@ -1366,7 +1367,7 @@ async def extract_pdf(file_path: str) -> str:
         
         # If pdfplumber returns empty (scanned PDF), try OCR fallback
         if not full_text or len(full_text) < 20:
-            logger.info(f"pdfplumber returned empty/short text, trying OCR fallback")
+            logger.info("pdfplumber returned empty/short text, trying OCR fallback")
             return await extract_image(file_path)
         
         return full_text
@@ -1859,8 +1860,9 @@ async def upload_document(
     if use_temporal:
         try:
             # PR16: Upload to MinIO and create document record BEFORE starting workflow
-            from src.storage import upload_document
             import asyncpg
+
+            from src.storage import upload_document
             
             # 1. Upload to MinIO
             minio_bucket, minio_key, file_checksum, file_size = upload_document(
@@ -3709,6 +3711,7 @@ class TestbenchResult(BaseModel):
 async def run_testbench_tool(request: TestbenchRunRequest):
     """Run a specific tool test and return results."""
     import time
+
     import httpx
     
     tool = request.tool.lower()
@@ -4199,7 +4202,7 @@ async def _test_metrics():
     
     try:
         # Get metrics from our own endpoint
-        from src.observability import list_metric_names, get_metric_stats
+        from src.observability import get_metric_stats, list_metric_names
         
         metric_names = await list_metric_names()
         evidence["metric_names"] = metric_names
@@ -4305,7 +4308,7 @@ async def chat_copilot(request: ChatRequest):
         if request.context:
             system_prompt += f"\nContext: {request.context}"
             
-        result = client.generate(
+        result = await client.generate(
             system=system_prompt,
             prompt=request.message,
             temperature=0.7

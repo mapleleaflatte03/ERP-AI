@@ -49,7 +49,7 @@ def test_llm_call():
     client = get_llm_client()
 
     try:
-        response = client.generate(
+        response = client.generate_sync(
             prompt="Trả lời ngắn gọn: 2 + 2 = ?",
             system="Bạn là trợ lý hữu ích.",
             temperature=0.1,
