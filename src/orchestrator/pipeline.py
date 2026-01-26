@@ -180,7 +180,7 @@ def node_retrieve_context(state: PipelineState) -> PipelineState:
         return state
 
 
-def node_generate_proposal(state: PipelineState) -> PipelineState:
+async def node_generate_proposal(state: PipelineState) -> PipelineState:
     """Generate journal entry proposal using DO Agent LLM"""
     from src.llm import get_llm_client
 
@@ -238,7 +238,7 @@ OUTPUT JSON:
 Phân tích và đề xuất bút toán kế toán (JSON)."""
 
         # Call LLM
-        response = client.generate_sync(
+        response = await client.generate(
             prompt=user_prompt,
             system=system_prompt,
             json_schema={"type": "object"},
@@ -441,7 +441,7 @@ def get_pipeline():
 # =============================================================================
 
 
-def run_simple_pipeline(state: PipelineState) -> PipelineState:
+async def run_simple_pipeline(state: PipelineState) -> PipelineState:
     """Run pipeline without LangGraph (fallback)"""
     logger.info(f"Running simple sequential pipeline for job {state['job_id']}")
 
@@ -456,7 +456,7 @@ def run_simple_pipeline(state: PipelineState) -> PipelineState:
         return node_finalize(state)
 
     # Generate proposal
-    state = node_generate_proposal(state)
+    state = await node_generate_proposal(state)
     if state.get("status") == "failed":
         return node_finalize(state)
 
@@ -531,11 +531,11 @@ async def process_document_pipeline(
     if pipeline is not None:
         # Use LangGraph
         config = {"configurable": {"thread_id": job_id}}
-        result = pipeline.invoke(initial_state, config)
+        result = await pipeline.ainvoke(initial_state, config)
         return result
     else:
         # Use simple sequential fallback
-        return run_simple_pipeline(initial_state)
+        return await run_simple_pipeline(initial_state)
 
 
 __all__ = [
