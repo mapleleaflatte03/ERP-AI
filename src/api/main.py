@@ -31,6 +31,11 @@ from pydantic import BaseModel
 # Add project root
 sys.path.insert(0, "/root/erp-ai")
 
+# Import config and storage for health check
+from src.core import config
+from src.storage import get_minio_client
+import asyncio
+
 # Import middleware and logging config
 from src.api.document_routes import get_db_pool
 from src.api.document_routes import router as document_router
@@ -1620,10 +1625,25 @@ app = create_app()
 # ===========================================================================
 
 
+def check_storage_sync() -> bool:
+    """
+    Sync storage check for threading.
+    Checks if configured MinIO bucket exists.
+    """
+    client = get_minio_client()
+    # Lightweight check: bucket existence
+    if not client.bucket_exists(config.MINIO_BUCKET):
+        # If bucket doesn't exist, we can connect but system isn't fully ready.
+        # We treat this as unhealthy for strict readiness.
+        return False
+    return True
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
     services = {}
+    overall_status = "healthy"
 
     # Check LLM
     try:
@@ -1633,9 +1653,33 @@ async def health_check():
         services["llm"] = {"status": "healthy", "provider": "do_agent", "model": client.config.model}
     except Exception as e:
         services["llm"] = {"status": "unhealthy", "error": str(e)}
+        overall_status = "degraded"
+
+    # Check Storage (MinIO) - Async wrapper with timeout
+    try:
+        # Run sync check in thread pool with timeout
+        is_healthy = await asyncio.wait_for(
+            asyncio.to_thread(check_storage_sync),
+            timeout=2.0
+        )
+
+        if is_healthy:
+            services["storage"] = {"status": "healthy", "bucket": config.MINIO_BUCKET}
+        else:
+            services["storage"] = {"status": "unhealthy", "error": f"Bucket '{config.MINIO_BUCKET}' missing"}
+            overall_status = "degraded"
+
+    except asyncio.TimeoutError:
+        services["storage"] = {"status": "unhealthy", "error": "Connection timed out (2.0s)"}
+        overall_status = "degraded"
+    except Exception as e:
+        # Shorten error message to avoid leaking too much
+        error_msg = str(e).split("\n")[0][:200]
+        services["storage"] = {"status": "unhealthy", "error": error_msg}
+        overall_status = "degraded"
 
     return HealthResponse(
-        status="healthy" if services.get("llm", {}).get("status") == "healthy" else "degraded",
+        status=overall_status,
         version="1.0.0",
         timestamp=datetime.utcnow().isoformat() + "Z",
         services=services,
