@@ -256,9 +256,76 @@ Trả về JSON:
         """Activity: Send notification for approval"""
         logger.info(f"[Activity] Sending approval notification for {job_id}")
 
-        # TODO: Integrate with notification system (Telegram, Email)
-        # For now, just log
-        logger.info(f"Approval request sent to {approver_id} for job {job_id}")
+        from src.db import get_connection
+        from src.notifications import send_email, send_telegram_message
+
+        email = None
+        telegram_chat_id = None
+
+        # 1. Resolve approver contact info
+        # If approver_id looks like a numeric ID, assume it's a Telegram chat ID (direct bot usage)
+        if approver_id.isdigit():
+            telegram_chat_id = approver_id
+        else:
+            # Assume UUID -> lookup in DB
+            try:
+                async with get_connection() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT email, telegram_chat_id FROM users WHERE id = $1", approver_id
+                    )
+                    if row:
+                        email = row["email"]
+                        telegram_chat_id = row["telegram_chat_id"]
+            except Exception as e:
+                logger.error(f"Failed to lookup user {approver_id}: {e}")
+
+        # 2. Format message
+        invoice_no = proposal.get("invoice_no", "N/A")
+        vendor = proposal.get("vendor", "N/A")
+        amount = proposal.get("total_amount", 0)
+        currency = proposal.get("currency", "VND")
+
+        subject = f"Approval Required: Invoice {invoice_no} from {vendor}"
+
+        body_text = f"""
+Approval Request for Job {job_id}
+
+Vendor: {vendor}
+Invoice No: {invoice_no}
+Total Amount: {amount:,.0f} {currency}
+
+Please review the journal entries proposed by AI.
+"""
+
+        # 3. Send notifications
+        sent = False
+
+        if email:
+            email_sent = await send_email(email, subject, body_text)
+            if email_sent:
+                logger.info(f"Email sent to {email}")
+                sent = True
+
+        if telegram_chat_id:
+            telegram_msg = f"""
+🔔 Approval Required
+
+Vendor: {vendor}
+Invoice: {invoice_no}
+Amount: {amount:,.0f} {currency}
+
+Reply with:
+/approve {job_id}
+/reject {job_id}
+"""
+            tg_sent = await send_telegram_message(telegram_chat_id, telegram_msg)
+            if tg_sent:
+                logger.info(f"Telegram sent to {telegram_chat_id}")
+                sent = True
+
+        if not sent:
+            logger.warning(f"No notification sent for {job_id} (approver: {approver_id})")
+
         return True
 
     @activity.defn
