@@ -3,6 +3,7 @@ ERPX AI Accounting - API Routes
 ===============================
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -287,21 +288,22 @@ async def process_batch(
 
         copilot = ERPXAccountingCopilot(mode=mode.upper(), tenant_id=tenant_id)
 
-        results = []
-        errors = []
-
-        for i, doc in enumerate(documents):
+        async def process_single(i, doc):
             try:
-                result = copilot.process(
+                result = await asyncio.to_thread(
+                    copilot.process,
                     ocr_text=doc.get("ocr_text"),
                     structured_fields=doc.get("structured_fields"),
                     file_metadata=doc.get("file_metadata"),
                     doc_id=doc.get("doc_id", f"BATCH-{i}"),
                 )
-                results.append({"index": i, "success": True, "data": result})
+                return {"index": i, "success": True, "data": result}
             except Exception as e:
-                errors.append({"index": i, "error": str(e)})
-                results.append({"index": i, "success": False, "error": str(e)})
+                return {"index": i, "success": False, "error": str(e)}
+
+        tasks = [process_single(i, doc) for i, doc in enumerate(documents)]
+        results = await asyncio.gather(*tasks)
+        errors = [r for r in results if not r["success"]]
 
         processing_time = (time.time() - start_time) * 1000
 
