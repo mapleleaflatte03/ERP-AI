@@ -289,7 +289,7 @@ Phân tích và đề xuất bút toán kế toán (JSON)."""
         return state
 
 
-def node_validate_policy(state: PipelineState) -> PipelineState:
+async def node_validate_policy(state: PipelineState) -> PipelineState:
     """Validate journal proposal against OPA policies"""
     import httpx
 
@@ -312,8 +312,8 @@ def node_validate_policy(state: PipelineState) -> PipelineState:
         }
 
         # Call OPA
-        with httpx.Client(timeout=10.0) as client:
-            response = client.post(f"{opa_url}/v1/data/erpx/journal/validate", json=opa_input)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{opa_url}/v1/data/erpx/journal/validate", json=opa_input)
 
             if response.status_code == 200:
                 result = response.json()
@@ -441,7 +441,7 @@ def get_pipeline():
 # =============================================================================
 
 
-def run_simple_pipeline(state: PipelineState) -> PipelineState:
+async def run_simple_pipeline(state: PipelineState) -> PipelineState:
     """Run pipeline without LangGraph (fallback)"""
     logger.info(f"Running simple sequential pipeline for job {state['job_id']}")
 
@@ -461,7 +461,7 @@ def run_simple_pipeline(state: PipelineState) -> PipelineState:
         return node_finalize(state)
 
     # Validate with OPA
-    state = node_validate_policy(state)
+    state = await node_validate_policy(state)
 
     # Finalize
     return node_finalize(state)
@@ -531,11 +531,11 @@ async def process_document_pipeline(
     if pipeline is not None:
         # Use LangGraph
         config = {"configurable": {"thread_id": job_id}}
-        result = pipeline.invoke(initial_state, config)
+        result = await pipeline.ainvoke(initial_state, config)
         return result
     else:
         # Use simple sequential fallback
-        return run_simple_pipeline(initial_state)
+        return await run_simple_pipeline(initial_state)
 
 
 __all__ = [
