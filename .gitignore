@@ -167,3 +167,9 @@ ui/coverage/
 # Samples & generated test data
 samples/
 generate_test_data.py
+
+# Sensitive files - DO NOT COMMIT
+ui/.env.production
+*.bak.*
+docker-compose.yml.bak.*
+infrastructure/kong/*.bak.*
