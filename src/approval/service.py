@@ -337,22 +337,28 @@ async def post_to_ledger(
     )
 
     # Create ledger lines
-    for entry in entries:
-        line_id = uuid.uuid4()
-        await conn.execute(
-            """
-            INSERT INTO ledger_lines
-            (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT DO NOTHING
-            """,
-            line_id,
+    ledger_lines_data = [
+        (
+            uuid.uuid4(),
             ledger_id,
             entry["account_code"],
             entry["account_name"],
             entry["debit_amount"],
             entry["credit_amount"],
             entry["line_order"],
+        )
+        for entry in entries
+    ]
+
+    if ledger_lines_data:
+        await conn.executemany(
+            """
+            INSERT INTO ledger_lines
+            (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            """,
+            ledger_lines_data,
         )
 
     logger.info(f"[{request_id}] Created ledger entry {entry_number} for proposal {proposal_id}")
