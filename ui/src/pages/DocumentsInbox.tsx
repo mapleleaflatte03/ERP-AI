@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -133,19 +133,21 @@ export default function DocumentsInbox() {
   });
 
   // Filter documents
-  const filteredDocuments = (documents || []).filter(doc => {
-    if (statusFilter && doc.status !== statusFilter) return false;
-    if (typeFilter && doc.type !== typeFilter) return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        doc.filename.toLowerCase().includes(query) ||
-        doc.vendor_name?.toLowerCase().includes(query) ||
-        doc.invoice_no?.toLowerCase().includes(query)
-      );
-    }
-    return true;
-  });
+  const filteredDocuments = useMemo(() => {
+    return (documents || []).filter(doc => {
+      if (statusFilter && doc.status !== statusFilter) return false;
+      if (typeFilter && doc.type !== typeFilter) return false;
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return (
+          doc.filename.toLowerCase().includes(query) ||
+          doc.vendor_name?.toLowerCase().includes(query) ||
+          doc.invoice_no?.toLowerCase().includes(query)
+        );
+      }
+      return true;
+    });
+  }, [documents, statusFilter, typeFilter, searchQuery]);
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
