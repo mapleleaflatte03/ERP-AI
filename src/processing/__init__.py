@@ -90,39 +90,21 @@ def process_image_ocr(image_data: bytes) -> ProcessingResult:
                 document_text=text,
                 tables=[],
                 key_fields=extract_key_fields(text),
-    """Process image using Tesseract OCR (Fallback for PaddleOCR)"""
-    try:
-        import pytesseract
-        from PIL import Image
-        import io
+                confidence=0.80,
+                extraction_method="tesseract",
+            )
 
-        # Load image
-        image = Image.open(io.BytesIO(image_data))
-        
-        # Run Tesseract
-        # Assume tesseract is in PATH or configured
-        text = pytesseract.image_to_string(image, lang="eng")
-
-        return ProcessingResult(
-            success=True,
-            document_text=text,
-            tables=[],
-            key_fields=extract_key_fields(text),
-            confidence=0.80,
-            extraction_method="tesseract",
-        )
-
-    except Exception as e:
-        logger.error(f"OCR processing failed: {e}")
-        return ProcessingResult(
-            success=False,
-            document_text="",
-            tables=[],
-            key_fields={},
-            confidence=0.0,
-            extraction_method="failed",
-            error_message=str(e),
-        )
+        except Exception as e:
+            logger.error(f"OCR processing failed: {e}")
+            return ProcessingResult(
+                success=False,
+                document_text="",
+                tables=[],
+                key_fields={},
+                confidence=0.0,
+                extraction_method="failed",
+                error_message=str(e),
+            )
 
 
 # =============================================================================
@@ -294,56 +276,57 @@ def process_excel(excel_data: bytes) -> ProcessingResult:
 # =============================================================================
 
 
+# Vietnamese patterns
+_PATTERNS = {
+    # Invoice number patterns
+    "invoice_number": [
+        re.compile(r"Số[:\s]*(\d{7,})", re.IGNORECASE),
+        re.compile(r"Invoice[:\s#]*(\w+[-/]?\d+)", re.IGNORECASE),
+        re.compile(r"Mã[:\s]*(\d{7,})", re.IGNORECASE),
+        re.compile(r"Số HĐ[:\s]*(\S+)", re.IGNORECASE),
+    ],
+    # Tax ID patterns
+    "tax_id": [
+        re.compile(r"MST[:\s]*(\d{10,13})", re.IGNORECASE),
+        re.compile(r"Mã số thuế[:\s]*(\d{10,13})", re.IGNORECASE),
+        re.compile(r"Tax ID[:\s]*(\d{10,13})", re.IGNORECASE),
+    ],
+    # Date patterns
+    "invoice_date": [
+        re.compile(r"Ngày[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", re.IGNORECASE),
+        re.compile(r"Date[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", re.IGNORECASE),
+        re.compile(r"(\d{1,2}[/-]\d{1,2}[/-]\d{4})", re.IGNORECASE),
+    ],
+    # Amount patterns (Vietnamese format with dots/commas)
+    "total_amount": [
+        re.compile(r"Tổng(?:\s+cộng)?[:\s]*([\d.,]+)\s*(?:VND|đ|đồng)?", re.IGNORECASE),
+        re.compile(r"Total[:\s]*([\d.,]+)", re.IGNORECASE),
+        re.compile(r"Thành tiền[:\s]*([\d.,]+)", re.IGNORECASE),
+        re.compile(r"TỔNG TIỀN[:\s]*([\d.,]+)", re.IGNORECASE),
+    ],
+    # VAT patterns
+    "vat_amount": [
+        re.compile(r"(?:Thuế\s+)?GTGT[:\s]*([\d.,]+)", re.IGNORECASE),
+        re.compile(r"VAT[:\s]*([\d.,]+)", re.IGNORECASE),
+        re.compile(r"Thuế[:\s]*([\d.,]+)", re.IGNORECASE),
+    ],
+    # Vendor name
+    "vendor_name": [
+        re.compile(r"Đơn vị bán[:\s]*(.+?)(?:\n|$)", re.IGNORECASE),
+        re.compile(r"Nhà cung cấp[:\s]*(.+?)(?:\n|$)", re.IGNORECASE),
+        re.compile(r"Vendor[:\s]*(.+?)(?:\n|$)", re.IGNORECASE),
+        re.compile(r"Công ty[:\s]*(.+?)(?:\n|$)", re.IGNORECASE),
+    ],
+}
+
+
 def extract_key_fields(text: str) -> dict[str, Any]:
     """Extract key fields from text using regex patterns"""
     fields = {}
 
-    # Vietnamese patterns
-    patterns = {
-        # Invoice number patterns
-        "invoice_number": [
-            r"Số[:\s]*(\d{7,})",
-            r"Invoice[:\s#]*(\w+[-/]?\d+)",
-            r"Mã[:\s]*(\d{7,})",
-            r"Số HĐ[:\s]*(\S+)",
-        ],
-        # Tax ID patterns
-        "tax_id": [
-            r"MST[:\s]*(\d{10,13})",
-            r"Mã số thuế[:\s]*(\d{10,13})",
-            r"Tax ID[:\s]*(\d{10,13})",
-        ],
-        # Date patterns
-        "invoice_date": [
-            r"Ngày[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
-            r"Date[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
-            r"(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
-        ],
-        # Amount patterns (Vietnamese format with dots/commas)
-        "total_amount": [
-            r"Tổng(?:\s+cộng)?[:\s]*([\d.,]+)\s*(?:VND|đ|đồng)?",
-            r"Total[:\s]*([\d.,]+)",
-            r"Thành tiền[:\s]*([\d.,]+)",
-            r"TỔNG TIỀN[:\s]*([\d.,]+)",
-        ],
-        # VAT patterns
-        "vat_amount": [
-            r"(?:Thuế\s+)?GTGT[:\s]*([\d.,]+)",
-            r"VAT[:\s]*([\d.,]+)",
-            r"Thuế[:\s]*([\d.,]+)",
-        ],
-        # Vendor name
-        "vendor_name": [
-            r"Đơn vị bán[:\s]*(.+?)(?:\n|$)",
-            r"Nhà cung cấp[:\s]*(.+?)(?:\n|$)",
-            r"Vendor[:\s]*(.+?)(?:\n|$)",
-            r"Công ty[:\s]*(.+?)(?:\n|$)",
-        ],
-    }
-
-    for field, pattern_list in patterns.items():
+    for field, pattern_list in _PATTERNS.items():
         for pattern in pattern_list:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = pattern.search(text)
             if match:
                 value = match.group(1).strip()
                 # Clean up amount values
