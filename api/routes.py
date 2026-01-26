@@ -3,6 +3,7 @@ ERPX AI Accounting - API Routes
 ===============================
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -214,10 +215,15 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
         ]
 
         # Process each invoice and reconcile
-        results = []
+        tasks = []
         for invoice in reconcile_request.invoices:
-            result = copilot.process(structured_fields=invoice, bank_txns=bank_txns)
-            results.append(result)
+            tasks.append(
+                asyncio.to_thread(
+                    copilot.process, structured_fields=invoice, bank_txns=bank_txns
+                )
+            )
+
+        results = await asyncio.gather(*tasks)
 
         # Aggregate reconciliation results
         all_matched = []
