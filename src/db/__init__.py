@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS users (
     company_id VARCHAR(36) REFERENCES companies(id),
     username VARCHAR(100) NOT NULL UNIQUE,
     email VARCHAR(255),
+    telegram_chat_id VARCHAR(50),
     role VARCHAR(50) DEFAULT 'accountant',
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -323,6 +324,10 @@ async def init_schema():
     """Initialize database schema"""
     async with get_connection() as conn:
         await conn.execute(SCHEMA_SQL)
+        try:
+            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50)")
+        except Exception as e:
+            logger.warning(f"Migration warning: {e}")
         logger.info("Database schema initialized")
 
 

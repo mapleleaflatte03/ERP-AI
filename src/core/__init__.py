@@ -72,6 +72,13 @@ class Config:
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
+    # Email
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "localhost")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "1025"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "noreply@erpx.ai")
+
     # API
     API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
 
