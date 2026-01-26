@@ -124,6 +124,7 @@ class ApprovalService:
             approved_by=approved_by,
             trace_id=trace_id,
             request_id=request_id,
+            invoice=invoice,
         )
 
         logger.info(

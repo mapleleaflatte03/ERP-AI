@@ -38,6 +38,7 @@ class LedgerWriter:
         *,
         trace_id: str | None = None,
         request_id: str | None = None,
+        invoice: Invoice | None = None,
     ) -> tuple[list[LedgerEntry], str]:
         """
         Post approved proposal to ledger
@@ -47,6 +48,7 @@ class LedgerWriter:
             approved_by: Who approved
             trace_id: E2E trace ID
             request_id: Request ID
+            invoice: Optional invoice object to avoid redundant DB query
 
         Returns:
             Tuple of (list of created ledger entries, journal number)
@@ -115,7 +117,9 @@ class LedgerWriter:
         proposal.updated_at = datetime.utcnow()
 
         # Update invoice status to POSTED
-        invoice = self.db.query(Invoice).filter(Invoice.id == proposal.invoice_id).first()
+        if invoice is None:
+            invoice = self.db.query(Invoice).filter(Invoice.id == proposal.invoice_id).first()
+
         if invoice:
             old_status = invoice.status
             invoice.status = InvoiceStatus.POSTED
