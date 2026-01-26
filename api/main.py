@@ -9,6 +9,7 @@ Endpoints:
 
 import os
 import sys
+import asyncio
 from datetime import datetime
 
 from fastapi import FastAPI, Request
@@ -26,6 +27,8 @@ from core.exceptions import ERPXBaseException, QuotaExceeded, TenantNotFound, Va
 from core.schemas import (
     HealthResponse,
 )
+from core.config import settings
+from src.storage import get_minio_client
 
 
 def create_app() -> FastAPI:
@@ -108,15 +111,40 @@ def create_app() -> FastAPI:
     @app.get("/health", response_model=HealthResponse, tags=["Health"])
     async def health_check():
         """Health check endpoint"""
+
+        def check_storage_sync() -> dict:
+            """Synchronous storage check"""
+            try:
+                client = get_minio_client()
+                # Lightweight check: bucket existence
+                if client.bucket_exists(settings.MINIO_BUCKET):
+                    return {"status": "healthy", "bucket": settings.MINIO_BUCKET}
+                else:
+                    return {"status": "unhealthy", "error": f"Bucket '{settings.MINIO_BUCKET}' missing"}
+            except Exception as e:
+                # Shorten error message
+                error_msg = str(e).split("\n")[0][:200]
+                return {"status": "unhealthy", "error": error_msg}
+
+        # Check Storage (MinIO) - Async wrapper
+        try:
+            storage_status = await asyncio.to_thread(check_storage_sync)
+        except Exception as e:
+            storage_status = {"status": "unhealthy", "error": str(e)}
+
+        overall_status = "ok"
+        if storage_status.get("status") != "healthy":
+            overall_status = "degraded"
+
         return HealthResponse(
-            status="ok",
+            status=overall_status,
             version=API_VERSION,
             timestamp=datetime.utcnow().isoformat(),
             components={
                 "api": "healthy",
                 "database": "mock",  # TODO: Real check
                 "vector_db": "mock",  # TODO: Real check
-                "storage": "mock",  # TODO: Real check
+                "storage": storage_status,
             },
         )
 
