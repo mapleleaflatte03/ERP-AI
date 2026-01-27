@@ -161,9 +161,7 @@ export default function DocumentsInbox() {
     
     setUploading(true);
     try {
-      for (const file of files) {
-        await api.uploadDocument(file);
-      }
+      await Promise.all(files.map(file => api.uploadDocument(file)));
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -176,9 +174,7 @@ export default function DocumentsInbox() {
 
     setUploading(true);
     try {
-      for (const file of files) {
-        await api.uploadDocument(file);
-      }
+      await Promise.all(files.map(file => api.uploadDocument(file)));
     } catch (err) {
       console.error('Upload failed:', err);
     }
