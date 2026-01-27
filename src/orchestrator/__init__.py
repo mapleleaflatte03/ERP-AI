@@ -14,6 +14,7 @@ Pipeline:
 8. Commit to Ledger
 """
 
+import asyncio
 import json
 import logging
 import operator
@@ -38,6 +39,7 @@ sys.path.insert(0, "/root/erp-ai")
 
 from src.guardrails import GuardrailsEngine, get_guardrails_engine
 from src.llm import LLMClient, get_llm_client
+from src.rag import search_accounting_context
 
 logger = logging.getLogger("erpx.orchestrator")
 
@@ -550,9 +552,28 @@ def chunk_text(text: str, max_chunk_size: int = 2000, overlap: int = 200) -> lis
 
 async def retrieve_rag_context(query: str, top_k: int = 5) -> tuple:
     """Retrieve context from RAG system"""
-    # TODO: Integrate with Qdrant
-    # For now, return empty
-    return [], []
+    try:
+        # Run blocking search in thread
+        results = await asyncio.to_thread(search_accounting_context, query, limit=top_k)
+
+        contexts = []
+        scores = []
+
+        for result in results:
+            contexts.append(
+                {
+                    "content": result.text,
+                    "metadata": result.metadata,
+                    "source": result.source,
+                }
+            )
+            scores.append(result.score)
+
+        return contexts, scores
+
+    except Exception as e:
+        logger.error(f"RAG retrieval failed: {e}")
+        return [], []
 
 
 # ===========================================================================
