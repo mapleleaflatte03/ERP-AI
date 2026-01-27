@@ -4,6 +4,7 @@ ERPX AI Accounting - Database Module
 PostgreSQL database operations with async support.
 """
 
+import json
 import logging
 import os
 import uuid
@@ -629,6 +630,68 @@ async def validate_account_code(account_code: str, company_id: str = "default") 
         return row is not None
 
 
+async def ensure_job_exists(job_id: str, company_id: str = "default") -> None:
+    """Ensure job record exists"""
+    async with get_connection() as conn:
+        # Check if job exists
+        row = await conn.fetchrow("SELECT 1 FROM jobs WHERE id = $1", job_id)
+        if not row:
+            # Create placeholder job
+            # Note: We leave document_id NULL as we might not have it contextually
+            await conn.execute(
+                """
+                INSERT INTO jobs (id, company_id, status, created_at, updated_at)
+                VALUES ($1, $2, 'processing', NOW(), NOW())
+                ON CONFLICT (id) DO NOTHING
+                """,
+                job_id,
+                company_id,
+            )
+            logger.info(f"Created placeholder job {job_id}")
+
+
+async def save_journal_proposal(job_id: str, proposal: dict, company_id: str = "default") -> str:
+    """Save journal proposal to database"""
+    proposal_id = str(uuid.uuid4())
+    entries = proposal.get("entries", [])
+
+    # Handle invoice date parsing safely
+    invoice_date = None
+    if proposal.get("invoice_date"):
+        try:
+            invoice_date = datetime.strptime(proposal.get("invoice_date"), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            pass
+
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO journal_proposals (
+                id, job_id, company_id, doc_type, description,
+                vendor_name, invoice_number, invoice_date,
+                total_amount, vat_amount, entries,
+                confidence, reasoning
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            """,
+            proposal_id,
+            job_id,
+            company_id,
+            proposal.get("doc_type"),
+            proposal.get("explanation"),
+            proposal.get("vendor"),
+            proposal.get("invoice_no"),
+            invoice_date,
+            proposal.get("total_amount"),
+            proposal.get("vat_amount"),
+            json.dumps(entries),
+            proposal.get("confidence"),
+            proposal.get("explanation"),
+        )
+        logger.info(f"Saved journal proposal {proposal_id} for job {job_id}")
+        return proposal_id
+
+
 __all__ = [
     "get_pool",
     "close_pool",
@@ -645,4 +708,6 @@ __all__ = [
     "log_llm_call",
     "get_chart_of_accounts",
     "validate_account_code",
+    "ensure_job_exists",
+    "save_journal_proposal",
 ]

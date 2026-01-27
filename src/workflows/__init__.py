@@ -331,16 +331,49 @@ Reply with:
         """Activity: Commit approved journal to ledger"""
         logger.info(f"[Activity] Committing to ledger for {job_id}")
 
-        # TODO: Integrate with PostgreSQL ledger
-        # For now, return success
         from datetime import datetime
+        from src.db import ensure_job_exists, save_journal_proposal, post_ledger_entry, get_job
 
-        return {
-            "job_id": job_id,
-            "committed": True,
-            "committed_at": datetime.utcnow().isoformat() + "Z",
-            "ledger_entry_id": f"LED-{job_id[:8]}",
-        }
+        try:
+            # 1. Ensure job exists
+            await ensure_job_exists(job_id)
+
+            # 2. Check if already posted (idempotency)
+            job = await get_job(job_id)
+            if job and job.get("ledger_posted"):
+                logger.info(f"[Activity] Job {job_id} already posted to ledger. Skipping.")
+                return {
+                    "job_id": job_id,
+                    "committed": True,
+                    "committed_at": str(job.get("updated_at")),
+                    "ledger_entry_id": job.get("ledger_entry_id"),
+                }
+
+            # 3. Save journal proposal
+            proposal_id = await save_journal_proposal(job_id, proposal)
+
+            # 4. Post to ledger
+            entries = proposal.get("entries", [])
+            description = f"Invoice {proposal.get('invoice_no', 'N/A')} - {proposal.get('vendor', 'Unknown')}"
+
+            ledger_entry_id = await post_ledger_entry(
+                job_id=job_id,
+                proposal_id=proposal_id,
+                entries=entries,
+                description=description,
+                posted_by=approver_id,
+            )
+
+            return {
+                "job_id": job_id,
+                "committed": True,
+                "committed_at": datetime.utcnow().isoformat() + "Z",
+                "ledger_entry_id": ledger_entry_id,
+            }
+
+        except Exception as e:
+            logger.error(f"[Activity] Failed to commit to ledger: {e}")
+            raise
 
     @activity.defn
     async def store_job_result_activity(job_id: str, result: dict[str, Any]) -> bool:
