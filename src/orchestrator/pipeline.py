@@ -4,12 +4,15 @@ ERPX AI Accounting - Document Processing Pipeline (LangGraph)
 Orchestrates document processing workflow with state machine.
 """
 
+import asyncio
 import json
 import logging
 import os
 import uuid
 from datetime import datetime
 from typing import Any, Literal, TypedDict
+
+from src.core import config
 
 # LangGraph imports
 try:
@@ -24,6 +27,10 @@ except ImportError:
     MemorySaver = None
 
 logger = logging.getLogger(__name__)
+
+# Semaphores to bound concurrency
+_EXTRACT_SEMAPHORE = asyncio.Semaphore(5)  # CPU intensive OCR
+_RAG_SEMAPHORE = asyncio.Semaphore(10)     # IO bound but potentially heavy
 
 # =============================================================================
 # Pipeline State
@@ -75,7 +82,7 @@ class PipelineState(TypedDict):
 # =============================================================================
 
 
-def node_extract_document(state: PipelineState) -> PipelineState:
+async def node_extract_document(state: PipelineState) -> PipelineState:
     """Extract text and data from document"""
     from src.processing import process_document
     from src.storage import download_document
@@ -85,27 +92,35 @@ def node_extract_document(state: PipelineState) -> PipelineState:
     state["timestamps"]["extract_start"] = datetime.utcnow().isoformat()
 
     try:
-        # Download document from MinIO
-        doc_data = download_document(state["document_key"])
-        if doc_data is None:
-            state["status"] = "failed"
-            state["error_message"] = f"Document not found: {state['document_key']}"
-            return state
+        # Acquire semaphore to limit concurrent heavy processing
+        async with _EXTRACT_SEMAPHORE:
+            # Download document from MinIO (Run in thread)
+            # Fix: Pass bucket name explicitly
+            doc_data = await asyncio.to_thread(
+                download_document, config.MINIO_BUCKET, state["document_key"]
+            )
 
-        # Determine content type from extension
-        ext = state["document_key"].lower().split(".")[-1]
-        content_type_map = {
-            "pdf": "application/pdf",
-            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "xls": "application/vnd.ms-excel",
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-        }
-        content_type = content_type_map.get(ext, "application/octet-stream")
+            if doc_data is None:
+                state["status"] = "failed"
+                state["error_message"] = f"Document not found: {state['document_key']}"
+                return state
 
-        # Process document
-        result = process_document(doc_data, content_type, state["document_key"])
+            # Determine content type from extension
+            ext = state["document_key"].lower().split(".")[-1]
+            content_type_map = {
+                "pdf": "application/pdf",
+                "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "xls": "application/vnd.ms-excel",
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+            }
+            content_type = content_type_map.get(ext, "application/octet-stream")
+
+            # Process document (Run in thread as it is CPU intensive)
+            result = await asyncio.to_thread(
+                process_document, doc_data, content_type, state["document_key"]
+            )
 
         if not result.success:
             state["status"] = "failed"
@@ -127,7 +142,7 @@ def node_extract_document(state: PipelineState) -> PipelineState:
         return state
 
 
-def node_retrieve_context(state: PipelineState) -> PipelineState:
+async def node_retrieve_context(state: PipelineState) -> PipelineState:
     """Retrieve relevant context from RAG"""
     from src.rag import format_context_for_llm, search_accounting_context
 
@@ -160,8 +175,11 @@ def node_retrieve_context(state: PipelineState) -> PipelineState:
 
         search_query = " ".join(query_parts)
 
-        # Search RAG
-        results = search_accounting_context(search_query, limit=3)
+        # Search RAG (Run in thread)
+        async with _RAG_SEMAPHORE:
+            results = await asyncio.to_thread(
+                search_accounting_context, search_query, limit=3
+            )
 
         # Format for LLM
         state["rag_context"] = format_context_for_llm(results)
@@ -446,12 +464,12 @@ async def run_simple_pipeline(state: PipelineState) -> PipelineState:
     logger.info(f"Running simple sequential pipeline for job {state['job_id']}")
 
     # Extract
-    state = node_extract_document(state)
+    state = await node_extract_document(state)
     if state.get("status") == "failed":
         return node_finalize(state)
 
     # Retrieve RAG context
-    state = node_retrieve_context(state)
+    state = await node_retrieve_context(state)
     if state.get("status") == "failed":
         return node_finalize(state)
 

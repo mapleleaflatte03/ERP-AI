@@ -29,6 +29,8 @@ from core.schemas import (
 )
 from core.config import settings
 from src.storage import get_minio_client
+from src.db import get_pool
+from src.rag import get_qdrant_client
 
 
 def create_app() -> FastAPI:
@@ -112,6 +114,35 @@ def create_app() -> FastAPI:
     async def health_check():
         """Health check endpoint"""
 
+        async def check_database() -> dict:
+            """Check database connectivity"""
+            try:
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    # Execute simple query with timeout
+                    await asyncio.wait_for(conn.execute("SELECT 1"), timeout=2.0)
+                return {"status": "healthy"}
+            except asyncio.TimeoutError:
+                return {"status": "unhealthy", "error": "Connection timed out"}
+            except Exception as e:
+                return {"status": "unhealthy", "error": str(e)}
+
+        async def check_vector_db() -> dict:
+            """Check vector database connectivity"""
+            try:
+                client = get_qdrant_client()
+                # Use sync client in thread or async method if available
+                # QdrantClient has async health_check method
+                is_healthy = await asyncio.wait_for(client.health_check(), timeout=2.0)
+                if is_healthy:
+                    return {"status": "healthy"}
+                else:
+                    return {"status": "unhealthy", "error": "Health check returned false"}
+            except asyncio.TimeoutError:
+                return {"status": "unhealthy", "error": "Connection timed out"}
+            except Exception as e:
+                return {"status": "unhealthy", "error": str(e)}
+
         def check_storage_sync() -> dict:
             """Synchronous storage check"""
             try:
@@ -126,14 +157,22 @@ def create_app() -> FastAPI:
                 error_msg = str(e).split("\n")[0][:200]
                 return {"status": "unhealthy", "error": error_msg}
 
-        # Check Storage (MinIO) - Async wrapper
-        try:
-            storage_status = await asyncio.to_thread(check_storage_sync)
-        except Exception as e:
-            storage_status = {"status": "unhealthy", "error": str(e)}
+        # Run checks in parallel
+        storage_task = asyncio.to_thread(check_storage_sync)
+        db_task = check_database()
+        vector_db_task = check_vector_db()
+
+        # Gather results with safety
+        results = await asyncio.gather(storage_task, db_task, vector_db_task, return_exceptions=True)
+
+        storage_status = results[0] if not isinstance(results[0], Exception) else {"status": "unhealthy", "error": str(results[0])}
+        db_status = results[1] if not isinstance(results[1], Exception) else {"status": "unhealthy", "error": str(results[1])}
+        vector_db_status = results[2] if not isinstance(results[2], Exception) else {"status": "unhealthy", "error": str(results[2])}
 
         overall_status = "ok"
-        if storage_status.get("status") != "healthy":
+        if (storage_status.get("status") != "healthy" or
+            db_status.get("status") != "healthy" or
+            vector_db_status.get("status") != "healthy"):
             overall_status = "degraded"
 
         return HealthResponse(
@@ -142,8 +181,8 @@ def create_app() -> FastAPI:
             timestamp=datetime.utcnow().isoformat(),
             components={
                 "api": "healthy",
-                "database": "mock",  # TODO: Real check
-                "vector_db": "mock",  # TODO: Real check
+                "database": db_status,
+                "vector_db": vector_db_status,
                 "storage": storage_status,
             },
         )

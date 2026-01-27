@@ -46,6 +46,9 @@ try:
 except ImportError:
     AccountingWorkflow = None
 
+# Semaphore for batch operations
+_BATCH_SEMAPHORE = asyncio.Semaphore(10)
+
 router = APIRouter(tags=["Accounting"])
 
 
@@ -217,14 +220,13 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
         ]
 
         # Process each invoice and reconcile
-        tasks = []
-        for invoice in reconcile_request.invoices:
-            tasks.append(
-                asyncio.to_thread(
-                    copilot.process, structured_fields=invoice, bank_txns=bank_txns
+        async def process_item(inv):
+            async with _BATCH_SEMAPHORE:
+                return await asyncio.to_thread(
+                    copilot.process, structured_fields=inv, bank_txns=bank_txns
                 )
-            )
 
+        tasks = [process_item(invoice) for invoice in reconcile_request.invoices]
         results = await asyncio.gather(*tasks)
 
         # Aggregate reconciliation results
@@ -298,13 +300,14 @@ async def process_batch(
 
         async def process_single(i, doc):
             try:
-                result = await asyncio.to_thread(
-                    copilot.process,
-                    ocr_text=doc.get("ocr_text"),
-                    structured_fields=doc.get("structured_fields"),
-                    file_metadata=doc.get("file_metadata"),
-                    doc_id=doc.get("doc_id", f"BATCH-{i}"),
-                )
+                async with _BATCH_SEMAPHORE:
+                    result = await asyncio.to_thread(
+                        copilot.process,
+                        ocr_text=doc.get("ocr_text"),
+                        structured_fields=doc.get("structured_fields"),
+                        file_metadata=doc.get("file_metadata"),
+                        doc_id=doc.get("doc_id", f"BATCH-{i}"),
+                    )
                 return {"index": i, "success": True, "data": result}
             except Exception as e:
                 return {"index": i, "success": False, "error": str(e)}
