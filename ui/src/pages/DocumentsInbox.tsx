@@ -125,8 +125,11 @@ export default function DocumentsInbox() {
     queryKey: ['documents', statusFilter],
     queryFn: async () => {
       try {
-        return await api.getDocuments(statusFilter || undefined);
-      } catch {
+        const response = await api.getDocuments(statusFilter || undefined);
+        // API returns { documents: [], total: ... } but component expects Document[]
+        return Array.isArray(response) ? response : (response.documents || MOCK_DOCUMENTS);
+      } catch (err) {
+        console.error("Failed to fetch documents:", err);
         return MOCK_DOCUMENTS;
       }
     },

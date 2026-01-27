@@ -54,7 +54,17 @@ class LedgerWriter:
             Tuple of (list of created ledger entries, journal number)
         """
         if proposal.status != ProposalStatus.APPROVED:
+            # Idempotency check: allow if already posted, just return empty (or raise specific error)
+            if proposal.status == ProposalStatus.POSTED:
+                logger.info(f"Proposal {proposal.id} already posted. Skipping.")
+                return [], ""
             raise ValueError(f"Proposal {proposal.id} is not approved (status: {proposal.status})")
+
+        # Check if ledger entries already exist (double-check)
+        existing = self.db.query(LedgerEntry).filter(LedgerEntry.proposal_id == proposal.id).first()
+        if existing:
+            logger.info(f"Proposal {proposal.id} already has ledger entries. Skipping.")
+            return [], existing.journal_number
 
         # Generate journal number
         journal_number = self._generate_journal_number(proposal.tenant_id)
@@ -87,7 +97,6 @@ class LedgerWriter:
                 source_proposal_id=proposal.id,
                 trace_id=trace_id,
             )
-            self.db.add(debit_entry)
             ledger_entries.append(debit_entry)
             total_debit += float(entry.get("amount", 0))
 
@@ -108,9 +117,11 @@ class LedgerWriter:
                 source_proposal_id=proposal.id,
                 trace_id=trace_id,
             )
-            self.db.add(credit_entry)
             ledger_entries.append(credit_entry)
             total_credit += float(entry.get("amount", 0))
+
+        # Batch insert all entries
+        self.db.add_all(ledger_entries)
 
         # Update proposal status to POSTED
         proposal.status = ProposalStatus.POSTED
@@ -118,7 +129,12 @@ class LedgerWriter:
 
         # Update invoice status to POSTED
         if invoice is None:
-            invoice = self.db.query(Invoice).filter(Invoice.id == proposal.invoice_id).first()
+            # Reuse proposal.invoice if loaded, otherwise query
+            # Accessing relationship might trigger lazy load if not detached, which is better than explicit query if session is active
+            if hasattr(proposal, "invoice") and proposal.invoice:
+                invoice = proposal.invoice
+            else:
+                invoice = self.db.query(Invoice).filter(Invoice.id == proposal.invoice_id).first()
 
         if invoice:
             old_status = invoice.status

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
 
 // Main accounting app pages
@@ -27,12 +28,13 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            {/* Main accounting workflow */}
-            <Route index element={<DocumentsInbox />} />
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              {/* Main accounting workflow */}
+              <Route index element={<DocumentsInbox />} />
             <Route path="documents/:id" element={<DocumentDetail />} />
             <Route path="documents/:id/proposal" element={<JournalProposal />} />
             
@@ -58,11 +60,12 @@ export default function App() {
             {/* Admin Diagnostics (hidden from main nav) */}
             <Route path="admin/diagnostics" element={<Testbench />} />
             
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </QueryClientProvider>
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
