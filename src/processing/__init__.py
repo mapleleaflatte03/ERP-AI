@@ -10,7 +10,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def get_ocr_engine():
     return _ocr_engine
 
 
-def process_image_ocr(image_data: bytes) -> ProcessingResult:
+def process_image_ocr(image_data: Union[bytes, Any]) -> ProcessingResult:
     """Process image with OCR"""
     ocr = get_ocr_engine()
 
@@ -82,7 +82,11 @@ def process_image_ocr(image_data: bytes) -> ProcessingResult:
             import pytesseract
             from PIL import Image
 
-            image = Image.open(io.BytesIO(image_data))
+            if isinstance(image_data, bytes):
+                image = Image.open(io.BytesIO(image_data))
+            else:
+                image = image_data
+
             text = pytesseract.image_to_string(image, lang="vie+eng")
 
             return ProcessingResult(
@@ -172,6 +176,7 @@ def process_scanned_pdf(pdf_data: bytes) -> ProcessingResult:
     """Process scanned PDF by rendering pages and running OCR"""
     try:
         import fitz  # PyMuPDF
+        from PIL import Image
 
         pdf_file = io.BytesIO(pdf_data)
         doc = fitz.open(stream=pdf_file, filetype="pdf")
@@ -184,10 +189,13 @@ def process_scanned_pdf(pdf_data: bytes) -> ProcessingResult:
             # Render page to image
             mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better OCR
             pix = page.get_pixmap(matrix=mat)
-            img_data = pix.tobytes("png")
+
+            # Convert directly to PIL Image to avoid PNG encoding/decoding overhead
+            mode = "RGBA" if pix.alpha else "RGB"
+            img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
 
             # OCR the image
-            result = process_image_ocr(img_data)
+            result = process_image_ocr(img)
             if result.success:
                 all_text.append(f"--- Page {page_num + 1} ---\n{result.document_text}")
 
