@@ -9,7 +9,6 @@ import api from './lib/api';
 
 // Run cleanup before React renders
 cleanupTokenOnce();
-api.clearToken?.();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

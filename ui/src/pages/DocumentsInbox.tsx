@@ -135,6 +135,19 @@ export default function DocumentsInbox() {
     },
   });
 
+  // Calculate stats in one pass
+  const stats = useMemo(() => {
+    return (documents || []).reduce(
+      (acc, doc) => {
+        if (doc.status === 'pending_approval') acc.pending++;
+        else if (doc.status === 'approved' || doc.status === 'posted') acc.approved++;
+        else if (doc.status === 'rejected') acc.rejected++;
+        return acc;
+      },
+      { pending: 0, approved: 0, rejected: 0 }
+    );
+  }, [documents]);
+
   // Filter documents
   const filteredDocuments = useMemo(() => {
     return (documents || []).filter(doc => {
@@ -285,7 +298,7 @@ export default function DocumentsInbox() {
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{documents?.filter(d => d.status === 'pending_approval').length || 0}</div>
+              <div className="text-2xl font-bold">{stats.pending}</div>
               <div className="text-sm text-gray-500">Chờ duyệt</div>
             </div>
           </div>
@@ -296,7 +309,7 @@ export default function DocumentsInbox() {
               <CheckCircle2 className="w-5 h-5 text-green-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{documents?.filter(d => d.status === 'approved' || d.status === 'posted').length || 0}</div>
+              <div className="text-2xl font-bold">{stats.approved}</div>
               <div className="text-sm text-gray-500">Đã duyệt</div>
             </div>
           </div>
@@ -307,7 +320,7 @@ export default function DocumentsInbox() {
               <XCircle className="w-5 h-5 text-red-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{documents?.filter(d => d.status === 'rejected').length || 0}</div>
+              <div className="text-2xl font-bold">{stats.rejected}</div>
               <div className="text-sm text-gray-500">Từ chối</div>
             </div>
           </div>
