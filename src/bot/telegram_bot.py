@@ -10,6 +10,7 @@ Features:
 - View recent jobs
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -81,11 +82,18 @@ import httpx
 async def upload_to_api(file_path: str, filename: str, tenant_id: str = "default") -> dict[str, Any]:
     """Upload file to API service"""
     async with httpx.AsyncClient() as client:
-        with open(file_path, "rb") as f:
-            files = {"file": (filename, f)}
-            headers = {"X-Tenant-Id": tenant_id}
-            response = await client.post(f"{API_BASE_URL}/v1/upload", files=files, headers=headers, timeout=60.0)
-            return response.json()
+
+        def read_file():
+            with open(file_path, "rb") as f:
+                return f.read()
+
+        # Run file read in thread to avoid blocking event loop
+        content = await asyncio.to_thread(read_file)
+
+        files = {"file": (filename, content)}
+        headers = {"X-Tenant-Id": tenant_id}
+        response = await client.post(f"{API_BASE_URL}/v1/upload", files=files, headers=headers, timeout=60.0)
+        return response.json()
 
 
 async def get_job_status(job_id: str) -> dict[str, Any]:
