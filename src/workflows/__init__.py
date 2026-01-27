@@ -347,7 +347,30 @@ Reply with:
         """Activity: Store job result to database"""
         logger.info(f"[Activity] Storing result for {job_id}")
 
-        # TODO: Store to PostgreSQL
+        from src.db import log_audit, update_job_status
+
+        status = result.get("status", "unknown")
+
+        # Update job status and details
+        await update_job_status(
+            job_id,
+            status,
+            journal_proposal=result.get("proposal"),
+            extracted_data=result.get("extracted_data"),
+            validation_result=result.get("validation_result"),
+            document_type=result.get("doc_type"),
+            error_message=result.get("error_message"),
+        )
+
+        # Log audit
+        await log_audit(
+            action="job_completed" if status != "failed" else "job_failed",
+            entity_type="job",
+            entity_id=job_id,
+            job_id=job_id,
+            new_value={"status": status},
+        )
+
         return True
 
 
@@ -426,7 +449,16 @@ if TEMPORAL_AVAILABLE:
                 # Store result
                 await workflow.execute_activity(
                     store_job_result_activity,
-                    args=[input.job_id, {"proposal": proposal, "status": status}],
+                    args=[
+                        input.job_id,
+                        {
+                            "proposal": proposal,
+                            "status": status,
+                            "extracted_data": extracted,
+                            "doc_type": doc_type,
+                            "validation_result": validation,
+                        },
+                    ],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=retry_policy,
                 )
@@ -434,6 +466,17 @@ if TEMPORAL_AVAILABLE:
                 return ProcessingResult(job_id=input.job_id, status=status, proposal=proposal)
 
             except Exception as e:
+                # Attempt to store failure
+                try:
+                    await workflow.execute_activity(
+                        store_job_result_activity,
+                        args=[input.job_id, {"status": "failed", "error_message": str(e)}],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=retry_policy,
+                    )
+                except Exception as store_e:
+                    logger.error(f"Failed to store job failure: {store_e}")
+
                 return ProcessingResult(job_id=input.job_id, status="failed", error=str(e))
 
     @workflow.defn
