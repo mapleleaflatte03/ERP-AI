@@ -106,7 +106,9 @@ async def publish_event(
             event_type.value,
         )
         if existing:
-            logger.info(f"[{request_id}] [PR19] Event {event_type.value} for {aggregate_type.value}:{aggregate_id} already exists (idempotent)")
+            logger.info(
+                f"[{request_id}] [PR19] Event {event_type.value} for {aggregate_type.value}:{aggregate_id} already exists (idempotent)"
+            )
             return str(existing["id"])
 
     try:

@@ -20,25 +20,25 @@ logger = logging.getLogger("erpx.activities.pr17")
 async def finalize_posting_activity(job_id: str) -> str:
     """
     Finalize posting after manual approval.
-    
+
     This activity:
     1. Loads the proposal from DB
     2. Posts to ledger + outbox (idempotent)
     3. Updates job state to completed
     4. Updates audit decision
-    
+
     Returns "completed" on success.
     """
     import asyncpg
-    
+
     from src.audit.store import append_audit_event, update_audit_decision
     from src.datazones import DataZone, JobState, track_zone_entry, update_job_state
     from src.observability import record_counter
     from src.outbox import AggregateType, EventType, publish_event
-    
+
     request_id = job_id
     activity.logger.info(f"[{job_id}] finalize_posting_activity starting")
-    
+
     conn = None
     try:
         # Get DB connection
@@ -47,7 +47,7 @@ async def finalize_posting_activity(job_id: str) -> str:
         user_pass = parts[0].split(":")
         host_db = parts[1].split("/")
         host_port = host_db[0].split(":")
-        
+
         conn = await asyncpg.connect(
             host=host_port[0],
             port=int(host_port[1]) if len(host_port) > 1 else 5432,
@@ -55,16 +55,14 @@ async def finalize_posting_activity(job_id: str) -> str:
             password=user_pass[1],
             database=host_db[1],
         )
-        
+
         # Get document info
-        doc_row = await conn.fetchrow(
-            "SELECT tenant_id FROM documents WHERE job_id = $1", job_id
-        )
+        doc_row = await conn.fetchrow("SELECT tenant_id FROM documents WHERE job_id = $1", job_id)
         if not doc_row:
             raise ValueError(f"Document not found for job_id: {job_id}")
-        
+
         tenant_uuid = doc_row["tenant_id"]
-        
+
         # Check if ledger already posted (idempotent)
         existing_ledger = await conn.fetchrow(
             """
@@ -76,14 +74,14 @@ async def finalize_posting_activity(job_id: str) -> str:
             """,
             job_id,
         )
-        
+
         if existing_ledger:
             activity.logger.info(f"[{job_id}] Ledger already posted, skipping")
             # Just update state to completed
             await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
             await conn.close()
             return "completed"
-        
+
         # Get proposal for posting
         proposal_row = await conn.fetchrow(
             """
@@ -98,12 +96,12 @@ async def finalize_posting_activity(job_id: str) -> str:
             """,
             job_id,
         )
-        
+
         if not proposal_row:
             raise ValueError(f"No proposal found for job_id: {job_id}")
-        
+
         proposal_id = proposal_row["id"]
-        
+
         # Build proposal dict for persist
         proposal = {
             "vendor": proposal_row["vendor_name"],
@@ -115,79 +113,100 @@ async def finalize_posting_activity(job_id: str) -> str:
             "subtotal": float(proposal_row["subtotal"]) if proposal_row["subtotal"] else 0,
             "doc_type": "invoice",
         }
-        
+
         activity.logger.info(f"[{job_id}] Posting to ledger after manual approval")
-        
+
         # Update audit decision
         await update_audit_decision(conn, job_id, "approved_manual", "Manual approval by user", request_id)
-        
+
         await append_audit_event(
-            conn, job_id, str(tenant_uuid), "manual_approved",
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "manual_approved",
             {"reason": "Human approval via API"},
-            "user", request_id,
+            "user",
+            request_id,
         )
-        
+
         # Update job state to posting
         await update_job_state(conn, job_id, JobState.POSTING, request_id=request_id)
-        
+
         # Persist to ledger (PR19: idempotent)
         from src.api.main import persist_to_db_with_conn
-        
+
         file_info = {"tenant_id": str(tenant_uuid)}
-        persist_result = await persist_to_db_with_conn(
-            conn, job_id, file_info, proposal, str(tenant_uuid), request_id
-        )
-        
+        persist_result = await persist_to_db_with_conn(conn, job_id, file_info, proposal, str(tenant_uuid), request_id)
+
         # PR19: If idempotent result (already posted), skip zone tracking and outbox
         if persist_result.get("idempotent"):
             activity.logger.info(f"[{job_id}] [PR19] Ledger already posted, skipping zone/outbox")
             await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
             await conn.close()
             return "completed"
-        
+
         # Track zone
         await track_zone_entry(
-            conn, job_id=job_id, zone=DataZone.POSTED, tenant_id=str(tenant_uuid),
-            document_id=job_id, proposal_id=str(proposal_id),
-            ledger_entry_id=persist_result.get("ledger_id"), request_id=request_id,
+            conn,
+            job_id=job_id,
+            zone=DataZone.POSTED,
+            tenant_id=str(tenant_uuid),
+            document_id=job_id,
+            proposal_id=str(proposal_id),
+            ledger_entry_id=persist_result.get("ledger_id"),
+            request_id=request_id,
         )
-        
+
         # Publish outbox event (PR19: idempotent via DB constraint)
         await publish_event(
-            conn, event_type=EventType.LEDGER_POSTED, aggregate_type=AggregateType.LEDGER,
+            conn,
+            event_type=EventType.LEDGER_POSTED,
+            aggregate_type=AggregateType.LEDGER,
             aggregate_id=persist_result.get("ledger_id", job_id),
             payload={
-                "job_id": job_id, "proposal_id": str(proposal_id),
+                "job_id": job_id,
+                "proposal_id": str(proposal_id),
                 "ledger_entry_id": persist_result.get("ledger_id"),
-                "invoice_no": proposal.get("invoice_no"), "vendor": proposal.get("vendor"),
-                "total_amount": proposal.get("total_amount"), "currency": proposal.get("currency"),
+                "invoice_no": proposal.get("invoice_no"),
+                "vendor": proposal.get("vendor"),
+                "total_amount": proposal.get("total_amount"),
+                "currency": proposal.get("currency"),
                 "approval_type": "manual",
             },
-            tenant_id=str(tenant_uuid), request_id=request_id,
+            tenant_id=str(tenant_uuid),
+            request_id=request_id,
         )
-        
+
         await record_counter(conn, "ledger_posted_total", 1.0, {"tenant": str(tenant_uuid)})
         await record_counter(conn, "manual_approved_total", 1.0, {"tenant": str(tenant_uuid)})
-        
+
         await append_audit_event(
-            conn, job_id, str(tenant_uuid), "posted_to_ledger",
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "posted_to_ledger",
             {"ledger_id": persist_result.get("ledger_id"), "entry_number": persist_result.get("entry_number")},
-            "worker", request_id,
+            "worker",
+            request_id,
         )
-        
+
         # Complete
         await update_job_state(conn, job_id, JobState.COMPLETED, request_id=request_id)
-        
+
         await append_audit_event(
-            conn, job_id, str(tenant_uuid), "completed",
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "completed",
             {"approval_type": "manual"},
-            "worker", request_id,
+            "worker",
+            request_id,
         )
-        
+
         activity.logger.info(f"[{job_id}] finalize_posting_activity completed")
         await conn.close()
         return "completed"
-        
+
     except Exception as e:
         activity.logger.error(f"[{job_id}] finalize_posting_activity failed: {e}")
         if conn:
@@ -199,22 +218,22 @@ async def finalize_posting_activity(job_id: str) -> str:
 async def finalize_rejection_activity(job_id: str) -> str:
     """
     Finalize rejection after manual rejection.
-    
+
     This activity:
     1. Updates job state to rejected
     2. Updates audit decision
-    
+
     Returns "rejected" on completion.
     """
     import asyncpg
-    
+
     from src.audit.store import append_audit_event, update_audit_decision
     from src.datazones import JobState, update_job_state
     from src.observability import record_counter
-    
+
     request_id = job_id
     activity.logger.info(f"[{job_id}] finalize_rejection_activity starting")
-    
+
     conn = None
     try:
         # Get DB connection
@@ -223,7 +242,7 @@ async def finalize_rejection_activity(job_id: str) -> str:
         user_pass = parts[0].split(":")
         host_db = parts[1].split("/")
         host_port = host_db[0].split(":")
-        
+
         conn = await asyncpg.connect(
             host=host_port[0],
             port=int(host_port[1]) if len(host_port) > 1 else 5432,
@@ -231,40 +250,46 @@ async def finalize_rejection_activity(job_id: str) -> str:
             password=user_pass[1],
             database=host_db[1],
         )
-        
+
         # Get document info
-        doc_row = await conn.fetchrow(
-            "SELECT tenant_id FROM documents WHERE job_id = $1", job_id
-        )
+        doc_row = await conn.fetchrow("SELECT tenant_id FROM documents WHERE job_id = $1", job_id)
         if not doc_row:
             raise ValueError(f"Document not found for job_id: {job_id}")
-        
+
         tenant_uuid = doc_row["tenant_id"]
-        
+
         # Update audit decision
         await update_audit_decision(conn, job_id, "rejected", "Manual rejection by user", request_id)
-        
+
         await append_audit_event(
-            conn, job_id, str(tenant_uuid), "manual_rejected",
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "manual_rejected",
             {"reason": "Human rejection via API"},
-            "user", request_id,
+            "user",
+            request_id,
         )
-        
+
         await record_counter(conn, "manual_rejected_total", 1.0, {"tenant": str(tenant_uuid)})
-        
+
         # Update job state to rejected
         await update_job_state(conn, job_id, JobState.FAILED, error="Rejected by user", request_id=request_id)
-        
+
         await append_audit_event(
-            conn, job_id, str(tenant_uuid), "rejected",
+            conn,
+            job_id,
+            str(tenant_uuid),
+            "rejected",
             {"approval_type": "manual"},
-            "worker", request_id,
+            "worker",
+            request_id,
         )
-        
+
         activity.logger.info(f"[{job_id}] finalize_rejection_activity completed")
         await conn.close()
         return "rejected"
-        
+
     except Exception as e:
         activity.logger.error(f"[{job_id}] finalize_rejection_activity failed: {e}")
         if conn:

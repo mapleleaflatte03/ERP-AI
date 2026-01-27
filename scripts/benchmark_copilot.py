@@ -9,8 +9,8 @@ Usage:
     python scripts/benchmark_copilot.py
 """
 
-import time
 import sys
+import time
 from functools import lru_cache
 from unittest.mock import MagicMock
 
@@ -20,6 +20,8 @@ from unittest.mock import MagicMock
 
 # Mock the ERPXAccountingCopilot class in sys.modules so api.routes can import it
 mock_copilot_module = MagicMock()
+
+
 class MockERPXAccountingCopilot:
     def __init__(self, mode: str = "STRICT", tenant_id: str | None = None):
         # Simulate expensive initialization (e.g., loading config, DB connection)
@@ -30,6 +32,7 @@ class MockERPXAccountingCopilot:
     def process(self, *args, **kwargs):
         # Simulate processing
         return {"status": "success", "mode": self.mode, "tenant": self.tenant_id}
+
 
 mock_copilot_module.ERPXAccountingCopilot = MockERPXAccountingCopilot
 sys.modules["agents.accounting_coding.erpx_copilot"] = mock_copilot_module
@@ -46,14 +49,17 @@ except ImportError:
 # Approach 1: Current Implementation Simulation (New Instance Per Request)
 # -----------------------------------------------------------------------------
 
+
 def process_request_current(mode: str, tenant_id: str):
     # Mimic old logic: copilot = ERPXAccountingCopilot(...)
     copilot = MockERPXAccountingCopilot(mode=mode, tenant_id=tenant_id)
     return copilot.process()
 
+
 # -----------------------------------------------------------------------------
 # Approach 2: Optimized Implementation (Actual Code)
 # -----------------------------------------------------------------------------
+
 
 def process_request_optimized(mode: str, tenant_id: str):
     if api:
@@ -64,9 +70,11 @@ def process_request_optimized(mode: str, tenant_id: str):
         # Fallback simulation
         return process_request_current(mode, tenant_id)
 
+
 # -----------------------------------------------------------------------------
 # Benchmark Runner
 # -----------------------------------------------------------------------------
+
 
 def run_benchmark():
     ITERATIONS = 50
@@ -74,7 +82,7 @@ def run_benchmark():
     MODES = ["STRICT", "RELAXED"]
 
     print(f"Running benchmark with {ITERATIONS} iterations per tenant/mode combination...")
-    print(f"Simulated Init Latency: 50ms")
+    print("Simulated Init Latency: 50ms")
     print("-" * 60)
 
     # Measure Current Approach
@@ -87,7 +95,7 @@ def run_benchmark():
     total_time_current = end_time - start_time
     avg_time_current = (total_time_current / (ITERATIONS * len(TENANTS) * len(MODES))) * 1000
 
-    print(f"Current Approach (New Instance):")
+    print("Current Approach (New Instance):")
     print(f"  Total Time: {total_time_current:.4f}s")
     print(f"  Avg Latency per Request: {avg_time_current:.2f}ms")
 
@@ -106,7 +114,7 @@ def run_benchmark():
     avg_time_optimized = (total_time_optimized / (ITERATIONS * len(TENANTS) * len(MODES))) * 1000
 
     print("-" * 60)
-    print(f"Optimized Approach (Cached Factory):")
+    print("Optimized Approach (Cached Factory):")
     print(f"  Total Time: {total_time_optimized:.4f}s")
     print(f"  Avg Latency per Request: {avg_time_optimized:.2f}ms")
 
@@ -117,6 +125,7 @@ def run_benchmark():
         print(f"SPEEDUP: {speedup:.2f}x")
 
     print("-" * 60)
+
 
 if __name__ == "__main__":
     run_benchmark()

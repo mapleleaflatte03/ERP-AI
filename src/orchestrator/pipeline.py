@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Semaphores to bound concurrency
 _EXTRACT_SEMAPHORE = asyncio.Semaphore(5)  # CPU intensive OCR
-_RAG_SEMAPHORE = asyncio.Semaphore(10)     # IO bound but potentially heavy
+_RAG_SEMAPHORE = asyncio.Semaphore(10)  # IO bound but potentially heavy
 
 # =============================================================================
 # Pipeline State
@@ -96,9 +96,7 @@ async def node_extract_document(state: PipelineState) -> PipelineState:
         async with _EXTRACT_SEMAPHORE:
             # Download document from MinIO (Run in thread)
             # Fix: Pass bucket name explicitly
-            doc_data = await asyncio.to_thread(
-                download_document, config.MINIO_BUCKET, state["document_key"]
-            )
+            doc_data = await asyncio.to_thread(download_document, config.MINIO_BUCKET, state["document_key"])
 
             if doc_data is None:
                 state["status"] = "failed"
@@ -118,9 +116,7 @@ async def node_extract_document(state: PipelineState) -> PipelineState:
             content_type = content_type_map.get(ext, "application/octet-stream")
 
             # Process document (Run in thread as it is CPU intensive)
-            result = await asyncio.to_thread(
-                process_document, doc_data, content_type, state["document_key"]
-            )
+            result = await asyncio.to_thread(process_document, doc_data, content_type, state["document_key"])
 
         if not result.success:
             state["status"] = "failed"
@@ -177,9 +173,7 @@ async def node_retrieve_context(state: PipelineState) -> PipelineState:
 
         # Search RAG (Run in thread)
         async with _RAG_SEMAPHORE:
-            results = await asyncio.to_thread(
-                search_accounting_context, search_query, limit=3
-            )
+            results = await asyncio.to_thread(search_accounting_context, search_query, limit=3)
 
         # Format for LLM
         state["rag_context"] = format_context_for_llm(results)

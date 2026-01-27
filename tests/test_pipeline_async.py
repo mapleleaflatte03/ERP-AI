@@ -1,7 +1,9 @@
 import asyncio
 import unittest
-from unittest.mock import patch, MagicMock
-from src.orchestrator.pipeline import node_extract_document, PipelineState, node_retrieve_context
+from unittest.mock import MagicMock, patch
+
+from src.orchestrator.pipeline import PipelineState, node_extract_document, node_retrieve_context
+
 
 class TestPipelineAsync(unittest.IsolatedAsyncioTestCase):
     async def test_node_extract_document_async(self):
@@ -13,14 +15,15 @@ class TestPipelineAsync(unittest.IsolatedAsyncioTestCase):
             "timestamps": {},
             "extracted_text": "",
             "key_fields": {},
-            "tables": []
+            "tables": [],
         }
 
         # Mock dependencies
-        with patch("src.storage.download_document") as mock_download, \
-             patch("src.processing.process_document") as mock_process, \
-             patch("src.core.config.MINIO_BUCKET", "test-bucket"):
-
+        with (
+            patch("src.storage.download_document") as mock_download,
+            patch("src.processing.process_document") as mock_process,
+            patch("src.core.config.MINIO_BUCKET", "test-bucket"),
+        ):
             # download_document is sync
             mock_download.return_value = b"fake-pdf-content"
 
@@ -46,7 +49,7 @@ class TestPipelineAsync(unittest.IsolatedAsyncioTestCase):
             mock_process.assert_called_once()
 
     async def test_node_retrieve_context_async(self):
-         # Setup state
+        # Setup state
         state: PipelineState = {
             "job_id": "test-job",
             "document_key": "test.pdf",
@@ -56,7 +59,7 @@ class TestPipelineAsync(unittest.IsolatedAsyncioTestCase):
             "key_fields": {"vendor_name": "ABC Corp"},
             "tables": [],
             "rag_context": "",
-            "rag_sources": []
+            "rag_sources": [],
         }
 
         with patch("src.rag.search_accounting_context") as mock_search:
@@ -75,6 +78,7 @@ class TestPipelineAsync(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Context Text", new_state["rag_context"])
             self.assertEqual(new_state["rag_sources"], ["Test Source"])
             mock_search.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,9 +57,7 @@ async def send_telegram_message(chat_id: str, message: str) -> bool:
         url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Removed parse_mode="Markdown" to avoid errors with unescaped characters
-            response = await client.post(
-                url, json={"chat_id": chat_id, "text": message}
-            )
+            response = await client.post(url, json={"chat_id": chat_id, "text": message})
             if response.status_code != 200:
                 logger.error(f"Telegram API error: {response.text}")
                 return False

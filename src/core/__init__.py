@@ -56,11 +56,11 @@ class Config:
     # Feature Flags (PR14: Durable Ingestion)
     ENABLE_MINIO: bool = os.getenv("ENABLE_MINIO", "1") == "1"
     ENABLE_QDRANT: bool = os.getenv("ENABLE_QDRANT", "1") == "1"
-    
+
     # Feature Flags (PR15: Observability)
     ENABLE_OTEL: bool = os.getenv("ENABLE_OTEL", "1") == "1"
     OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "erpx-api")
-    
+
     # Feature Flags (PR16: Temporal Background Agent)
     ENABLE_TEMPORAL: bool = os.getenv("ENABLE_TEMPORAL", "0") == "1"
 

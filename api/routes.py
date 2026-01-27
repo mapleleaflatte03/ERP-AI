@@ -222,9 +222,7 @@ async def reconcile_transactions(request: Request, reconcile_request: ReconcileR
         # Process each invoice and reconcile
         async def process_item(inv):
             async with _BATCH_SEMAPHORE:
-                return await asyncio.to_thread(
-                    copilot.process, structured_fields=inv, bank_txns=bank_txns
-                )
+                return await asyncio.to_thread(copilot.process, structured_fields=inv, bank_txns=bank_txns)
 
         tasks = [process_item(invoice) for invoice in reconcile_request.invoices]
         results = await asyncio.gather(*tasks)

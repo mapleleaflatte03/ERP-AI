@@ -7,9 +7,9 @@ Endpoints:
 - GET  /health - Health check
 """
 
+import asyncio
 import os
 import sys
-import asyncio
 from datetime import datetime
 
 from fastapi import FastAPI, Request
@@ -19,18 +19,18 @@ from fastapi.responses import JSONResponse
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from api.document_routes import router as document_router
 from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantMiddleware
 from api.routes import router
-from api.document_routes import router as document_router
+from core.config import settings
 from core.constants import API_PREFIX, API_VERSION
 from core.exceptions import ERPXBaseException, QuotaExceeded, TenantNotFound, ValidationError
 from core.schemas import (
     HealthResponse,
 )
-from core.config import settings
-from src.storage import get_minio_client
 from src.db import get_pool
 from src.rag import get_qdrant_client
+from src.storage import get_minio_client
 
 
 def create_app() -> FastAPI:
@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
 
     # Document routes (UI-facing)
     app.include_router(document_router, prefix=API_PREFIX)
+
     # Exception handlers
     @app.exception_handler(ERPXBaseException)
     async def erpx_exception_handler(request: Request, exc: ERPXBaseException):
@@ -165,14 +166,22 @@ def create_app() -> FastAPI:
         # Gather results with safety
         results = await asyncio.gather(storage_task, db_task, vector_db_task, return_exceptions=True)
 
-        storage_status = results[0] if not isinstance(results[0], Exception) else {"status": "unhealthy", "error": str(results[0])}
-        db_status = results[1] if not isinstance(results[1], Exception) else {"status": "unhealthy", "error": str(results[1])}
-        vector_db_status = results[2] if not isinstance(results[2], Exception) else {"status": "unhealthy", "error": str(results[2])}
+        storage_status = (
+            results[0] if not isinstance(results[0], Exception) else {"status": "unhealthy", "error": str(results[0])}
+        )
+        db_status = (
+            results[1] if not isinstance(results[1], Exception) else {"status": "unhealthy", "error": str(results[1])}
+        )
+        vector_db_status = (
+            results[2] if not isinstance(results[2], Exception) else {"status": "unhealthy", "error": str(results[2])}
+        )
 
         overall_status = "ok"
-        if (storage_status.get("status") != "healthy" or
-            db_status.get("status") != "healthy" or
-            vector_db_status.get("status") != "healthy"):
+        if (
+            storage_status.get("status") != "healthy"
+            or db_status.get("status") != "healthy"
+            or vector_db_status.get("status") != "healthy"
+        ):
             overall_status = "degraded"
 
         return HealthResponse(

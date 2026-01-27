@@ -32,10 +32,10 @@ async def run_worker():
     logger.info(f"  TEMPORAL_NAMESPACE: {config.TEMPORAL_NAMESPACE}")
     logger.info(f"  TEMPORAL_TASK_QUEUE: {config.TEMPORAL_TASK_QUEUE}")
     logger.info("=" * 60)
-    
+
     # Connect to Temporal
     client = await get_temporal_client()
-    
+
     # Create worker
     worker = Worker(
         client,
@@ -43,9 +43,9 @@ async def run_worker():
         workflows=[DocumentWorkflowPR16],
         activities=[process_job_activity],
     )
-    
+
     logger.info(f"Worker connected and listening on task queue: {config.TEMPORAL_TASK_QUEUE}")
-    
+
     # Run worker
     await worker.run()
 

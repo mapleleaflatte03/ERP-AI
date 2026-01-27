@@ -32,10 +32,6 @@ from pydantic import BaseModel
 sys.path.insert(0, "/root/erp-ai")
 
 # Import config and storage for health check
-from src.core import config
-from src.storage import get_minio_client
-import asyncio
-
 # Import middleware and logging config
 from src.api.document_routes import get_db_pool
 from src.api.document_routes import router as document_router
@@ -58,6 +54,7 @@ from src.audit.store import (
     get_audit_timeline,
     update_audit_decision,
 )
+from src.core import config
 
 # Import data zones and idempotency
 from src.datazones import (
@@ -102,6 +99,7 @@ from src.policy.engine import (
 
 # Import schema validation
 from src.schemas.llm_output import coerce_and_validate
+from src.storage import get_minio_client
 
 # Import Temporal workflow starter (PR16)
 from src.workflows.temporal_client import start_document_workflow
@@ -531,18 +529,18 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         # =========== PR14: MinIO Durable Storage ===========
         from src.core import config as core_config
-        
+
         minio_bucket = None
         minio_key = None
-        
+
         if core_config.ENABLE_MINIO:
             try:
                 from src.storage import upload_document as minio_upload
-                
+
                 # Read file content
                 with open(file_path, "rb") as f:
                     file_data = f.read()
-                
+
                 minio_bucket, minio_key, minio_checksum, minio_size = minio_upload(
                     file_data=file_data,
                     filename=file_info.get("filename", "unknown.bin"),
@@ -550,7 +548,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
                     company_id=tenant_id,
                     job_id=job_id,
                 )
-                
+
                 # Update document record with MinIO location
                 await conn.execute(
                     """
@@ -563,7 +561,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
                     minio_checksum,
                     doc_uuid,
                 )
-                
+
                 logger.info(f"[{request_id}] MinIO upload: s3://{minio_bucket}/{minio_key}")
             except Exception as minio_err:
                 logger.warning(f"[{request_id}] MinIO upload failed (non-fatal): {minio_err}")
@@ -664,31 +662,33 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         # =========== PR14: Qdrant Embedding Storage ===========
         qdrant_points_upserted = 0
-        
+
         if core_config.ENABLE_QDRANT:
             try:
                 from src.rag import generate_embedding, get_qdrant_client
-                
+
                 # Generate embedding for extracted text (truncate to 4k chars)
                 text_for_embedding = text[:4000] if len(text) > 4000 else text
                 embedding = generate_embedding(text_for_embedding)
-                
+
                 if embedding:
                     qdrant_client = get_qdrant_client()
-                    
+
                     # Upsert to documents_ingested collection
                     qdrant_points_upserted = qdrant_client.upsert_documents(
                         texts=[text_for_embedding],
-                        metadatas=[{
-                            "job_id": job_id,
-                            "tenant_id": str(tenant_uuid),
-                            "filename": file_info.get("filename", "unknown"),
-                            "doc_type": "invoice",
-                            "source": "upload",
-                        }],
+                        metadatas=[
+                            {
+                                "job_id": job_id,
+                                "tenant_id": str(tenant_uuid),
+                                "filename": file_info.get("filename", "unknown"),
+                                "doc_type": "invoice",
+                                "source": "upload",
+                            }
+                        ],
                         collection_name="documents_ingested",
                     )
-                    
+
                     logger.info(f"[{request_id}] Qdrant upsert: {qdrant_points_upserted} points to documents_ingested")
                 else:
                     logger.warning(f"[{request_id}] Qdrant: embedding generation returned None")
@@ -1016,13 +1016,13 @@ async def persist_proposal_only(
     PR17: Persist just the extracted_invoice and journal_proposal (not ledger).
     This is called for BOTH auto-approved AND needs-approval paths,
     so the finalize activity can access proposal data later.
-    
+
     Returns dict with proposal_id and invoice_id.
     """
     request_id = request_id or get_request_id()
     tenant_uuid = uuid.UUID(tenant_id_str)
     doc_uuid = uuid.UUID(job_id)
-    
+
     # Check if already persisted (idempotent)
     existing = await conn.fetchrow(
         """SELECT jp.id as proposal_id, ei.id as invoice_id
@@ -1035,7 +1035,7 @@ async def persist_proposal_only(
     if existing:
         logger.info(f"[{request_id}] Proposal already persisted for job {job_id}")
         return {"proposal_id": str(existing["proposal_id"]), "invoice_id": str(existing["invoice_id"])}
-    
+
     # 0. Ensure documents table entry exists
     await conn.execute(
         """
@@ -1054,7 +1054,7 @@ async def persist_proposal_only(
         file_info.get("checksum", ""),
         "processed",
     )
-    
+
     # 1. Insert into extracted_invoices
     invoice_id = uuid.uuid4()
     invoice_date_str = proposal.get("invoice_date", datetime.now().strftime("%Y-%m-%d"))
@@ -1062,7 +1062,7 @@ async def persist_proposal_only(
         invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         invoice_date = datetime.now().date()
-    
+
     await conn.execute(
         """
         INSERT INTO extracted_invoices 
@@ -1084,7 +1084,7 @@ async def persist_proposal_only(
         float(proposal.get("vat_amount", 0)),
         float(proposal.get("total_amount", 0)) - float(proposal.get("vat_amount", 0)),
     )
-    
+
     # 2. Insert into journal_proposals (status='pending' until approved)
     proposal_id = uuid.uuid4()
     entries = proposal.get("entries", [])
@@ -1106,7 +1106,7 @@ async def persist_proposal_only(
         proposal.get("explanation", "AI-generated journal proposal"),
         "low" if proposal.get("confidence", 0) > 0.8 else "medium",
     )
-    
+
     # 3. Insert journal_proposal_entries
     for idx, entry in enumerate(entries):
         entry_id = uuid.uuid4()
@@ -1125,7 +1125,7 @@ async def persist_proposal_only(
             float(entry.get("credit", 0)),
             idx + 1,
         )
-    
+
     logger.info(f"[{request_id}] Persisted proposal {proposal_id} for job {job_id}")
     return {"proposal_id": str(proposal_id), "invoice_id": str(invoice_id)}
 
@@ -1276,7 +1276,7 @@ async def persist_to_db_with_conn(
         "SELECT id, entry_number FROM ledger_entries WHERE proposal_id = $1",
         proposal_id,
     )
-    
+
     if existing_ledger:
         # PR19: Ledger already posted, return existing entry (idempotent)
         logger.info(f"[{request_id}] [PR19] Job {job_id}: Ledger already exists for proposal (idempotent)")
@@ -1288,10 +1288,10 @@ async def persist_to_db_with_conn(
             "entry_number": existing_ledger["entry_number"],
             "idempotent": True,
         }
-    
+
     ledger_id = uuid.uuid4()
     entry_number = f"JE-{datetime.now().strftime('%Y%m%d')}-{job_id[:4].upper()}"
-    
+
     try:
         await conn.execute(
             """
@@ -1364,18 +1364,19 @@ async def extract_pdf(file_path: str) -> str:
     """Extract text from PDF using pdfplumber, with OCR fallback for scanned PDFs"""
     try:
         import pdfplumber
+
         text_parts = []
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
                 text_parts.append(page_text)
         full_text = "\n".join(text_parts).strip()
-        
+
         # If pdfplumber returns empty (scanned PDF), try OCR fallback
         if not full_text or len(full_text) < 20:
             logger.info("pdfplumber returned empty/short text, trying OCR fallback")
             return await extract_image(file_path)
-        
+
         return full_text
     except Exception as e:
         logger.warning(f"pdfplumber failed: {e}, trying fallback")
@@ -1387,26 +1388,27 @@ async def extract_image(file_path: str) -> str:
     """Extract text from image or scanned PDF using pytesseract"""
     import pytesseract
     from PIL import Image
-    
+
     all_text = []
-    
+
     # If input is a PDF, convert to images first
-    if file_path.lower().endswith('.pdf'):
+    if file_path.lower().endswith(".pdf"):
         try:
             from pdf2image import convert_from_path
+
             logger.info(f"Converting PDF to images for OCR: {file_path}")
             images = convert_from_path(file_path, dpi=200)
             for i, img in enumerate(images):
                 text = pytesseract.image_to_string(img, lang="eng")
                 if text and text.strip():
                     all_text.append(text)
-                    logger.info(f"Page {i+1} OCR: {len(text)} chars")
+                    logger.info(f"Page {i + 1} OCR: {len(text)} chars")
             if all_text:
                 return "\n".join(all_text)
         except Exception as e:
             logger.warning(f"pdf2image/tesseract failed: {e}")
             return ""
-    
+
     # Direct image file
     try:
         img = Image.open(file_path)
@@ -1416,7 +1418,6 @@ async def extract_image(file_path: str) -> str:
             return text
     except Exception as e:
         logger.warning(f"pytesseract failed: {e}")
-
 
     # Fallback to PaddleOCR
     try:
@@ -1512,11 +1513,11 @@ def setup_otel_instrumentation(app: FastAPI):
     Fail-open: log warning if OTEL unavailable, don't crash.
     """
     from src.core import config as core_config
-    
+
     if not core_config.ENABLE_OTEL:
         logger.info("OTEL disabled (ENABLE_OTEL=0)")
         return
-    
+
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -1525,36 +1526,38 @@ def setup_otel_instrumentation(app: FastAPI):
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        
+
         # Configure resource with service name
-        resource = Resource.create({
-            "service.name": core_config.OTEL_SERVICE_NAME,
-            "service.version": "1.0.0",
-        })
-        
+        resource = Resource.create(
+            {
+                "service.name": core_config.OTEL_SERVICE_NAME,
+                "service.version": "1.0.0",
+            }
+        )
+
         # Create tracer provider
         tracer_provider = TracerProvider(resource=resource)
-        
+
         # Configure OTLP exporter
         otlp_exporter = OTLPSpanExporter(
             endpoint=core_config.OTEL_ENDPOINT,
             insecure=True,  # Use insecure for internal docker network
         )
-        
+
         # Add batch processor for efficiency
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-        
+
         # Set global tracer provider
         trace.set_tracer_provider(tracer_provider)
-        
+
         # Instrument FastAPI
         FastAPIInstrumentor.instrument_app(app)
-        
+
         # Instrument httpx for outbound calls (LLM, etc.)
         HTTPXClientInstrumentor().instrument()
-        
+
         logger.info(f"OTEL enabled: service={core_config.OTEL_SERVICE_NAME}, endpoint={core_config.OTEL_ENDPOINT}")
-        
+
     except ImportError as e:
         logger.warning(f"OTEL packages not available (non-fatal): {e}")
     except Exception as e:
@@ -1678,10 +1681,7 @@ async def health_check():
     # Check Storage (MinIO) - Async wrapper with timeout
     try:
         # Run sync check in thread pool with timeout
-        is_healthy = await asyncio.wait_for(
-            asyncio.to_thread(check_storage_sync),
-            timeout=2.0
-        )
+        is_healthy = await asyncio.wait_for(asyncio.to_thread(check_storage_sync), timeout=2.0)
 
         if is_healthy:
             services["storage"] = {"status": "healthy", "bucket": config.MINIO_BUCKET}
@@ -1704,10 +1704,7 @@ async def health_check():
 
         qdrant_client = get_qdrant_client()
         # Health check with timeout
-        is_qdrant_healthy = await asyncio.wait_for(
-            qdrant_client.health_check(),
-            timeout=2.0
-        )
+        is_qdrant_healthy = await asyncio.wait_for(qdrant_client.health_check(), timeout=2.0)
 
         if is_qdrant_healthy:
             services["vector_db"] = {"status": "healthy", "url": qdrant_client.url}
@@ -1768,6 +1765,7 @@ erpx_jobs_total %d
 # Journal Proposals List
 # =============================================================================
 
+
 @app.get("/v1/journal-proposals", tags=["Journal Proposals"])
 async def list_journal_proposals(
     status: Optional[str] = Query(None, description="Filter by status (pending, approved, rejected)"),
@@ -1780,7 +1778,7 @@ async def list_journal_proposals(
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         base_query = """
             SELECT 
@@ -1806,62 +1804,64 @@ async def list_journal_proposals(
             LEFT JOIN extracted_invoices ei ON jp.invoice_id = ei.id
             LEFT JOIN journal_proposal_entries jpe ON jp.id = jpe.proposal_id
         """
-        
+
         if status:
             rows = await conn.fetch(
-                base_query + """
+                base_query
+                + """
                 WHERE jp.status = $1
                 GROUP BY jp.id, d.id, ei.id
                 ORDER BY jp.created_at DESC
                 LIMIT $2 OFFSET $3
                 """,
-                status, limit, offset
+                status,
+                limit,
+                offset,
             )
-            count_row = await conn.fetchrow(
-                "SELECT COUNT(*) as total FROM journal_proposals WHERE status = $1",
-                status
-            )
+            count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM journal_proposals WHERE status = $1", status)
         else:
             rows = await conn.fetch(
-                base_query + """
+                base_query
+                + """
                 GROUP BY jp.id, d.id, ei.id
                 ORDER BY jp.created_at DESC
                 LIMIT $1 OFFSET $2
                 """,
-                limit, offset
+                limit,
+                offset,
             )
-            count_row = await conn.fetchrow(
-                "SELECT COUNT(*) as total FROM journal_proposals"
-            )
-        
+            count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM journal_proposals")
+
         proposals = []
         for row in rows:
             total_debit = float(row.get("total_debit") or 0)
             total_credit = float(row.get("total_credit") or 0)
-            
-            proposals.append({
-                "id": str(row["id"]),
-                "document_id": str(row["document_id"]) if row.get("document_id") else None,
-                "filename": row.get("filename"),
-                "document_type": row.get("doc_type"),
-                "vendor_name": row.get("vendor_name"),
-                "vendor_tax_id": row.get("vendor_tax_id"),
-                "invoice_number": row.get("invoice_number"),
-                "invoice_date": row["invoice_date"].isoformat() if row.get("invoice_date") else None,
-                "total_amount": float(row.get("total_amount") or 0),
-                "vat_amount": float(row.get("vat_amount") or 0),
-                "currency": row.get("currency", "VND"),
-                "status": row.get("status", "pending"),
-                "ai_confidence": float(row.get("ai_confidence") or 0),
-                "ai_reasoning": row.get("ai_reasoning"),
-                "total_debit": total_debit,
-                "total_credit": total_credit,
-                "is_balanced": abs(total_debit - total_credit) < 0.01,
-                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            })
-        
+
+            proposals.append(
+                {
+                    "id": str(row["id"]),
+                    "document_id": str(row["document_id"]) if row.get("document_id") else None,
+                    "filename": row.get("filename"),
+                    "document_type": row.get("doc_type"),
+                    "vendor_name": row.get("vendor_name"),
+                    "vendor_tax_id": row.get("vendor_tax_id"),
+                    "invoice_number": row.get("invoice_number"),
+                    "invoice_date": row["invoice_date"].isoformat() if row.get("invoice_date") else None,
+                    "total_amount": float(row.get("total_amount") or 0),
+                    "vat_amount": float(row.get("vat_amount") or 0),
+                    "currency": row.get("currency", "VND"),
+                    "status": row.get("status", "pending"),
+                    "ai_confidence": float(row.get("ai_confidence") or 0),
+                    "ai_reasoning": row.get("ai_reasoning"),
+                    "total_debit": total_debit,
+                    "total_credit": total_credit,
+                    "is_balanced": abs(total_debit - total_credit) < 0.01,
+                    "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                }
+            )
+
         total = count_row["total"] if count_row else 0
-        
+
         return {
             "proposals": proposals,
             "total": total,
@@ -1948,40 +1948,42 @@ async def upload_document(
 
     # PR16: Start Temporal workflow if ENABLE_TEMPORAL=1, else fallback to background task
     from src.core import config as core_config
-    
-    use_temporal = getattr(core_config, 'ENABLE_TEMPORAL', False)
+
+    use_temporal = getattr(core_config, "ENABLE_TEMPORAL", False)
     workflow_started = False
-    
+
     if use_temporal:
         try:
             # PR16: Upload to MinIO and create document record BEFORE starting workflow
             import asyncpg
 
             from src.storage import upload_document
-            
+
             # 1. Upload to MinIO
             minio_bucket, minio_key, file_checksum, file_size = upload_document(
                 content, file.filename, content_type, x_tenant_id, job_id
             )
             logger.info(f"MinIO upload: s3://{minio_bucket}/{minio_key}")
-            
+
             # 2. Insert document record with MinIO info
             db_url = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@postgres:5432/erpx")
             conn = await asyncpg.connect(db_url)
-            
+
             # Ensure tenant exists
             tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
             if not tenant_row:
                 tenant_uuid = uuid.uuid4()
                 await conn.execute(
                     "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING",
-                    tenant_uuid, f"Tenant {x_tenant_id}", x_tenant_id,
+                    tenant_uuid,
+                    f"Tenant {x_tenant_id}",
+                    x_tenant_id,
                 )
                 tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
-            
+
             tenant_uuid = tenant_row["id"]
             doc_uuid = uuid.UUID(job_id)
-            
+
             await conn.execute(
                 """
                 INSERT INTO documents 
@@ -1990,12 +1992,21 @@ async def upload_document(
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (id) DO NOTHING
                 """,
-                doc_uuid, tenant_uuid, job_id, file.filename, content_type, len(content),
-                str(file_path), checksum, minio_bucket, minio_key, "pending",
+                doc_uuid,
+                tenant_uuid,
+                job_id,
+                file.filename,
+                content_type,
+                len(content),
+                str(file_path),
+                checksum,
+                minio_bucket,
+                minio_key,
+                "pending",
             )
             await conn.close()
             logger.info(f"Document record created: {job_id}")
-            
+
             # 3. Start Temporal workflow (async)
             workflow_id = await start_document_workflow(job_id)
             workflow_started = True
@@ -2003,7 +2014,7 @@ async def upload_document(
         except Exception as e:
             logger.warning(f"Temporal workflow start failed, falling back to async: {e}")
             workflow_started = False
-    
+
     if not workflow_started:
         # Fallback: Start background processing (original behavior)
         background_tasks.add_task(process_document_async, job_id, str(file_path), file_info)
@@ -2020,12 +2031,13 @@ async def upload_document(
 # PR18: DB-backed Job Status Helper
 # ===========================================================================
 
+
 async def get_job_status_from_db(job_id: str) -> dict | None:
     """
     Get job status from database (Source of Truth).
-    
+
     PR18: This makes /v1/jobs/{job_id} work even after API restart.
-    
+
     Returns dict compatible with JobStatus model, or None if not found.
     """
     try:
@@ -2040,7 +2052,7 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
                 """,
                 job_id,
             )
-            
+
             # 2. Get document info
             doc_row = await conn.fetchrow(
                 """
@@ -2051,11 +2063,11 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
                 """,
                 job_id,
             )
-            
+
             # If neither exists, job not found
             if not state_row and not doc_row:
                 return None
-            
+
             # Map DB state to API status
             status = "unknown"
             if state_row:
@@ -2072,7 +2084,7 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
                     "failed": "failed",
                 }
                 status = state_map.get(state_row["current_state"], state_row["current_state"])
-            
+
             # Build file_info from documents table
             file_info = None
             if doc_row:
@@ -2085,11 +2097,19 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
                 }
                 if doc_row["minio_bucket"] and doc_row["minio_key"]:
                     file_info["minio_path"] = f"s3://{doc_row['minio_bucket']}/{doc_row['minio_key']}"
-            
+
             # Determine timestamps
-            created_at = (state_row["created_at"] if state_row else doc_row["created_at"]) if (state_row or doc_row) else datetime.now()
-            updated_at = (state_row["updated_at"] if state_row else doc_row["updated_at"]) if (state_row or doc_row) else datetime.now()
-            
+            created_at = (
+                (state_row["created_at"] if state_row else doc_row["created_at"])
+                if (state_row or doc_row)
+                else datetime.now()
+            )
+            updated_at = (
+                (state_row["updated_at"] if state_row else doc_row["updated_at"])
+                if (state_row or doc_row)
+                else datetime.now()
+            )
+
             # 3. Get result info for completed jobs
             result = None
             error = None
@@ -2123,12 +2143,12 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
                     )
                     if error_row and error_row["last_error"]:
                         error = error_row["last_error"]
-            
+
             return {
                 "job_id": job_id,
                 "status": status,
-                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
-                "updated_at": updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at),
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
+                "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at),
                 "file_info": file_info,
                 "result": result,
                 "error": error,
@@ -2144,24 +2164,24 @@ async def get_job_status_from_db(job_id: str) -> dict | None:
 async def get_job_status(job_id: str):
     """
     Get job status and result.
-    
+
     PR18: DB-backed - survives API restart.
     Priority: DB (source of truth) > job_store (cache)
     """
     # PR18: Always try DB first (source of truth)
     db_status = await get_job_status_from_db(job_id)
-    
+
     if db_status:
         # DB found - return it (DB wins over stale cache)
         logger.debug(f"[PR18] Job {job_id} status from DB: {db_status['status']}")
         return JobStatus(**db_status)
-    
+
     # Fallback to job_store cache (for jobs not yet in DB)
     job = job_store.get(job_id)
     if job:
         logger.debug(f"[PR18] Job {job_id} status from cache: {job.get('status')}")
         return JobStatus(**job)
-    
+
     # Not found anywhere
     raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
@@ -2409,11 +2429,11 @@ async def list_pending_approvals_pr17(
 ):
     """
     List pending approvals (PR17).
-    
+
     Query params:
     - tenant_id: filter by tenant (optional)
     - limit: max results (default: 50)
-    
+
     Returns list of pending approvals with job_id.
     """
     try:
@@ -2437,16 +2457,16 @@ async def list_pending_approvals_pr17(
                 WHERE a.status = 'pending'
             """
             params = []
-            
+
             if tenant_id:
                 query += " AND a.tenant_id = $1"
                 params.append(uuid.UUID(tenant_id) if len(tenant_id) > 10 else tenant_id)
-            
+
             query += f" ORDER BY a.created_at DESC LIMIT ${len(params) + 1}"
             params.append(limit)
-            
+
             rows = await conn.fetch(query, *params)
-            
+
             return {
                 "approvals": [
                     {
@@ -2478,15 +2498,15 @@ async def approve_by_job_id(
 ):
     """
     Approve a pending job and signal Temporal workflow (PR17).
-    
+
     This will:
     1. Update approval status to 'approved' in DB
     2. Signal Temporal workflow to continue posting
-    
+
     Idempotent: repeated calls won't double-post ledger.
     """
     request_id = x_request_id or get_request_id()
-    
+
     try:
         conn = await get_db_connection()
         try:
@@ -2499,13 +2519,13 @@ async def approve_by_job_id(
                 """,
                 uuid.UUID(job_id),
             )
-            
+
             if not approval_row:
                 raise HTTPException(status_code=404, detail=f"No approval found for job_id: {job_id}")
-            
+
             approval_id = approval_row["id"]
             current_status = approval_row["status"]
-            
+
             # Check if already approved (idempotent)
             if current_status == "approved":
                 logger.info(f"[{request_id}] Job {job_id} already approved, returning OK")
@@ -2515,13 +2535,13 @@ async def approve_by_job_id(
                     temporal_signaled=False,
                     message="Already approved (idempotent)",
                 )
-            
+
             if current_status not in ["pending", None]:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot approve: current status is {current_status}",
                 )
-            
+
             # Update approval status
             await conn.execute(
                 """
@@ -2535,24 +2555,24 @@ async def approve_by_job_id(
                 """,
                 approval_id,
             )
-            
+
             logger.info(f"[{request_id}] Approval {approval_id} for job {job_id} approved")
-            
+
         finally:
             await conn.close()
-        
+
         # Signal Temporal workflow
         from src.workflows.temporal_client import signal_workflow_approval
-        
+
         signal_result = await signal_workflow_approval(job_id, "approve")
-        
+
         return ApprovalByJobResponse(
             job_id=job_id,
             approval_status="approved",
             temporal_signaled=signal_result.get("signaled", False),
             message=signal_result.get("message", "Approval processed"),
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2573,15 +2593,15 @@ async def reject_by_job_id(
 ):
     """
     Reject a pending job and signal Temporal workflow (PR17).
-    
+
     This will:
     1. Update approval status to 'rejected' in DB
     2. Signal Temporal workflow to finalize rejection
-    
+
     Idempotent: repeated calls won't fail.
     """
     request_id = x_request_id or get_request_id()
-    
+
     try:
         conn = await get_db_connection()
         try:
@@ -2594,13 +2614,13 @@ async def reject_by_job_id(
                 """,
                 uuid.UUID(job_id),
             )
-            
+
             if not approval_row:
                 raise HTTPException(status_code=404, detail=f"No approval found for job_id: {job_id}")
-            
+
             approval_id = approval_row["id"]
             current_status = approval_row["status"]
-            
+
             # Check if already rejected (idempotent)
             if current_status == "rejected":
                 logger.info(f"[{request_id}] Job {job_id} already rejected, returning OK")
@@ -2610,13 +2630,13 @@ async def reject_by_job_id(
                     temporal_signaled=False,
                     message="Already rejected (idempotent)",
                 )
-            
+
             if current_status not in ["pending", None]:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot reject: current status is {current_status}",
                 )
-            
+
             # Update approval status
             await conn.execute(
                 """
@@ -2630,24 +2650,24 @@ async def reject_by_job_id(
                 """,
                 approval_id,
             )
-            
+
             logger.info(f"[{request_id}] Approval {approval_id} for job {job_id} rejected")
-            
+
         finally:
             await conn.close()
-        
+
         # Signal Temporal workflow
         from src.workflows.temporal_client import signal_workflow_approval
-        
+
         signal_result = await signal_workflow_approval(job_id, "reject")
-        
+
         return ApprovalByJobResponse(
             job_id=job_id,
             approval_status="rejected",
             temporal_signaled=signal_result.get("signaled", False),
             message=signal_result.get("message", "Rejection processed"),
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3028,11 +3048,11 @@ async def approve_job(job_id: str, request: ApprovalRequest, x_user_id: str | No
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     status_to_check = current_status if current_status else (job.get("status") if job else "unknown")
-    
+
     # Allow completed (auto-approved?) or waiting_for_approval (manual)
     # Also allow pending if we want to force approve (debug)
-    allowed_statuses = ["completed", "waiting_for_approval", "pending_approval", "pending"] 
-    
+    allowed_statuses = ["completed", "waiting_for_approval", "pending_approval", "pending"]
+
     if status_to_check not in allowed_statuses:
         logger.warning(f"Blocking approval for job {job_id} with status {status_to_check}")
         # raise HTTPException(status_code=400, detail=f"Cannot approve job with status: {status_to_check}")
@@ -3052,10 +3072,10 @@ async def approve_job(job_id: str, request: ApprovalRequest, x_user_id: str | No
                 if row:
                     approval_id = str(row["id"])
                     await approve_proposal(
-                        conn, 
-                        approval_id=approval_id, 
+                        conn,
+                        approval_id=approval_id,
                         approver=request.approver_id or x_user_id or "api-user",
-                        comment=request.notes
+                        comment=request.notes,
                     )
                     logger.info(f"Triggered approve_proposal for job {job_id} (approval {approval_id})")
                 else:
@@ -3077,7 +3097,7 @@ async def approve_job(job_id: str, request: ApprovalRequest, x_user_id: str | No
                 "approved_at": approval_time,
             },
         )
-    
+
     # Update DB state
     try:
         conn = await get_db_connection()
@@ -3139,7 +3159,7 @@ async def _get_tenant_uuid(conn, tenant_code: str = "default") -> uuid.UUID:
     row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", tenant_code)
     if row:
         return row["id"]
-    
+
     # Create tenant if not exists
     tenant_uuid = uuid.uuid4()
     await conn.execute(
@@ -3156,24 +3176,24 @@ async def _get_tenant_uuid(conn, tenant_code: str = "default") -> uuid.UUID:
 async def create_cashflow_forecast(x_tenant_id: str | None = Header(default="default")):
     """
     Generate a baseline cashflow forecast from ledger data.
-    
+
     PR20: Computes deterministic forecast using rolling average of historical ledger flows.
     Persists result to cashflow_forecasts table.
-    
+
     Feature flag: ENABLE_FORECAST (default: 1)
     """
     # Check feature flag
     if os.getenv("ENABLE_FORECAST", "1") != "1":
         raise HTTPException(status_code=403, detail="Forecast feature is disabled")
-    
+
     try:
         # Import forecast module
         from src.forecast.cashflow import compute_cashflow_forecast, persist_forecast
-        
+
         conn = await get_db_connection()
         try:
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
-            
+
             # Compute forecast
             forecast = await compute_cashflow_forecast(
                 conn=conn,
@@ -3181,19 +3201,25 @@ async def create_cashflow_forecast(x_tenant_id: str | None = Header(default="def
                 window_days=30,
                 lookback_days=90,
             )
-            
+
             # Persist forecast
             forecast_id = await persist_forecast(conn, tenant_uuid, forecast)
-            
+
             # Record audit event
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
                 VALUES ($1, $2, $3, $4, $5, NOW())
-            """, uuid.uuid4(), forecast_id, str(tenant_uuid), "cashflow_forecast_created", 
-                f'{{"forecast_id": "{forecast_id}", "window_days": {forecast["window_days"]}}}')
-            
+            """,
+                uuid.uuid4(),
+                forecast_id,
+                str(tenant_uuid),
+                "cashflow_forecast_created",
+                f'{{"forecast_id": "{forecast_id}", "window_days": {forecast["window_days"]}}}',
+            )
+
             logger.info(f"Created cashflow forecast {forecast_id} for tenant {tenant_uuid}")
-            
+
             return ForecastResponse(
                 forecast_id=str(forecast_id),
                 tenant_id=str(tenant_uuid),
@@ -3204,7 +3230,7 @@ async def create_cashflow_forecast(x_tenant_id: str | None = Header(default="def
             )
         finally:
             await conn.close()
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3213,34 +3239,31 @@ async def create_cashflow_forecast(x_tenant_id: str | None = Header(default="def
 
 
 @app.post("/v1/simulations", response_model=SimulationResponse)
-async def create_simulation(
-    request: SimulationRequest,
-    x_tenant_id: str | None = Header(default="default")
-):
+async def create_simulation(request: SimulationRequest, x_tenant_id: str | None = Header(default="default")):
     """
     Create a what-if scenario simulation based on latest forecast.
-    
+
     PR20: Applies scenario assumptions (multipliers, delays) to baseline forecast.
     Persists result to scenario_simulations table.
-    
+
     Feature flag: ENABLE_SIMULATION (default: 1)
     """
     # Check feature flag
     if os.getenv("ENABLE_SIMULATION", "1") != "1":
         raise HTTPException(status_code=403, detail="Simulation feature is disabled")
-    
+
     try:
         # Import modules
         from src.forecast.cashflow import compute_cashflow_forecast, get_latest_forecast, persist_forecast
         from src.simulations.scenario import persist_simulation, run_scenario_simulation
-        
+
         conn = await get_db_connection()
         try:
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
-            
+
             # Get latest forecast
             latest = await get_latest_forecast(conn, tenant_uuid)
-            
+
             if not latest:
                 # No forecast exists, create one first
                 forecast = await compute_cashflow_forecast(
@@ -3253,31 +3276,33 @@ async def create_simulation(
                     "forecast_id": str(forecast_id),
                     "forecast": forecast,
                 }
-            
+
             base_forecast = latest["forecast"]
             base_forecast_id = uuid.UUID(latest["forecast_id"])
-            
+
             # Build inputs
             inputs = {
                 "window_days": request.window_days,
-                "assumptions": request.assumptions or {
+                "assumptions": request.assumptions
+                or {
                     "revenue_multiplier": 1.0,
                     "cost_multiplier": 1.0,
                     "payment_delay_days": 0,
-                }
+                },
             }
-            
+
             # Run simulation (sync, no DB needed)
             result = run_scenario_simulation(
                 tenant_id=tenant_uuid,
                 base_forecast=base_forecast,
                 inputs=inputs,
             )
-            
+
             # Persist simulation
             from datetime import date
+
             base_as_of_date = date.fromisoformat(base_forecast.get("as_of_date", date.today().isoformat()))
-            
+
             simulation_id = await persist_simulation(
                 conn=conn,
                 tenant_id=tenant_uuid,
@@ -3286,23 +3311,29 @@ async def create_simulation(
                 inputs=inputs,
                 result=result,
             )
-            
+
             # Record audit event
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
                 VALUES ($1, $2, $3, $4, $5, NOW())
-            """, uuid.uuid4(), simulation_id, str(tenant_uuid), "scenario_simulation_created",
-                f'{{"simulation_id": "{simulation_id}", "base_forecast_id": "{base_forecast_id}"}}')
-            
+            """,
+                uuid.uuid4(),
+                simulation_id,
+                str(tenant_uuid),
+                "scenario_simulation_created",
+                f'{{"simulation_id": "{simulation_id}", "base_forecast_id": "{base_forecast_id}"}}',
+            )
+
             logger.info(f"Created scenario simulation {simulation_id} for tenant {tenant_uuid}")
-            
+
             return SimulationResponse(
                 simulation_id=str(simulation_id),
                 status="completed",
             )
         finally:
             await conn.close()
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3314,25 +3345,25 @@ async def create_simulation(
 async def get_simulation_endpoint(simulation_id: str):
     """
     Get a scenario simulation by ID.
-    
+
     PR20: Returns full simulation result including inputs, result, and metadata.
     """
     try:
         from src.simulations.scenario import get_simulation
-        
+
         # Validate UUID
         try:
             sim_uuid = uuid.UUID(simulation_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid simulation_id format")
-        
+
         conn = await get_db_connection()
         try:
             simulation = await get_simulation(conn, sim_uuid)
-            
+
             if not simulation:
                 raise HTTPException(status_code=404, detail=f"Simulation not found: {simulation_id}")
-            
+
             return SimulationDetailResponse(
                 simulation_id=simulation["simulation_id"],
                 tenant_id=simulation["tenant_id"],
@@ -3345,7 +3376,7 @@ async def get_simulation_endpoint(simulation_id: str):
             )
         finally:
             await conn.close()
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3383,55 +3414,58 @@ class InsightDetailResponse(BaseModel):
 
 @app.post("/v1/insights/cfo", response_model=InsightTriggerResponse)
 async def trigger_cfo_insight(
-    request: InsightRequest = InsightRequest(),
-    x_tenant_id: str | None = Header(default="default")
+    request: InsightRequest = InsightRequest(), x_tenant_id: str | None = Header(default="default")
 ):
     """
     Trigger async CFO/Controller insight generation.
-    
+
     PR21: Creates insight record with status=queued, then processes in background.
     Returns immediately with insight_id.
-    
+
     Feature flag: ENABLE_CFO_INSIGHTS (default: 1)
     """
     import asyncio
     import json
-    
+
     # Check feature flag
     if os.getenv("ENABLE_CFO_INSIGHTS", "1") != "1":
         raise HTTPException(status_code=501, detail="CFO Insights feature is disabled")
-    
+
     try:
         from src.insights.cfo import create_insight_record, process_insight_async
-        
+
         conn = await get_db_connection()
         try:
             # Get tenant UUID
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
-            
+
             # Create insight record with status=queued
             insight_id = await create_insight_record(
                 conn,
                 tenant_uuid,
                 request.window_days,
-                {"assumptions": request.assumptions} if request.assumptions else None
+                {"assumptions": request.assumptions} if request.assumptions else None,
             )
-            
+
             # Record audit event - created
-            await conn.execute("""
+            await conn.execute(
+                """
                 INSERT INTO audit_events (id, job_id, tenant_id, event_type, event_data, created_at)
                 VALUES ($1, $2, $3, 'cfo_insight_created', $4, NOW())
-            """, uuid.uuid4(), insight_id, str(tenant_uuid), json.dumps({
-                "insight_id": str(insight_id),
-                "tenant_id": str(tenant_uuid),
-                "window_days": request.window_days
-            }))
-            
+            """,
+                uuid.uuid4(),
+                insight_id,
+                str(tenant_uuid),
+                json.dumps(
+                    {"insight_id": str(insight_id), "tenant_id": str(tenant_uuid), "window_days": request.window_days}
+                ),
+            )
+
             logger.info(f"Created CFO insight {insight_id} for tenant {tenant_uuid}")
-            
+
         finally:
             await conn.close()
-        
+
         # Process in background (non-blocking)
         async def _process_background():
             bg_conn = await get_db_connection()
@@ -3441,15 +3475,12 @@ async def trigger_cfo_insight(
                 logger.error(f"Background insight processing failed: {e}")
             finally:
                 await bg_conn.close()
-        
+
         # Start background task
         asyncio.create_task(_process_background())
-        
-        return InsightTriggerResponse(
-            insight_id=str(insight_id),
-            status="queued"
-        )
-        
+
+        return InsightTriggerResponse(insight_id=str(insight_id), status="queued")
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3461,26 +3492,26 @@ async def trigger_cfo_insight(
 async def get_insight_endpoint(insight_id: str):
     """
     Get CFO insight by ID.
-    
+
     PR21: Returns full insight including status, result, and metadata.
     Poll this endpoint until status=completed or status=failed.
     """
     try:
         from src.insights.cfo import get_insight
-        
+
         # Validate UUID
         try:
             insight_uuid = uuid.UUID(insight_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid insight_id format")
-        
+
         conn = await get_db_connection()
         try:
             insight = await get_insight(conn, insight_uuid)
-            
+
             if not insight:
                 raise HTTPException(status_code=404, detail=f"Insight not found: {insight_id}")
-            
+
             return InsightDetailResponse(
                 insight_id=insight["insight_id"],
                 tenant_id=insight["tenant_id"],
@@ -3495,7 +3526,7 @@ async def get_insight_endpoint(insight_id: str):
             )
         finally:
             await conn.close()
-            
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3504,30 +3535,24 @@ async def get_insight_endpoint(insight_id: str):
 
 
 @app.get("/v1/insights/latest/")
-async def get_latest_insights_endpoint(
-    limit: int = 5,
-    x_tenant_id: str | None = Header(default="default")
-):
+async def get_latest_insights_endpoint(limit: int = 5, x_tenant_id: str | None = Header(default="default")):
     """
     Get latest CFO insights for a tenant.
-    
+
     PR21: Returns list of most recent insights.
     """
     try:
         from src.insights.cfo import get_latest_insights
-        
+
         conn = await get_db_connection()
         try:
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
             insights = await get_latest_insights(conn, tenant_uuid, min(limit, 20))
-            
-            return {
-                "insights": insights,
-                "count": len(insights)
-            }
+
+            return {"insights": insights, "count": len(insights)}
         finally:
             await conn.close()
-            
+
     except Exception as e:
         logger.error(f"Failed to get latest insights: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3537,22 +3562,16 @@ async def get_latest_insights_endpoint(
 # PR22: System Evidence Endpoint for UI
 # ===========================================================================
 
+
 @app.get("/v1/evidence/summary")
 async def get_system_evidence():
     """
     Get system-wide evidence summary for UI dashboard.
-    
+
     PR22: Returns evidence from all integrated tools.
     """
-    evidence = {
-        "postgres": None,
-        "minio": None,
-        "qdrant": None,
-        "temporal": None,
-        "jaeger": None,
-        "mlflow": None
-    }
-    
+    evidence = {"postgres": None, "minio": None, "qdrant": None, "temporal": None, "jaeger": None, "mlflow": None}
+
     try:
         # Postgres counters
         conn = await get_db_connection()
@@ -3569,20 +3588,20 @@ async def get_system_evidence():
             await conn.close()
     except Exception as e:
         logger.warning(f"Postgres evidence failed: {e}")
-    
+
     try:
         # MinIO objects
         import boto3
         from botocore.client import Config
-        
+
         s3 = boto3.client(
-            's3',
+            "s3",
             endpoint_url=os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
             aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "erpx_minio"),
             aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "erpx_minio_secret"),
-            config=Config(signature_version='s3v4')
+            config=Config(signature_version="s3v4"),
         )
-        
+
         sample_keys = []
         bucket = os.getenv("MINIO_BUCKET", "erpx-documents")
         try:
@@ -3591,26 +3610,26 @@ async def get_system_evidence():
                 sample_keys.append(obj["Key"])
         except Exception:
             pass
-        
+
         evidence["minio"] = {"sample_keys": sample_keys}
     except Exception as e:
         logger.warning(f"MinIO evidence failed: {e}")
-    
+
     try:
         # Qdrant points
         import httpx
-        
+
         async with httpx.AsyncClient() as client:
             qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
             collection = os.getenv("QDRANT_COLLECTION", "documents")
-            
+
             resp = await client.get(f"{qdrant_url}/collections/{collection}")
             if resp.status_code == 200:
                 data = resp.json()
                 evidence["qdrant"] = {"points_count": data.get("result", {}).get("points_count", 0)}
     except Exception as e:
         logger.warning(f"Qdrant evidence failed: {e}")
-    
+
     try:
         # Temporal completed workflows
         conn = await get_db_connection()
@@ -3623,11 +3642,11 @@ async def get_system_evidence():
             await conn.close()
     except Exception as e:
         logger.warning(f"Temporal evidence failed: {e}")
-    
+
     try:
         # Jaeger services
         import httpx
-        
+
         async with httpx.AsyncClient() as client:
             jaeger_url = os.getenv("JAEGER_URL", "http://jaeger:16686")
             resp = await client.get(f"{jaeger_url}/api/services", timeout=5.0)
@@ -3636,11 +3655,11 @@ async def get_system_evidence():
                 evidence["jaeger"] = {"services": data.get("data", [])}
     except Exception as e:
         logger.warning(f"Jaeger evidence failed: {e}")
-    
+
     try:
         # MLflow runs
         import httpx
-        
+
         async with httpx.AsyncClient() as client:
             mlflow_url = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5001")
             resp = await client.get(f"{mlflow_url}/api/2.0/mlflow/experiments/search", timeout=5.0)
@@ -3651,34 +3670,31 @@ async def get_system_evidence():
                     exp_id = exp.get("experiment_id")
                     if exp_id:
                         runs_resp = await client.get(
-                            f"{mlflow_url}/api/2.0/mlflow/runs/search",
-                            params={"experiment_ids": exp_id}
+                            f"{mlflow_url}/api/2.0/mlflow/runs/search", params={"experiment_ids": exp_id}
                         )
                         if runs_resp.status_code == 200:
                             total_runs += len(runs_resp.json().get("runs", []))
                 evidence["mlflow"] = {"runs_count": total_runs}
     except Exception as e:
         logger.warning(f"MLflow evidence failed: {e}")
-    
+
     return evidence
 
 
 @app.get("/v1/forecasts/latest")
-async def get_latest_forecasts(
-    limit: int = 10,
-    x_tenant_id: str | None = Header(default="default")
-):
+async def get_latest_forecasts(limit: int = 10, x_tenant_id: str | None = Header(default="default")):
     """
     Get latest cashflow forecasts.
-    
+
     PR22: Returns recent forecasts for UI listing.
     """
     try:
         conn = await get_db_connection()
         try:
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
-            
-            rows = await conn.fetch("""
+
+            rows = await conn.fetch(
+                """
                 SELECT 
                     id, tenant_id, window_days, forecast_date,
                     total_inflow, total_outflow, net_position,
@@ -3687,22 +3703,27 @@ async def get_latest_forecasts(
                 WHERE tenant_id = $1
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, tenant_uuid, limit)
-            
+            """,
+                tenant_uuid,
+                limit,
+            )
+
             forecasts = []
             for row in rows:
-                forecasts.append({
-                    "id": str(row["id"]),
-                    "tenant_id": str(row["tenant_id"]),
-                    "window_days": row["window_days"],
-                    "forecast_date": row["forecast_date"].isoformat() if row["forecast_date"] else None,
-                    "total_inflow": float(row["total_inflow"]) if row["total_inflow"] else 0,
-                    "total_outflow": float(row["total_outflow"]) if row["total_outflow"] else 0,
-                    "net_position": float(row["net_position"]) if row["net_position"] else 0,
-                    "daily_forecast": row["daily_forecast"],
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None
-                })
-            
+                forecasts.append(
+                    {
+                        "id": str(row["id"]),
+                        "tenant_id": str(row["tenant_id"]),
+                        "window_days": row["window_days"],
+                        "forecast_date": row["forecast_date"].isoformat() if row["forecast_date"] else None,
+                        "total_inflow": float(row["total_inflow"]) if row["total_inflow"] else 0,
+                        "total_outflow": float(row["total_outflow"]) if row["total_outflow"] else 0,
+                        "net_position": float(row["net_position"]) if row["net_position"] else 0,
+                        "daily_forecast": row["daily_forecast"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    }
+                )
+
             return {"forecasts": forecasts, "count": len(forecasts)}
         finally:
             await conn.close()
@@ -3712,21 +3733,19 @@ async def get_latest_forecasts(
 
 
 @app.get("/v1/simulations/latest")
-async def get_latest_simulations(
-    limit: int = 10,
-    x_tenant_id: str | None = Header(default="default")
-):
+async def get_latest_simulations(limit: int = 10, x_tenant_id: str | None = Header(default="default")):
     """
     Get latest scenario simulations.
-    
+
     PR22: Returns recent simulations for UI listing.
     """
     try:
         conn = await get_db_connection()
         try:
             tenant_uuid = await _get_tenant_uuid(conn, x_tenant_id or "default")
-            
-            rows = await conn.fetch("""
+
+            rows = await conn.fetch(
+                """
                 SELECT 
                     id, tenant_id, base_forecast_id, scenario_name,
                     assumptions, baseline_net, projected_net, delta, percent_change,
@@ -3735,25 +3754,30 @@ async def get_latest_simulations(
                 WHERE tenant_id = $1
                 ORDER BY created_at DESC
                 LIMIT $2
-            """, tenant_uuid, limit)
-            
+            """,
+                tenant_uuid,
+                limit,
+            )
+
             simulations = []
             for row in rows:
-                simulations.append({
-                    "id": str(row["id"]),
-                    "tenant_id": str(row["tenant_id"]),
-                    "base_forecast_id": str(row["base_forecast_id"]) if row["base_forecast_id"] else None,
-                    "scenario_name": row["scenario_name"],
-                    "assumptions": row["assumptions"],
-                    "baseline_net": float(row["baseline_net"]) if row["baseline_net"] else 0,
-                    "projected_net": float(row["projected_net"]) if row["projected_net"] else 0,
-                    "delta": float(row["delta"]) if row["delta"] else 0,
-                    "percent_change": float(row["percent_change"]) if row["percent_change"] else 0,
-                    "status": row["status"],
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                    "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None
-                })
-            
+                simulations.append(
+                    {
+                        "id": str(row["id"]),
+                        "tenant_id": str(row["tenant_id"]),
+                        "base_forecast_id": str(row["base_forecast_id"]) if row["base_forecast_id"] else None,
+                        "scenario_name": row["scenario_name"],
+                        "assumptions": row["assumptions"],
+                        "baseline_net": float(row["baseline_net"]) if row["baseline_net"] else 0,
+                        "projected_net": float(row["projected_net"]) if row["projected_net"] else 0,
+                        "delta": float(row["delta"]) if row["delta"] else 0,
+                        "percent_change": float(row["percent_change"]) if row["percent_change"] else 0,
+                        "status": row["status"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                        "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+                    }
+                )
+
             return {"simulations": simulations, "count": len(simulations)}
         finally:
             await conn.close()
@@ -3808,11 +3832,11 @@ async def run_testbench_tool(request: TestbenchRunRequest):
     import time
 
     import httpx
-    
+
     tool = request.tool.lower()
     start = time.time()
     trace_id = get_request_id()
-    
+
     try:
         if tool == "keycloak":
             result = await _test_keycloak()
@@ -3838,11 +3862,11 @@ async def run_testbench_tool(request: TestbenchRunRequest):
             result = await _test_mlflow()
         else:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {tool}")
-        
+
         latency_ms = (time.time() - start) * 1000
-        
+
         tool_info = next((t for t in TESTBENCH_TOOLS if t["id"] == tool), {"name": tool})
-        
+
         return TestbenchResult(
             tool=tool,
             name=tool_info.get("name", tool),
@@ -3851,7 +3875,7 @@ async def run_testbench_tool(request: TestbenchRunRequest):
             summary=result["summary"],
             evidence=result.get("evidence", {}),
             trace_id=trace_id,
-            warning=result.get("warning")
+            warning=result.get("warning"),
         )
     except HTTPException:
         raise
@@ -3865,19 +3889,19 @@ async def run_testbench_tool(request: TestbenchRunRequest):
             latency_ms=round(latency_ms, 2),
             summary=f"Error: {str(e)}",
             evidence={"error": str(e)},
-            trace_id=trace_id
+            trace_id=trace_id,
         )
 
 
 async def _test_keycloak():
     """Test Keycloak connectivity and token endpoint."""
     import httpx
-    
+
     keycloak_url = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
     realm = os.getenv("KEYCLOAK_REALM", "erpx")
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         # Test realm info
         try:
@@ -3890,7 +3914,7 @@ async def _test_keycloak():
         except Exception as e:
             evidence["realm_error"] = str(e)
             evidence["realm_reachable"] = False
-        
+
         # Test token endpoint
         try:
             token_url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
@@ -3899,8 +3923,8 @@ async def _test_keycloak():
                 data={
                     "grant_type": "client_credentials",
                     "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "erpx-api"),
-                    "client_secret": os.getenv("KEYCLOAK_CLIENT_SECRET", "erpx-secret")
-                }
+                    "client_secret": os.getenv("KEYCLOAK_CLIENT_SECRET", "erpx-secret"),
+                },
             )
             evidence["token_endpoint_status"] = resp.status_code
             evidence["token_obtainable"] = resp.status_code == 200
@@ -3911,25 +3935,25 @@ async def _test_keycloak():
         except Exception as e:
             evidence["token_error"] = str(e)
             evidence["token_obtainable"] = False
-    
+
     passed = evidence.get("realm_reachable", False) and evidence.get("token_obtainable", False)
-    
+
     return {
         "passed": passed,
         "summary": "Keycloak reachable and token obtainable" if passed else "Keycloak connectivity issues",
-        "evidence": evidence
+        "evidence": evidence,
     }
 
 
 async def _test_kong():
     """Test Kong gateway JWT enforcement."""
     import httpx
-    
+
     kong_url = os.getenv("KONG_ADMIN_URL", "http://kong:8001")
     api_url = "http://localhost:8080"  # Kong proxy
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         # Test Kong admin
         try:
@@ -3939,7 +3963,7 @@ async def _test_kong():
         except Exception as e:
             evidence["admin_error"] = str(e)
             evidence["admin_reachable"] = False
-        
+
         # Test unauthenticated request returns 401
         try:
             resp = await client.get(f"{api_url}/api/health")
@@ -3948,31 +3972,31 @@ async def _test_kong():
         except Exception as e:
             evidence["no_token_error"] = str(e)
             evidence["auth_enforced"] = False
-    
+
     passed = evidence.get("admin_reachable", False) and evidence.get("auth_enforced", False)
-    
+
     return {
         "passed": passed,
         "summary": "Kong gateway auth enforced" if passed else "Kong gateway issues",
-        "evidence": evidence
+        "evidence": evidence,
     }
 
 
 async def _test_postgres():
     """Test PostgreSQL connectivity and query counts."""
     import asyncpg
-    
+
     evidence = {}
-    
+
     try:
         conn = await asyncpg.connect(
             host=os.getenv("DB_HOST", "postgres"),
             port=int(os.getenv("DB_PORT", "5432")),
             user=os.getenv("DB_USER", "erpx"),
             password=os.getenv("DB_PASSWORD", "erpx_password"),
-            database=os.getenv("DB_NAME", "erpx")
+            database=os.getenv("DB_NAME", "erpx"),
         )
-        
+
         try:
             # Count tables
             tables = ["job_runs", "approvals", "ledger_entries", "outbox_events", "invoices"]
@@ -3982,84 +4006,76 @@ async def _test_postgres():
                     evidence[f"{table}_count"] = row["cnt"]
                 except Exception as e:
                     evidence[f"{table}_error"] = str(e)
-            
+
             # Check connection info
             evidence["connected"] = True
             evidence["server_version"] = conn.get_server_version()
-            
+
         finally:
             await conn.close()
-        
+
         passed = evidence.get("connected", False)
         return {
             "passed": passed,
             "summary": f"PostgreSQL connected. job_runs={evidence.get('job_runs_count', 0)}, approvals={evidence.get('approvals_count', 0)}",
-            "evidence": evidence
+            "evidence": evidence,
         }
-        
+
     except Exception as e:
-        return {
-            "passed": False,
-            "summary": f"PostgreSQL connection failed: {str(e)}",
-            "evidence": {"error": str(e)}
-        }
+        return {"passed": False, "summary": f"PostgreSQL connection failed: {str(e)}", "evidence": {"error": str(e)}}
 
 
 async def _test_minio():
     """Test MinIO object storage."""
     import httpx
-    
+
     minio_url = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
     access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
     secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
-    
+
     evidence = {}
-    
+
     try:
         from minio import Minio
-        
+
         client = Minio(
             minio_url.replace("http://", "").replace("https://", ""),
             access_key=access_key,
             secret_key=secret_key,
-            secure=False
+            secure=False,
         )
-        
+
         # List buckets
         buckets = list(client.list_buckets())
         evidence["buckets"] = [b.name for b in buckets]
         evidence["bucket_count"] = len(buckets)
-        
+
         # Try to list objects in main bucket
         main_bucket = os.getenv("MINIO_BUCKET", "erpx-documents")
         if main_bucket in evidence["buckets"]:
             objects = list(client.list_objects(main_bucket, recursive=False))
             evidence["objects_in_bucket"] = len(objects)
-        
+
         evidence["connected"] = True
-        
+
         return {
             "passed": True,
             "summary": f"MinIO connected. {evidence['bucket_count']} buckets found",
-            "evidence": evidence
+            "evidence": evidence,
         }
-        
+
     except Exception as e:
-        return {
-            "passed": False,
-            "summary": f"MinIO connection failed: {str(e)}",
-            "evidence": {"error": str(e)}
-        }
+        return {"passed": False, "summary": f"MinIO connection failed: {str(e)}", "evidence": {"error": str(e)}}
 
 
 async def _test_qdrant():
     """Test Qdrant vector database."""
     import httpx
-    
+
     qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Get collections
@@ -4069,7 +4085,7 @@ async def _test_qdrant():
                 collections = data.get("result", {}).get("collections", [])
                 evidence["collections"] = [c["name"] for c in collections]
                 evidence["collection_count"] = len(collections)
-                
+
                 # Get points count for first collection
                 if collections:
                     col_name = collections[0]["name"]
@@ -4078,104 +4094,84 @@ async def _test_qdrant():
                         col_data = col_resp.json()
                         evidence["sample_collection"] = col_name
                         evidence["points_count"] = col_data.get("result", {}).get("points_count", 0)
-                
+
                 evidence["connected"] = True
-                
+
                 return {
                     "passed": True,
                     "summary": f"Qdrant connected. {evidence['collection_count']} collections",
-                    "evidence": evidence
+                    "evidence": evidence,
                 }
             else:
                 evidence["status"] = resp.status_code
                 evidence["connected"] = False
-                
+
         except Exception as e:
             evidence["error"] = str(e)
             evidence["connected"] = False
-    
-    return {
-        "passed": False,
-        "summary": "Qdrant connection failed",
-        "evidence": evidence
-    }
+
+    return {"passed": False, "summary": "Qdrant connection failed", "evidence": evidence}
 
 
 async def _test_temporal():
     """Test Temporal workflow engine."""
     import httpx
-    
+
     temporal_url = os.getenv("TEMPORAL_HOST", "temporal:7233")
     temporal_ui = os.getenv("TEMPORAL_UI_URL", "http://localhost:8088")
-    
+
     evidence = {}
-    
+
     # Try Temporal via gRPC client
     try:
         from temporalio.client import Client
-        
+
         client = await Client.connect(temporal_url, namespace="default")
         evidence["connected"] = True
         evidence["namespace"] = "default"
-        
+
         # Try to list workflows
         workflows = []
         async for wf in client.list_workflows(query="", page_size=5):
-            workflows.append({
-                "id": wf.id,
-                "status": str(wf.status)
-            })
+            workflows.append({"id": wf.id, "status": str(wf.status)})
             if len(workflows) >= 5:
                 break
-        
+
         evidence["recent_workflows"] = workflows
         evidence["workflow_count"] = len(workflows)
-        
+
         return {
             "passed": True,
             "summary": f"Temporal connected. {len(workflows)} recent workflows",
-            "evidence": evidence
+            "evidence": evidence,
         }
-        
+
     except Exception as e:
         evidence["error"] = str(e)
         evidence["connected"] = False
-        
-        return {
-            "passed": False,
-            "summary": f"Temporal connection failed: {str(e)}",
-            "evidence": evidence
-        }
+
+        return {"passed": False, "summary": f"Temporal connection failed: {str(e)}", "evidence": evidence}
 
 
 async def _test_opa():
     """Test OPA policy engine."""
     import httpx
-    
+
     opa_url = os.getenv("OPA_URL", "http://opa:8181")
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Test health
             resp = await client.get(f"{opa_url}/health")
             evidence["health_status"] = resp.status_code
             evidence["healthy"] = resp.status_code == 200
-            
+
             # Test policy evaluation
-            test_input = {
-                "input": {
-                    "amount": 5000,
-                    "vendor_id": "test-vendor",
-                    "user_role": "accountant"
-                }
-            }
-            
-            resp = await client.post(
-                f"{opa_url}/v1/data/erpx/policy/evaluate",
-                json=test_input
-            )
+            test_input = {"input": {"amount": 5000, "vendor_id": "test-vendor", "user_role": "accountant"}}
+
+            resp = await client.post(f"{opa_url}/v1/data/erpx/policy/evaluate", json=test_input)
             evidence["policy_status"] = resp.status_code
             if resp.status_code == 200:
                 result = resp.json()
@@ -4183,78 +4179,74 @@ async def _test_opa():
                 evidence["policy_works"] = True
             else:
                 evidence["policy_works"] = False
-            
+
             passed = evidence.get("healthy", False)
-            
+
             return {
                 "passed": passed,
                 "summary": "OPA policy engine healthy" if passed else "OPA issues",
-                "evidence": evidence
+                "evidence": evidence,
             }
-            
+
         except Exception as e:
-            return {
-                "passed": False,
-                "summary": f"OPA connection failed: {str(e)}",
-                "evidence": {"error": str(e)}
-            }
+            return {"passed": False, "summary": f"OPA connection failed: {str(e)}", "evidence": {"error": str(e)}}
 
 
 async def _test_ocr():
     """Test OCR/document extraction capability."""
     evidence = {}
-    
+
     try:
         # Test pdfplumber
         try:
             import pdfplumber
+
             evidence["pdfplumber_available"] = True
         except ImportError:
             evidence["pdfplumber_available"] = False
-        
+
         # Test pytesseract
         try:
             import pytesseract
+
             evidence["pytesseract_available"] = True
             # Check tesseract binary
             import subprocess
+
             result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True)
             evidence["tesseract_version"] = result.stdout.split("\n")[0] if result.returncode == 0 else "not found"
         except Exception as e:
             evidence["pytesseract_available"] = False
             evidence["tesseract_error"] = str(e)
-        
+
         # Test openpyxl
         try:
             import openpyxl
+
             evidence["openpyxl_available"] = True
         except ImportError:
             evidence["openpyxl_available"] = False
-        
+
         passed = evidence.get("pdfplumber_available", False) or evidence.get("pytesseract_available", False)
-        
+
         return {
             "passed": passed,
             "summary": "OCR/extraction libraries available" if passed else "OCR libraries not available",
-            "evidence": evidence
+            "evidence": evidence,
         }
-        
+
     except Exception as e:
-        return {
-            "passed": False,
-            "summary": f"OCR test failed: {str(e)}",
-            "evidence": {"error": str(e)}
-        }
+        return {"passed": False, "summary": f"OCR test failed: {str(e)}", "evidence": {"error": str(e)}}
 
 
 async def _test_jaeger():
     """Test Jaeger tracing."""
     import httpx
-    
+
     jaeger_url = os.getenv("JAEGER_QUERY_URL", "http://jaeger:16686")
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Get services
@@ -4266,75 +4258,71 @@ async def _test_jaeger():
                 evidence["service_count"] = len(services)
                 evidence["has_erpx_api"] = "erpx-api" in services
                 evidence["connected"] = True
-                
+
                 passed = evidence.get("has_erpx_api", False)
-                
+
                 return {
                     "passed": passed,
                     "summary": f"Jaeger connected. {len(services)} services",
                     "evidence": evidence,
-                    "warning": None if passed else "erpx-api service not found in Jaeger"
+                    "warning": None if passed else "erpx-api service not found in Jaeger",
                 }
             else:
                 evidence["status"] = resp.status_code
                 evidence["connected"] = False
-                
+
         except Exception as e:
             evidence["error"] = str(e)
             evidence["connected"] = False
-    
+
     return {
         "passed": False,
         "summary": "Jaeger connection failed",
         "evidence": evidence,
-        "warning": "Jaeger may not be configured yet"
+        "warning": "Jaeger may not be configured yet",
     }
 
 
 async def _test_metrics():
     """Test metrics endpoint."""
     evidence = {}
-    
+
     try:
         # Get metrics from our own endpoint
         from src.observability import get_metric_stats, list_metric_names
-        
+
         metric_names = await list_metric_names()
         evidence["metric_names"] = metric_names
         evidence["metric_count"] = len(metric_names)
-        
+
         if metric_names:
             # Get sample metric
             sample = metric_names[0]
             stats = await get_metric_stats(sample)
             evidence["sample_metric"] = sample
             evidence["sample_stats"] = stats
-        
+
         passed = len(metric_names) > 0
-        
-        return {
-            "passed": passed,
-            "summary": f"{len(metric_names)} metrics available",
-            "evidence": evidence
-        }
-        
+
+        return {"passed": passed, "summary": f"{len(metric_names)} metrics available", "evidence": evidence}
+
     except Exception as e:
         return {
             "passed": False,
             "summary": f"Metrics test failed: {str(e)}",
             "evidence": {"error": str(e)},
-            "warning": "Metrics may not be configured"
+            "warning": "Metrics may not be configured",
         }
 
 
 async def _test_mlflow():
     """Test MLflow experiment tracking."""
     import httpx
-    
+
     mlflow_url = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-    
+
     evidence = {}
-    
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             # Get experiments
@@ -4345,25 +4333,25 @@ async def _test_mlflow():
                 evidence["experiments"] = [e.get("name") for e in experiments]
                 evidence["experiment_count"] = len(experiments)
                 evidence["connected"] = True
-                
+
                 return {
                     "passed": True,
                     "summary": f"MLflow connected. {len(experiments)} experiments",
-                    "evidence": evidence
+                    "evidence": evidence,
                 }
             else:
                 evidence["status"] = resp.status_code
                 evidence["connected"] = False
-                
+
         except Exception as e:
             evidence["error"] = str(e)
             evidence["connected"] = False
-    
+
     return {
         "passed": False,
         "summary": "MLflow connection failed",
         "evidence": evidence,
-        "warning": "MLflow may not be running"
+        "warning": "MLflow may not be running",
     }
 
 
@@ -4382,13 +4370,16 @@ if __name__ == "__main__":
 # Copilot Chat Endpoint
 # ===========================================================================
 
+
 class ChatRequest(BaseModel):
     message: str
     context: dict[str, Any] | None = None
 
+
 class ChatResponse(BaseModel):
     response: str
     context: dict[str, Any] | None = None
+
 
 @app.post("/v1/copilot/chat", response_model=ChatResponse)
 async def chat_copilot(request: ChatRequest):
@@ -4397,22 +4388,16 @@ async def chat_copilot(request: ChatRequest):
     """
     try:
         from src.llm.client import LLMClient
+
         client = LLMClient()
-        
+
         system_prompt = "You are ERPX Copilot, a helpful accounting assistant."
         if request.context:
             system_prompt += f"\nContext: {request.context}"
-            
-        result = await client.generate(
-            system=system_prompt,
-            prompt=request.message,
-            temperature=0.7
-        )
-        
-        return ChatResponse(
-            response=result.content,
-            context=request.context
-        )
+
+        result = await client.generate(system=system_prompt, prompt=request.message, temperature=0.7)
+
+        return ChatResponse(response=result.content, context=request.context)
     except Exception as e:
         logger.error(f"Copilot chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

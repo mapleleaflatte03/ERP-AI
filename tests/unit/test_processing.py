@@ -1,12 +1,12 @@
-
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.processing import extract_key_fields
+
 
 class TestProcessing(unittest.TestCase):
     def test_extract_key_fields(self):
@@ -58,6 +58,7 @@ class TestProcessing(unittest.TestCase):
     def test_empty_text(self):
         fields = extract_key_fields("")
         self.assertEqual(fields, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,6 @@
-
-import timeit
-import sys
 import os
+import sys
+import timeit
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,6 +36,7 @@ Tổng cộng tiền thanh toán: 11.000.000
 Số tiền viết bằng chữ: Mười một triệu đồng chẵn.
 """
 
+
 def benchmark():
     # Warmup
     extract_key_fields(SAMPLE_TEXT)
@@ -44,7 +44,8 @@ def benchmark():
     number = 10000
     time = timeit.timeit(lambda: extract_key_fields(SAMPLE_TEXT), number=number)
     print(f"Time for {number} iterations: {time:.4f} seconds")
-    print(f"Average time per call: {time/number*1000:.4f} ms")
+    print(f"Average time per call: {time / number * 1000:.4f} ms")
+
 
 if __name__ == "__main__":
     benchmark()

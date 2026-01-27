@@ -1,9 +1,9 @@
 import asyncio
-import time
-import sys
-import os
-from unittest.mock import MagicMock, patch
 import logging
+import os
+import sys
+import time
+from unittest.mock import MagicMock, patch
 
 # Configure logging to suppress output during benchmark
 logging.basicConfig(level=logging.ERROR)
@@ -13,14 +13,16 @@ sys.path.append(os.getcwd())
 
 from src.orchestrator import pipeline
 
+
 async def benchmark():
     # Patch dependencies
-    with patch("src.processing.process_document") as mock_process, \
-         patch("src.storage.download_document") as mock_download, \
-         patch("src.rag.search_accounting_context") as mock_search, \
-         patch("src.llm.get_llm_client") as mock_get_llm, \
-         patch("httpx.AsyncClient") as mock_httpx_async_client: # Changed to AsyncClient
-
+    with (
+        patch("src.processing.process_document") as mock_process,
+        patch("src.storage.download_document") as mock_download,
+        patch("src.rag.search_accounting_context") as mock_search,
+        patch("src.llm.get_llm_client") as mock_get_llm,
+        patch("httpx.AsyncClient") as mock_httpx_async_client,
+    ):  # Changed to AsyncClient
         # Setup fast mocks
         mock_download.return_value = b"fake content"
 
@@ -43,7 +45,7 @@ async def benchmark():
 
         # Setup slow OPA mock (async)
         async def async_post(*args, **kwargs):
-            await asyncio.sleep(0.5) # Non-blocking sleep
+            await asyncio.sleep(0.5)  # Non-blocking sleep
             resp = MagicMock()
             resp.status_code = 200
             resp.json.return_value = {"result": {"allow": True}}
@@ -53,7 +55,7 @@ async def benchmark():
         mock_client_instance = mock_httpx_async_client.return_value.__aenter__.return_value
         mock_client_instance.post.side_effect = async_post
 
-        print(f"Running benchmark with 5 concurrent requests...")
+        print("Running benchmark with 5 concurrent requests...")
         start_time = time.time()
 
         tasks = []
@@ -72,6 +74,7 @@ async def benchmark():
             print("Result: BLOCKING (Slow)")
         else:
             print("Result: NON-BLOCKING (Fast)")
+
 
 if __name__ == "__main__":
     asyncio.run(benchmark())

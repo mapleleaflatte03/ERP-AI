@@ -1,15 +1,15 @@
-
 import asyncio
-import time
-import sys
 import os
+import sys
+import time
 from unittest.mock import MagicMock, patch
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api import routes
-from core.schemas import ReconcileRequest, BankTransaction
+from core.schemas import BankTransaction, ReconcileRequest
+
 
 # Mock Copilot
 class MockCopilot:
@@ -23,12 +23,14 @@ class MockCopilot:
             "reconciliation_result": {
                 "matched": [],
                 "unmatched_invoices": [structured_fields.get("doc_id")],
-                "unmatched_bank_txns": []
+                "unmatched_bank_txns": [],
             }
         }
 
+
 # Patch the Copilot in routes
 routes.ERPXAccountingCopilot = MockCopilot
+
 
 async def run_benchmark():
     # Setup request
@@ -38,17 +40,10 @@ async def run_benchmark():
 
     # Setup payload
     invoices = [{"doc_id": f"INV-{i}"} for i in range(5)]
-    bank_txns = [
-        BankTransaction(txn_id=f"TXN-{i}", txn_date="2024-01-01", amount=100.0)
-        for i in range(5)
-    ]
+    bank_txns = [BankTransaction(txn_id=f"TXN-{i}", txn_date="2024-01-01", amount=100.0) for i in range(5)]
 
     reconcile_request = ReconcileRequest(
-        invoices=invoices,
-        bank_txns=bank_txns,
-        tolerance_percent=0.5,
-        tolerance_amount=50000,
-        date_window_days=7
+        invoices=invoices, bank_txns=bank_txns, tolerance_percent=0.5, tolerance_amount=50000, date_window_days=7
     )
 
     print("Starting benchmark with 5 invoices (0.1s delay each)...")
@@ -68,6 +63,7 @@ async def run_benchmark():
         print(f"❌ Too slow: {duration:.4f}s (Expected < 0.2s)")
 
     return duration
+
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())

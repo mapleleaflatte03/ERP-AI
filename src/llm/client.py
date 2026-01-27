@@ -366,7 +366,9 @@ class LLMClient:
         trace_id: str = "",
     ) -> LLMResponse:
         """Generate LLM response (Synchronous)"""
-        request = self._prepare_request_object(prompt, system, json_schema, temperature, max_tokens, request_id, trace_id)
+        request = self._prepare_request_object(
+            prompt, system, json_schema, temperature, max_tokens, request_id, trace_id
+        )
         try:
             response = self._call_do_agent_sync(request)
             self._record_success()
@@ -386,7 +388,9 @@ class LLMClient:
         trace_id: str = "",
     ) -> LLMResponse:
         """Generate LLM response (Async)"""
-        request = self._prepare_request_object(prompt, system, json_schema, temperature, max_tokens, request_id, trace_id)
+        request = self._prepare_request_object(
+            prompt, system, json_schema, temperature, max_tokens, request_id, trace_id
+        )
         try:
             response = await self._call_do_agent(request)
             self._record_success()
@@ -441,7 +445,9 @@ class LLMClient:
         )
         return await self._process_json_response_async(response, request_id, trace_id, allow_self_fix)
 
-    def _process_json_response_sync(self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool) -> dict[str, Any]:
+    def _process_json_response_sync(
+        self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool
+    ) -> dict[str, Any]:
         """Shared logic for parsing JSON response (Sync)"""
         content = response.content.strip()
         raw_preview = content[:200] if len(content) > 200 else content
@@ -466,7 +472,9 @@ class LLMClient:
 
         raise ValueError(f"LLM response is not valid JSON. Error: {err}")
 
-    async def _process_json_response_async(self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool) -> dict[str, Any]:
+    async def _process_json_response_async(
+        self, response: LLMResponse, request_id: str, trace_id: str, allow_self_fix: bool
+    ) -> dict[str, Any]:
         """Shared logic for parsing JSON response (Async)"""
         content = response.content.strip()
         raw_preview = content[:200] if len(content) > 200 else content
@@ -577,6 +585,7 @@ def generate_sync(
         trace_id=trace_id,
     )
 
+
 async def generate(
     prompt: str,
     system: str = "",
@@ -596,6 +605,7 @@ async def generate(
         request_id=request_id,
         trace_id=trace_id,
     )
+
 
 if __name__ == "__main__":
     # Test the client

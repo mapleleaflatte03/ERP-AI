@@ -1,9 +1,12 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
+
 from src.api.main import app, check_database_connection
 
 client = TestClient(app)
+
 
 @pytest.mark.asyncio
 @patch("src.api.main.check_database_connection", new_callable=AsyncMock)
@@ -18,6 +21,7 @@ async def test_health_check_db_success(mock_db):
         assert "services" in data
         assert "database" in data["services"]
         assert data["services"]["database"]["status"] == "healthy"
+
 
 @pytest.mark.asyncio
 @patch("src.api.main.check_database_connection", new_callable=AsyncMock)
@@ -34,6 +38,7 @@ async def test_health_check_db_failure(mock_db):
         assert data["services"]["database"]["status"] == "unhealthy"
         assert data["services"]["database"]["error"] == "Connection failed"
 
+
 @pytest.mark.asyncio
 @patch("src.db.get_connection")
 async def test_check_database_connection_impl_success(mock_get_conn):
@@ -48,6 +53,7 @@ async def test_check_database_connection_impl_success(mock_get_conn):
     assert success is True
     assert error is None
     mock_conn.execute.assert_called_with("SELECT 1")
+
 
 @pytest.mark.asyncio
 @patch("src.db.get_connection")

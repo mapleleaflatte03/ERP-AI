@@ -24,26 +24,26 @@ logger = logging.getLogger("erpx.workflows.pr16")
 class DocumentWorkflowPR16:
     """
     Document processing workflow (PR16).
-    
+
     Workflow:
     1. Execute process_job_activity with the job_id
     2. Activity downloads from MinIO, runs full pipeline, updates DB
     3. Returns terminal state (completed/waiting_for_approval/failed)
     """
-    
+
     @workflow.run
     async def run(self, job_id: str) -> str:
         """
         Run document processing workflow.
-        
+
         Args:
             job_id: The job ID to process
-            
+
         Returns:
             Terminal state string
         """
         workflow.logger.info(f"[{job_id}] DocumentWorkflowPR16 starting")
-        
+
         # Execute the processing activity with retry policy
         result = await workflow.execute_activity(
             process_job_activity,
@@ -56,7 +56,7 @@ class DocumentWorkflowPR16:
                 maximum_attempts=3,
             ),
         )
-        
+
         workflow.logger.info(f"[{job_id}] DocumentWorkflowPR16 completed: {result}")
-        
+
         return result

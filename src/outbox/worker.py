@@ -61,6 +61,7 @@ class OutboxWorker:
         # Initialize Temporal Client
         try:
             from temporalio.client import Client
+
             temporal_host = os.getenv("TEMPORAL_HOST", "temporal:7233")
             self._temporal_client = await Client.connect(temporal_host)
             logger.info(f"Connected to Temporal at {temporal_host}")
@@ -255,6 +256,7 @@ class OutboxWorker:
             # We can try to reconnect here (lazy recovery)
             try:
                 from temporalio.client import Client
+
                 temporal_host = os.getenv("TEMPORAL_HOST", "temporal:7233")
                 self._temporal_client = await Client.connect(temporal_host)
                 logger.info(f"Connected to Temporal (lazy) at {temporal_host}")

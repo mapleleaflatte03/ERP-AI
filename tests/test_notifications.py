@@ -1,6 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from src.notifications import send_email, send_telegram_message
+
 
 @pytest.mark.asyncio
 async def test_send_email_success():
@@ -20,6 +23,7 @@ async def test_send_email_success():
             assert result is True
             mock_server.send_message.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_send_email_no_config():
     with patch("src.notifications.config") as mock_config:
@@ -27,6 +31,7 @@ async def test_send_email_no_config():
 
         result = await send_email("user@example.com", "Subject", "Body")
         assert result is False
+
 
 @pytest.mark.asyncio
 async def test_send_telegram_success():
@@ -42,6 +47,7 @@ async def test_send_telegram_success():
 
             assert result is True
             mock_client.post.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_send_telegram_no_config():

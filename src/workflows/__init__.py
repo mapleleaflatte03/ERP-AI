@@ -270,9 +270,7 @@ Trả về JSON:
             # Assume UUID -> lookup in DB
             try:
                 async with get_connection() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT email, telegram_chat_id FROM users WHERE id = $1", approver_id
-                    )
+                    row = await conn.fetchrow("SELECT email, telegram_chat_id FROM users WHERE id = $1", approver_id)
                     if row:
                         email = row["email"]
                         telegram_chat_id = row["telegram_chat_id"]

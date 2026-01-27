@@ -1,9 +1,12 @@
 import asyncio
 import unittest
-from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from fastapi.testclient import TestClient
+
 from api.main import app
+
 
 class TestHealthCheck(unittest.TestCase):
     def setUp(self):
@@ -64,6 +67,7 @@ class TestHealthCheck(unittest.TestCase):
         self.assertEqual(data["status"], "degraded")
         self.assertEqual(data["components"]["database"]["status"], "unhealthy")
         self.assertEqual(data["components"]["vector_db"]["status"], "healthy")
+
 
 if __name__ == "__main__":
     unittest.main()

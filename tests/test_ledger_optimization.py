@@ -1,17 +1,17 @@
-
-import unittest
-from unittest.mock import MagicMock, ANY
-import sys
 import os
+import sys
+import unittest
 import uuid
 from datetime import datetime
+from unittest.mock import ANY, MagicMock
 
 # Add project root to path
 sys.path.insert(0, os.getcwd())
 
+from domain.enums import InvoiceStatus, ProposalStatus
+from domain.models import Invoice, LedgerEntry, Proposal
 from services.ledger.ledger_writer import LedgerWriter
-from domain.models import Proposal, Invoice, LedgerEntry
-from domain.enums import ProposalStatus, InvoiceStatus
+
 
 class TestLedgerWriterPerformance(unittest.TestCase):
     def setUp(self):
@@ -29,22 +29,20 @@ class TestLedgerWriterPerformance(unittest.TestCase):
             invoice_id=self.invoice_id,
             status=ProposalStatus.APPROVED,
             approved_at=datetime.utcnow(),
-            suggested_entries=[{
-                "debit_account": "100",
-                "debit_account_name": "Cash",
-                "credit_account": "200",
-                "credit_account_name": "Revenue",
-                "amount": 100.0,
-                "description": "Test Entry",
-                "currency": "USD"
-            }]
+            suggested_entries=[
+                {
+                    "debit_account": "100",
+                    "debit_account_name": "Cash",
+                    "credit_account": "200",
+                    "credit_account_name": "Revenue",
+                    "amount": 100.0,
+                    "description": "Test Entry",
+                    "currency": "USD",
+                }
+            ],
         )
 
-        self.invoice = Invoice(
-            id=self.invoice_id,
-            tenant_id=self.tenant_id,
-            status=InvoiceStatus.APPROVED
-        )
+        self.invoice = Invoice(id=self.invoice_id, tenant_id=self.tenant_id, status=InvoiceStatus.APPROVED)
 
     def test_post_to_ledger_query_count_baseline(self):
         """
@@ -60,11 +58,9 @@ class TestLedgerWriterPerformance(unittest.TestCase):
         # Mock the query for LedgerEntry (journal number generation)
         # db.query(LedgerEntry).filter(...).filter(...).distinct(...).count()
         # This is for _generate_journal_number
-        (self.mock_db.query.return_value
-             .filter.return_value
-             .filter.return_value
-             .distinct.return_value
-             .count.return_value) = 0
+        (
+            self.mock_db.query.return_value.filter.return_value.filter.return_value.distinct.return_value.count.return_value
+        ) = 0
 
         self.writer.post_to_ledger(self.proposal, "approver-1")
 
@@ -83,11 +79,9 @@ class TestLedgerWriterPerformance(unittest.TestCase):
         when it IS provided.
         """
         # Mock the query for LedgerEntry (journal number generation)
-        (self.mock_db.query.return_value
-             .filter.return_value
-             .filter.return_value
-             .distinct.return_value
-             .count.return_value) = 0
+        (
+            self.mock_db.query.return_value.filter.return_value.filter.return_value.distinct.return_value.count.return_value
+        ) = 0
 
         # Reset mock to clear previous calls if any (though setUp creates new one)
         self.mock_db.query.reset_mock()
@@ -112,6 +106,7 @@ class TestLedgerWriterPerformance(unittest.TestCase):
         self.assertEqual(self.invoice.status, InvoiceStatus.POSTED)
 
         print("\n[Optimization] db.query(Invoice) eliminated as expected.")
+
 
 if __name__ == "__main__":
     unittest.main()

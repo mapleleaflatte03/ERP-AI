@@ -25,10 +25,12 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 # Helper Functions
 # =============================================================================
 
+
 async def get_db_pool():
     """Get database connection pool"""
     try:
         from src.db import get_pool
+
         return await get_pool()
     except Exception as e:
         logger.error(f"Failed to get DB pool: {e}")
@@ -69,20 +71,22 @@ def format_proposal(row: dict) -> dict:
     entries = []
     total_debit = 0.0
     total_credit = 0.0
-    
+
     for entry in entries_raw:
         debit = float(entry.get("debit", 0) or 0)
         credit = float(entry.get("credit", 0) or 0)
         total_debit += debit
         total_credit += credit
-        entries.append({
-            "account_code": entry.get("account_code", entry.get("debit_account", entry.get("credit_account"))),
-            "account_name": entry.get("account_name", ""),
-            "debit": debit,
-            "credit": credit,
-            "description": entry.get("description", ""),
-        })
-    
+        entries.append(
+            {
+                "account_code": entry.get("account_code", entry.get("debit_account", entry.get("credit_account"))),
+                "account_name": entry.get("account_name", ""),
+                "debit": debit,
+                "credit": credit,
+                "description": entry.get("description", ""),
+            }
+        )
+
     return {
         "id": row.get("id"),
         "job_id": row.get("job_id"),
@@ -106,6 +110,7 @@ def format_proposal(row: dict) -> dict:
 # Document List & Detail
 # =============================================================================
 
+
 @router.get("")
 async def list_documents(
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -119,7 +124,7 @@ async def list_documents(
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         if status:
             rows = await conn.fetch(
@@ -132,7 +137,9 @@ async def list_documents(
                 ORDER BY created_at DESC
                 LIMIT $2 OFFSET $3
                 """,
-                status, limit, offset
+                status,
+                limit,
+                offset,
             )
         else:
             rows = await conn.fetch(
@@ -144,15 +151,16 @@ async def list_documents(
                 ORDER BY created_at DESC
                 LIMIT $1 OFFSET $2
                 """,
-                limit, offset
+                limit,
+                offset,
             )
-        
+
         documents = [format_document(dict(row)) for row in rows]
-        
+
         # Get total count
         count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM jobs")
         total = count_row["total"] if count_row else 0
-        
+
         return {
             "documents": documents,
             "total": total,
@@ -170,7 +178,7 @@ async def get_document(document_id: str) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -181,22 +189,23 @@ async def get_document(document_id: str) -> dict:
             FROM jobs
             WHERE id = $1
             """,
-            document_id
+            document_id,
         )
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="Document not found")
-        
+
         doc = format_document(dict(row))
-        
+
         # Add additional fields from related tables
         extracted = await conn.fetchrow(
-            "SELECT * FROM extracted_invoices WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1",
-            document_id
+            "SELECT * FROM extracted_invoices WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1", document_id
         )
         if extracted:
             doc["invoice_no"] = extracted.get("invoice_number") or doc.get("invoice_no")
-            doc["invoice_date"] = extracted.get("invoice_date").isoformat() if extracted.get("invoice_date") else doc.get("invoice_date")
+            doc["invoice_date"] = (
+                extracted.get("invoice_date").isoformat() if extracted.get("invoice_date") else doc.get("invoice_date")
+            )
             doc["vendor_name"] = extracted.get("vendor_name") or doc.get("vendor_name")
             doc["vendor_tax_id"] = extracted.get("vendor_tax_id") or doc.get("vendor_tax_id")
             doc["total_amount"] = float(extracted.get("total_amount") or 0) or doc.get("total_amount")
@@ -204,13 +213,14 @@ async def get_document(document_id: str) -> dict:
             doc["extracted_text"] = extracted.get("raw_text") or doc.get("extracted_text")
             if extracted.get("line_items"):
                 doc["extracted_fields"]["line_items"] = extracted["line_items"]
-        
+
         return doc
 
 
 # =============================================================================
 # Document Actions
 # =============================================================================
+
 
 @router.post("/{document_id}/extract")
 async def run_extraction(document_id: str) -> dict:
@@ -221,14 +231,11 @@ async def run_extraction(document_id: str) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         # Update status to extracting
-        await conn.execute(
-            "UPDATE jobs SET status = 'extracting', updated_at = NOW() WHERE id = $1",
-            document_id
-        )
-    
+        await conn.execute("UPDATE jobs SET status = 'extracting', updated_at = NOW() WHERE id = $1", document_id)
+
     # In a real implementation, this would trigger the Temporal workflow
     return {
         "message": "Extraction started",
@@ -245,14 +252,11 @@ async def run_proposal(document_id: str) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         # Update status to proposing
-        await conn.execute(
-            "UPDATE jobs SET status = 'proposing', updated_at = NOW() WHERE id = $1",
-            document_id
-        )
-    
+        await conn.execute("UPDATE jobs SET status = 'proposing', updated_at = NOW() WHERE id = $1", document_id)
+
     return {
         "message": "Proposal generation started",
         "document_id": document_id,
@@ -268,7 +272,7 @@ async def get_document_proposal(document_id: str) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -279,12 +283,12 @@ async def get_document_proposal(document_id: str) -> dict:
             ORDER BY jp.created_at DESC
             LIMIT 1
             """,
-            document_id
+            document_id,
         )
-        
+
         if not row:
             raise HTTPException(status_code=404, detail="No proposal found for this document")
-        
+
         return format_proposal(dict(row))
 
 
@@ -296,7 +300,7 @@ async def get_document_evidence(document_id: str) -> List[dict]:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -305,21 +309,25 @@ async def get_document_evidence(document_id: str) -> List[dict]:
             WHERE job_id = $1
             ORDER BY created_at ASC
             """,
-            document_id
+            document_id,
         )
-        
+
         events = []
         for row in rows:
-            events.append({
-                "id": str(row["id"]),
-                "step": row.get("entity_type", "processing"),
-                "action": row.get("action", "unknown"),
-                "timestamp": row["created_at"].isoformat() if row.get("created_at") else None,
-                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-                "output_summary": row.get("new_value", {}).get("summary") if isinstance(row.get("new_value"), dict) else None,
-                "severity": "info",
-            })
-        
+            events.append(
+                {
+                    "id": str(row["id"]),
+                    "step": row.get("entity_type", "processing"),
+                    "action": row.get("action", "unknown"),
+                    "timestamp": row["created_at"].isoformat() if row.get("created_at") else None,
+                    "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                    "output_summary": row.get("new_value", {}).get("summary")
+                    if isinstance(row.get("new_value"), dict)
+                    else None,
+                    "severity": "info",
+                }
+            )
+
         return events
 
 
@@ -331,33 +339,35 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     import uuid
+
     approval_id = str(uuid.uuid4())
-    
+
     async with pool.acquire() as conn:
         # Get proposal ID
         proposal = await conn.fetchrow(
-            "SELECT id FROM journal_proposals WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1",
-            document_id
+            "SELECT id FROM journal_proposals WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1", document_id
         )
         proposal_id = proposal["id"] if proposal else None
-        
+
         # Create approval record
         await conn.execute(
             """
             INSERT INTO approvals (id, job_id, proposal_id, action, created_at)
             VALUES ($1, $2, $3, 'pending', NOW())
             """,
-            approval_id, document_id, proposal_id
+            approval_id,
+            document_id,
+            proposal_id,
         )
-        
+
         # Update job status
         await conn.execute(
             "UPDATE jobs SET status = 'pending_approval', approval_state = 'pending', updated_at = NOW() WHERE id = $1",
-            document_id
+            document_id,
         )
-    
+
     return {
         "message": "Document submitted for approval",
         "document_id": document_id,
@@ -370,6 +380,7 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
 # Ledger Results
 # =============================================================================
 
+
 @router.get("/{document_id}/ledger")
 async def get_document_ledger(document_id: str) -> dict:
     """
@@ -378,7 +389,7 @@ async def get_document_ledger(document_id: str) -> dict:
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    
+
     async with pool.acquire() as conn:
         entry = await conn.fetchrow(
             """
@@ -388,19 +399,19 @@ async def get_document_ledger(document_id: str) -> dict:
             WHERE le.job_id = $1
             LIMIT 1
             """,
-            document_id
+            document_id,
         )
-        
+
         if not entry:
             return {"posted": False, "message": "No ledger entry for this document"}
-        
+
         lines = await conn.fetch(
             """
             SELECT * FROM ledger_lines WHERE entry_id = $1 ORDER BY line_order
             """,
-            entry["id"]
+            entry["id"],
         )
-        
+
         return {
             "posted": True,
             "id": entry["id"],
