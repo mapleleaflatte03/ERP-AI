@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 
 sys.path.insert(0, "/root/erp-ai")
 
@@ -34,6 +34,11 @@ async def get_db_pool():
 def format_document(row: dict) -> dict:
     """Format a document row for API response"""
     extracted_data = row.get("extracted_data") or {}
+    if isinstance(extracted_data, str):
+        try:
+            extracted_data = json.loads(extracted_data)
+        except:
+            extracted_data = {}
     return {
         "id": str(row.get("id")),
         "filename": row.get("filename"),
@@ -175,7 +180,7 @@ async def get_document(document_id: str) -> dict:
                    extracted_data, proposal, validation_result, raw_text,
                    minio_bucket, minio_key, created_at, updated_at
             FROM documents
-            WHERE id = $1 OR job_id = $1
+            WHERE id::text = $1 OR job_id = $1
             """,
             document_id,
         )
@@ -204,8 +209,187 @@ async def get_document(document_id: str) -> dict:
         return doc
 
 
+from fastapi import BackgroundTasks
+from src.processing import process_document
+from src.storage import get_minio_client
+from src.llm import get_llm_client
+import json
+
+async def process_extraction_task(document_id: str):
+    """Background task for document extraction"""
+    try:
+        pool = await get_db_pool()
+        if not pool:
+            return
+
+        async with pool.acquire() as conn:
+            # Get document info
+            doc = await conn.fetchrow(
+                "SELECT id, minio_bucket, minio_key, filename, content_type FROM documents WHERE id::text = $1 OR job_id = $1", document_id
+            )
+            if not doc or not doc["minio_bucket"] or not doc["minio_key"]:
+                await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id::text = $1 OR job_id = $1", document_id)
+                return
+
+            # Download from MinIO
+            minio_client = get_minio_client()
+            try:
+                data = minio_client.get_object(doc["minio_bucket"], doc["minio_key"]).read()
+            except Exception as e:
+                logger.error(f"Failed to download from MinIO: {e}")
+                await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
+                return
+
+            # Run Processing
+            result = process_document(data, doc["content_type"], doc["filename"])
+            
+            if result.success:
+                # Store extracted data
+                await conn.execute(
+                    """
+                    UPDATE documents 
+                    SET status = 'extracted', 
+                        extracted_data = $2, 
+                        raw_text = $3,
+                        validation_result = $4,
+                        updated_at = NOW() 
+                    WHERE id = $1
+                    """,
+                    document_id,
+                    json.dumps(result.key_fields),
+                    result.document_text,
+                    json.dumps({"confidence": result.confidence})
+                )
+                
+                # Check for invoice data to update extracted_invoices table (simplified)
+                if "invoice_number" in result.key_fields:
+                    # In a real app this would go to extracted_invoices table
+                    pass
+                    
+            else:
+                 await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
+
+    except Exception as e:
+        logger.error(f"Extraction task failed: {e}")
+
+
+async def process_proposal_task(document_id: str):
+    """Background task for journal proposal generation"""
+    try:
+        pool = await get_db_pool()
+        if not pool:
+            return
+
+        async with pool.acquire() as conn:
+            # Get document info
+            doc = await conn.fetchrow("SELECT raw_text, extracted_data, tenant_id FROM documents WHERE id = $1", document_id)
+            
+            if not doc or not doc["raw_text"]:
+                await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
+                return
+
+            # Call LLM
+            llm = get_llm_client()
+            prompt = f"""
+            Analyze this accounting document text and extracted data.
+            Generate a journal entry proposal (debit/credit).
+            Return valid JSON only.
+            
+            Extracted Data: {doc['extracted_data']}
+            
+            Document Text:
+            {doc['raw_text'][:4000]}
+            """
+            
+            schema = {
+                "type": "object",
+                "properties": {
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "account_code": {"type": "string"},
+                                "account_name": {"type": "string"},
+                                "debit": {"type": "number"},
+                                "credit": {"type": "number"},
+                                "description": {"type": "string"}
+                            },
+                             "required": ["account_code", "debit", "credit", "description"]
+                        }
+                    },
+                    "reasoning": {"type": "string"},
+                    "confidence": {"type": "number"}
+                },
+                "required": ["entries", "reasoning"]
+            }
+            
+            try:
+                response = await llm.generate_json(prompt, schema=schema)
+                
+                # Insert Proposal
+                proposal_id = str(uuid.uuid4())
+                entries = response.get("entries", [])
+                total_debit = sum(e.get("debit", 0) for e in entries)
+                total_credit = sum(e.get("credit", 0) for e in entries)
+                
+                # Fetch tenant_id (assuming simple setup for now, or fallback)
+                tenant_id = doc.get("tenant_id")
+                
+                await conn.execute(
+                    """
+                    INSERT INTO journal_proposals (id, document_id, status, ai_confidence, ai_reasoning, created_at)
+                    VALUES ($1, $2, 'pending', $3, $4, NOW())
+                    """,
+                    proposal_id,
+                    document_id,
+                    float(response.get("confidence", 0.0)),
+                    response.get("reasoning", "")
+                )
+
+                # Insert Entries
+                for idx, entry in enumerate(entries):
+                    await conn.execute(
+                        """
+                        INSERT INTO journal_proposal_entries
+                        (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        """,
+                        str(uuid.uuid4()),
+                        proposal_id,
+                        entry.get("account_code", ""),
+                        entry.get("account_name", ""),
+                        float(entry.get("debit", 0) or 0),
+                        float(entry.get("credit", 0) or 0),
+                        idx + 1
+                    )
+                
+                # Create Pending Approval so UI can approve it
+                approval_id = str(uuid.uuid4())
+                await conn.execute(
+                    """
+                    INSERT INTO approvals (id, proposal_id, tenant_id, job_id, action, status, created_at)
+                    VALUES ($1, $2, $3, $4, 'pending', 'pending', NOW())
+                    """,
+                    approval_id,
+                    proposal_id,
+                    tenant_id,
+                    document_id
+                )
+                
+                # Update Document
+                await conn.execute("UPDATE documents SET status = 'proposed', updated_at = NOW() WHERE id = $1", document_id)
+
+            except Exception as llm_error:
+                logger.error(f"LLM generation failed: {llm_error}")
+                await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
+
+    except Exception as e:
+        logger.error(f"Proposal task failed: {e}")
+
+
 @router.post("/{document_id}/extract")
-async def run_extraction(document_id: str) -> dict:
+async def run_extraction(document_id: str, background_tasks: BackgroundTasks) -> dict:
     """Trigger document extraction."""
     pool = await get_db_pool()
     if not pool:
@@ -213,14 +397,16 @@ async def run_extraction(document_id: str) -> dict:
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE documents SET status = 'extracting', updated_at = NOW() WHERE id = $1 OR job_id = $1", document_id
+            "UPDATE documents SET status = 'extracting', updated_at = NOW() WHERE id::text = $1 OR job_id = $1", document_id
         )
+    
+    background_tasks.add_task(process_extraction_task, document_id)
 
     return {"message": "Extraction started", "document_id": document_id, "status": "extracting"}
 
 
 @router.post("/{document_id}/propose")
-async def run_proposal(document_id: str) -> dict:
+async def run_proposal(document_id: str, background_tasks: BackgroundTasks) -> dict:
     """Trigger journal proposal generation."""
     pool = await get_db_pool()
     if not pool:
@@ -228,8 +414,10 @@ async def run_proposal(document_id: str) -> dict:
 
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE documents SET status = 'proposing', updated_at = NOW() WHERE id = $1 OR job_id = $1", document_id
+            "UPDATE documents SET status = 'proposing', updated_at = NOW() WHERE id::text = $1 OR job_id = $1", document_id
         )
+    
+    background_tasks.add_task(process_proposal_task, document_id)
 
     return {"message": "Proposal generation started", "document_id": document_id, "status": "proposing"}
 
@@ -243,7 +431,7 @@ async def get_document_proposal(document_id: str) -> dict:
 
     async with pool.acquire() as conn:
         # First get the document ID if we have a job_id
-        doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1 OR job_id = $1", document_id)
+        doc = await conn.fetchrow("SELECT id FROM documents WHERE id::text = $1 OR job_id = $1", document_id)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -314,7 +502,7 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
 
     async with pool.acquire() as conn:
         # Get document
-        doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1 OR job_id = $1", document_id)
+        doc = await conn.fetchrow("SELECT id FROM documents WHERE id::text = $1 OR job_id = $1", document_id)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -323,17 +511,25 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
             "SELECT id FROM journal_proposals WHERE document_id = $1 ORDER BY created_at DESC LIMIT 1", doc["id"]
         )
 
-        # Create approval record
-        await conn.execute(
-            """
-            INSERT INTO approvals (id, document_id, proposal_id, status, created_at)
-            VALUES ($1, $2, $3, 'pending', NOW())
-            ON CONFLICT DO NOTHING
-            """,
-            approval_id,
-            doc["id"],
-            proposal["id"] if proposal else None,
+        # Check for existing pending approval
+        existing_approval = await conn.fetchrow(
+            "SELECT id FROM approvals WHERE proposal_id = $1 AND status = 'pending'", proposal["id"]
         )
+        
+        if existing_approval:
+            approval_id = str(existing_approval["id"])
+        else:
+            # Create approval record
+            await conn.execute(
+                """
+                INSERT INTO approvals (id, document_id, proposal_id, status, created_at)
+                VALUES ($1, $2, $3, 'pending', NOW())
+                ON CONFLICT DO NOTHING
+                """,
+                approval_id,
+                doc["id"],
+                proposal["id"] if proposal else None,
+            )
 
         # Update document status
         await conn.execute(
@@ -352,7 +548,7 @@ async def get_document_ledger(document_id: str) -> dict:
 
     async with pool.acquire() as conn:
         # Get document
-        doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1 OR job_id = $1", document_id)
+        doc = await conn.fetchrow("SELECT id FROM documents WHERE id::text = $1 OR job_id = $1", document_id)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -361,7 +557,8 @@ async def get_document_ledger(document_id: str) -> dict:
             """
             SELECT le.*
             FROM ledger_entries le
-            WHERE le.document_id = $1
+            JOIN journal_proposals jp ON le.proposal_id = jp.id
+            WHERE jp.document_id = $1
             LIMIT 1
             """,
             doc["id"],
@@ -371,7 +568,7 @@ async def get_document_ledger(document_id: str) -> dict:
             return {"posted": False, "message": "No ledger entry for this document"}
 
         # Get ledger lines
-        lines = await conn.fetch("SELECT * FROM ledger_lines WHERE entry_id = $1 ORDER BY line_order", entry["id"])
+        lines = await conn.fetch("SELECT * FROM ledger_lines WHERE ledger_entry_id = $1 ORDER BY line_order", entry["id"])
 
         return {
             "posted": True,

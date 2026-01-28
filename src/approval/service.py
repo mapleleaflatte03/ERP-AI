@@ -361,6 +361,13 @@ async def post_to_ledger(
             ledger_lines_data,
         )
 
+    # Update document status to posted
+    if proposal.get("document_id"):
+        await conn.execute(
+            "UPDATE documents SET status = 'posted', updated_at = NOW() WHERE id = $1",
+            proposal["document_id"],
+        )
+
     logger.info(f"[{request_id}] Created ledger entry {entry_number} for proposal {proposal_id}")
     return str(ledger_id)
 
