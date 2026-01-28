@@ -1,9 +1,9 @@
-
 import io
-import time
 import sys
+import time
 import unittest
 from unittest.mock import MagicMock, patch
+
 import fitz
 from PIL import Image
 
@@ -11,7 +11,8 @@ from PIL import Image
 sys.modules["pytesseract"] = MagicMock()
 sys.modules["paddleocr"] = MagicMock()
 
-from src.processing import process_scanned_pdf, ProcessingResult
+from src.processing import ProcessingResult, process_scanned_pdf
+
 
 def create_dummy_pdf(pages=5):
     """Create a dummy PDF with text and noise to simulate scanned doc"""
@@ -20,7 +21,7 @@ def create_dummy_pdf(pages=5):
 
     for i in range(pages):
         page = doc.new_page()
-        page.insert_text((50, 50), f"This is page {i+1} of the dummy PDF.", fontsize=12)
+        page.insert_text((50, 50), f"This is page {i + 1} of the dummy PDF.", fontsize=12)
 
         # Add many shapes/lines to simulate complexity/noise and prevent trivial PNG compression
         for _ in range(200):
@@ -35,13 +36,16 @@ def create_dummy_pdf(pages=5):
     doc.close()
     return pdf_bytes
 
+
 def benchmark():
     print("Preparing benchmark...")
     pdf_data = create_dummy_pdf(pages=20)
 
     # Mock extract_key_fields to be fast
-    with patch("src.processing.extract_key_fields", return_value={}), \
-         patch("src.processing.get_ocr_engine", return_value=None):
+    with (
+        patch("src.processing.extract_key_fields", return_value={}),
+        patch("src.processing.get_ocr_engine", return_value=None),
+    ):
         # We need to patch process_image_ocr because we want to measure the impact
         # of the image conversion occurring BEFORE/INSIDE process_scanned_pdf
         # calling process_image_ocr, AND the image opening inside process_image_ocr.
@@ -72,7 +76,8 @@ def benchmark():
 
         print(f"Total time for {iterations} iterations: {total_time:.4f}s")
         print(f"Average time per iteration: {avg_time:.4f}s")
-        print(f"Average time per page: {avg_time/20:.4f}s")
+        print(f"Average time per page: {avg_time / 20:.4f}s")
+
 
 if __name__ == "__main__":
     benchmark()

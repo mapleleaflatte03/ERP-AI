@@ -1,12 +1,13 @@
-import sys
-import os
-import unittest
-import types
 import importlib
-from unittest.mock import MagicMock, patch, AsyncMock
+import os
+import sys
+import types
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 
 class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -41,10 +42,11 @@ class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
         sys.modules["src.db"] = self.mock_db
 
         # Remove src.workflows from sys.modules if present to ensure fresh import
-        if 'src.workflows' in sys.modules:
-            del sys.modules['src.workflows']
+        if "src.workflows" in sys.modules:
+            del sys.modules["src.workflows"]
 
         import src.workflows
+
         # Reloading is safer if we want to be sure
         importlib.reload(src.workflows)
 
@@ -61,7 +63,7 @@ class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
             "proposal": {"some": "data"},
             "extracted_data": {"field": "value"},
             "validation_result": {"valid": True},
-            "doc_type": "invoice"
+            "doc_type": "invoice",
         }
 
         # Act
@@ -77,7 +79,7 @@ class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
             extracted_data={"field": "value"},
             validation_result={"valid": True},
             document_type="invoice",
-            error_message=None
+            error_message=None,
         )
 
         self.mock_db.log_audit.assert_awaited_once_with(
@@ -85,16 +87,13 @@ class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
             entity_type="job",
             entity_id=job_id,
             job_id=job_id,
-            new_value={"status": "completed"}
+            new_value={"status": "completed"},
         )
 
     async def test_failure(self):
         # Arrange
         job_id = "test-job-error"
-        result = {
-            "status": "failed",
-            "error_message": "Something went wrong"
-        }
+        result = {"status": "failed", "error_message": "Something went wrong"}
 
         # Act
         ret = await self.module.store_job_result_activity(job_id, result)
@@ -109,16 +108,13 @@ class TestStoreJobResultActivity(unittest.IsolatedAsyncioTestCase):
             extracted_data=None,
             validation_result=None,
             document_type=None,
-            error_message="Something went wrong"
+            error_message="Something went wrong",
         )
 
         self.mock_db.log_audit.assert_awaited_once_with(
-            action="job_failed",
-            entity_type="job",
-            entity_id=job_id,
-            job_id=job_id,
-            new_value={"status": "failed"}
+            action="job_failed", entity_type="job", entity_id=job_id, job_id=job_id, new_value={"status": "failed"}
         )
+
 
 if __name__ == "__main__":
     unittest.main()
