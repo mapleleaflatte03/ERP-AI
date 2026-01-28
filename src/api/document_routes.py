@@ -58,6 +58,8 @@ def format_document(row: dict) -> dict:
         "vat_amount": extracted_data.get("vat_amount"),
         "currency": extracted_data.get("currency", "VND"),
         "extracted_text": row.get("raw_text"),
+        # OCR Boxes
+        "ocr_boxes": extracted_data.get("ocr_boxes", []),
         # File URL
         "file_url": f"/api/v1/files/{row.get('minio_bucket')}/{row.get('minio_key')}" if row.get("minio_key") else None,
     }
@@ -244,7 +246,11 @@ async def process_extraction_task(document_id: str):
             result = process_document(data, doc["content_type"], doc["filename"])
             
             if result.success:
-                # Store extracted data
+                # Store extracted data including boxes
+                extracted_payload = result.key_fields
+                if result.boxes:
+                    extracted_payload["ocr_boxes"] = result.boxes
+
                 await conn.execute(
                     """
                     UPDATE documents 
@@ -256,7 +262,7 @@ async def process_extraction_task(document_id: str):
                     WHERE id = $1
                     """,
                     document_id,
-                    json.dumps(result.key_fields),
+                    json.dumps(extracted_payload),
                     result.document_text,
                     json.dumps({"confidence": result.confidence})
                 )

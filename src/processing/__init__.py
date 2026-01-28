@@ -30,6 +30,7 @@ class ProcessingResult:
     confidence: float
     extraction_method: str
     page_count: int = 1
+    boxes: list[list[float]] | None = None  # [[x1, y1, x2, y2], ...] or [[x,y],...] but usually paddle is 4 points
     error_message: str | None = None
 
     def to_dict(self) -> dict:
@@ -41,6 +42,7 @@ class ProcessingResult:
             "confidence": self.confidence,
             "extraction_method": self.extraction_method,
             "page_count": self.page_count,
+            "boxes": self.boxes,
             "error_message": self.error_message,
         }
 
@@ -76,39 +78,96 @@ def process_image_ocr(image_data: Union[bytes, Any]) -> ProcessingResult:
     """Process image with OCR"""
     ocr = get_ocr_engine()
 
-    if ocr is None:
-        # Fallback: try with pytesseract
+    # Try PaddleOCR if available
+    if ocr is not None:
         try:
-            import pytesseract
+            import numpy as np
             from PIL import Image
-
+            
             if isinstance(image_data, bytes):
-                image = Image.open(io.BytesIO(image_data))
+                image = Image.open(io.BytesIO(image_data)).convert("RGB")
             else:
-                image = image_data
-
-            text = pytesseract.image_to_string(image, lang="vie+eng")
-
+                image = image_data.convert("RGB")
+            
+            # Convert to numpy
+            img_np = np.array(image)
+            
+            # Run OCR
+            # result = [[[[x1,y1],[x2,y2],[x3,y3],[x4,y4]], (text, conf)], ...]
+            result = ocr.ocr(img_np, cls=True)
+            
+            text_lines = []
+            boxes = []
+            confidences = []
+            
+            if result and result[0]:
+                for line in result[0]:
+                    coords = line[0]     # [[x1,y1],...]
+                    text = line[1][0]    # "Hello"
+                    conf = line[1][1]    # 0.99
+                    
+                    text_lines.append(text)
+                    confidences.append(conf)
+                    
+                    # Convert 4 points to [x, y, w, h]
+                    xs = [p[0] for p in coords]
+                    ys = [p[1] for p in coords]
+                    x = min(xs)
+                    y = min(ys)
+                    w = max(xs) - x
+                    h = max(ys) - y
+                    boxes.append([float(x), float(y), float(w), float(h)])
+                    
+            full_text = "\n".join(text_lines)
+            avg_conf = float(sum(confidences) / len(confidences)) if confidences else 0.0
+            
             return ProcessingResult(
                 success=True,
-                document_text=text,
+                document_text=full_text,
                 tables=[],
-                key_fields=extract_key_fields(text),
-                confidence=0.80,
-                extraction_method="tesseract",
+                key_fields=extract_key_fields(full_text),
+                confidence=avg_conf,
+                boxes=boxes,
+                extraction_method="paddleocr",
             )
-
+            
         except Exception as e:
-            logger.error(f"OCR processing failed: {e}")
-            return ProcessingResult(
-                success=False,
-                document_text="",
-                tables=[],
-                key_fields={},
-                confidence=0.0,
-                extraction_method="failed",
-                error_message=str(e),
-            )
+            logger.error(f"PaddleOCR processing error: {e}. Falling back to Pytesseract.")
+            # Fall through
+
+    # Fallback / Tesseract
+    try:
+        import pytesseract
+        from PIL import Image
+
+        if isinstance(image_data, bytes):
+            image = Image.open(io.BytesIO(image_data))
+        else:
+            image = image_data
+
+        text = pytesseract.image_to_string(image, lang="vie+eng")
+
+        return ProcessingResult(
+            success=True,
+            document_text=text,
+            tables=[],
+            key_fields=extract_key_fields(text),
+            confidence=0.80,
+            boxes=[],
+            extraction_method="tesseract",
+        )
+
+    except Exception as e:
+        logger.error(f"OCR processing failed: {e}")
+        return ProcessingResult(
+            success=False,
+            document_text="",
+            tables=[],
+            key_fields={},
+            confidence=0.0,
+            extraction_method="failed",
+            error_message=str(e),
+        )
 
 
 # =============================================================================

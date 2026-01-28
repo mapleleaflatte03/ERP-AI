@@ -25,7 +25,7 @@ from typing import Any, Optional
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # Add project root
@@ -4504,6 +4504,43 @@ async def _test_mlflow():
 # Run Server
 # ===========================================================================
 
+# ===========================================================================
+# File Serving
+# ===========================================================================
+
+@app.get("/v1/files/{bucket}/{key:path}")
+async def get_file(bucket: str, key: str):
+    """Stream file from MinIO storage."""
+    try:
+        from src.storage import get_minio_client
+        
+        # Security: Prevent traversing up
+        if ".." in key or key.startswith("/"):
+             raise HTTPException(status_code=400, detail="Invalid path")
+
+        client = get_minio_client()
+        response = client.get_object(bucket, key)
+        
+        # Determine content type from MinIO headers
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        
+        def iterfile():
+            try:
+                for chunk in response.stream(32*1024):
+                    yield chunk
+            finally:
+                response.close()
+                response.release_conn()
+
+        return StreamingResponse(
+            iterfile(), 
+            media_type=content_type
+        )
+    except Exception as e:
+        logger.error(f"File serving error for {bucket}/{key}: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
+
+
 @app.get("/v1/version")
 async def get_version():
     return {
@@ -4575,17 +4612,21 @@ async def chat_copilot(request: ChatRequest):
         client = LLMClient()
 
         # 2. Agent Decision Loop
-        system_prompt = """You are ERPX Copilot, an AI accounting assistant capable of executing tasks.
+        system_prompt = """You are ERPX Copilot, a senior AI accounting assistant.
         
         AVAILABLE TOOLS:
         1. list_pending_approvals(limit): List pending journal proposals requiring approval.
-        2. approve_proposal(id): Approve a specific proposal (requires ID).
-        3. reject_proposal(id): Reject a specific proposal (requires ID).
+        2. get_approval_statistics(): Get counts of documents by status (approved/pending/rejected).
+        3. approve_proposal(id): Approve a specific proposal (requires ID).
+        4. reject_proposal(id): Reject a specific proposal (requires ID).
         
         INSTRUCTIONS:
-        - If the user asks a question, answer it.
-        - If the user asks to perform an action, output a JSON object describing the tool call.
-        - Do NOT hallucinate IDs. If ID is missing, ask the user.
+        - You help the user manage accounting workflows (approvals, statistics, bookkeeping).
+        - If the user asks for counts or status summaries, use get_approval_statistics.
+        - When listing approvals, provide a clean summary including Vendor and Amount. Use the tool list_pending_approvals.
+        - If the user asks to "approve" or "reject", use the respective tools with the ID. 
+        - DO NOT hallucinate IDs. If the user doesn't provide an ID, list the pending ones first and ask to pick.
+        - If data is missing (e.g., Vendor is Unknown), mention it clearly.
         
         OUTPUT FORMAT (JSON):
         {
@@ -4619,16 +4660,30 @@ async def chat_copilot(request: ChatRequest):
         
         # Read-Only Tools (Auto-Execute)
         if tool == "list_pending_approvals":
-            LIMIT = params.get("limit", 5)
+            LIMIT = params.get("limit", 10)
             rows = await tools.list_pending_approvals(limit=LIMIT)
             if not rows:
                 return ChatResponse(response="No pending approvals found.")
             
-            # Format text response
+            # Format text response using enriched tool output
             summary = "**Pending Approvals:**\n"
             for r in rows:
-                doc_info = f"Doc: {r['document']['filename']}" if r.get('document') else "Doc: N/A"
-                summary += f"- **{r['vendor_name']}** ({r['invoice_number']}): {r['total_amount']} {r['currency']} (ID: `{r['id']}`) - {doc_info}\n"
+                summary += f"- **{r['counterparty']}** ({r['doc_type']}): {r['amount']} {r['currency']} (ID: `{r['id']}`) - Doc: {r['file_name']}\n"
+            
+            return ChatResponse(response=summary)
+
+        elif tool == "get_approval_statistics":
+            stats = await tools.get_approval_statistics()
+            if "error" in stats:
+                return ChatResponse(response=f"⚠️ Error fetching stats: {stats['error']}")
+            
+            summary = "**Approval Statistics:**\n"
+            summary += f"- ⏳ **Pending**: {stats.get('pending', 0)}\n"
+            summary += f"- ✅ **Approved**: {stats.get('approved', 0)}\n"
+            summary += f"- ❌ **Rejected**: {stats.get('rejected', 0)}\n"
+            
+            total = sum(stats.values()) if isinstance(stats, dict) else 0
+            summary += f"\nTotal documents in workflow: **{total}**"
             
             return ChatResponse(response=summary)
 
