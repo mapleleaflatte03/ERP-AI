@@ -248,7 +248,8 @@ async def run_document_pipeline(job_id: str, file_path: str, file_info: dict[str
                 from src.rag import generate_embedding, get_qdrant_client
 
                 text_for_embedding = text[:4000]
-                embedding = generate_embedding(text_for_embedding)
+                # Offload CPU-bound embedding generation to thread pool
+                embedding = await asyncio.to_thread(generate_embedding, text_for_embedding)
                 if embedding:
                     qdrant_client = get_qdrant_client()
                     qdrant_client.upsert_documents(
