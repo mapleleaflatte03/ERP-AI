@@ -363,22 +363,29 @@ async def persist_to_db(job_id: str, file_info: dict[str, Any], proposal: dict[s
         )
 
         # 3. Insert journal_proposal_entries
+        proposal_entries_data = []
         for idx, entry in enumerate(entries):
-            entry_id = uuid.uuid4()
-            await conn.execute(
+            proposal_entries_data.append(
+                (
+                    uuid.uuid4(),
+                    proposal_id,
+                    entry.get("account_code", ""),
+                    entry.get("account_name", ""),
+                    float(entry.get("debit", 0)),
+                    float(entry.get("credit", 0)),
+                    idx + 1,
+                )
+            )
+
+        if proposal_entries_data:
+            await conn.executemany(
                 """
                 INSERT INTO journal_proposal_entries
                 (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT DO NOTHING
             """,
-                entry_id,
-                proposal_id,
-                entry.get("account_code", ""),
-                entry.get("account_name", ""),
-                float(entry.get("debit", 0)),
-                float(entry.get("credit", 0)),
-                idx + 1,
+                proposal_entries_data,
             )
 
         # 4. Auto-approve (for smoke test) - insert approval with job_id
@@ -425,22 +432,29 @@ async def persist_to_db(job_id: str, file_info: dict[str, Any], proposal: dict[s
         )
 
         # 7. Insert ledger_lines
+        ledger_lines_data = []
         for idx, entry in enumerate(entries):
-            line_id = uuid.uuid4()
-            await conn.execute(
+            ledger_lines_data.append(
+                (
+                    uuid.uuid4(),
+                    ledger_id,
+                    entry.get("account_code", ""),
+                    entry.get("account_name", ""),
+                    float(entry.get("debit", 0)),
+                    float(entry.get("credit", 0)),
+                    idx + 1,
+                )
+            )
+
+        if ledger_lines_data:
+            await conn.executemany(
                 """
                 INSERT INTO ledger_lines
                 (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT DO NOTHING
             """,
-                line_id,
-                ledger_id,
-                entry.get("account_code", ""),
-                entry.get("account_name", ""),
-                float(entry.get("debit", 0)),
-                float(entry.get("credit", 0)),
-                idx + 1,
+                ledger_lines_data,
             )
 
         await conn.close()
@@ -1108,22 +1122,29 @@ async def persist_proposal_only(
     )
 
     # 3. Insert journal_proposal_entries
+    proposal_entries_data = []
     for idx, entry in enumerate(entries):
-        entry_id = uuid.uuid4()
-        await conn.execute(
+        proposal_entries_data.append(
+            (
+                uuid.uuid4(),
+                proposal_id,
+                entry.get("account_code", ""),
+                entry.get("account_name", ""),
+                float(entry.get("debit", 0)),
+                float(entry.get("credit", 0)),
+                idx + 1,
+            )
+        )
+
+    if proposal_entries_data:
+        await conn.executemany(
             """
             INSERT INTO journal_proposal_entries
             (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT DO NOTHING
             """,
-            entry_id,
-            proposal_id,
-            entry.get("account_code", ""),
-            entry.get("account_name", ""),
-            float(entry.get("debit", 0)),
-            float(entry.get("credit", 0)),
-            idx + 1,
+            proposal_entries_data,
         )
 
     logger.info(f"[{request_id}] Persisted proposal {proposal_id} for job {job_id}")
@@ -1230,22 +1251,29 @@ async def persist_to_db_with_conn(
     )
 
     # 3. Insert journal_proposal_entries
+    proposal_entries_data = []
     for idx, entry in enumerate(entries):
-        entry_id = uuid.uuid4()
-        await conn.execute(
+        proposal_entries_data.append(
+            (
+                uuid.uuid4(),
+                proposal_id,
+                entry.get("account_code", ""),
+                entry.get("account_name", ""),
+                float(entry.get("debit", 0)),
+                float(entry.get("credit", 0)),
+                idx + 1,
+            )
+        )
+
+    if proposal_entries_data:
+        await conn.executemany(
             """
             INSERT INTO journal_proposal_entries
             (id, proposal_id, account_code, account_name, debit_amount, credit_amount, line_order)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT DO NOTHING
             """,
-            entry_id,
-            proposal_id,
-            entry.get("account_code", ""),
-            entry.get("account_name", ""),
-            float(entry.get("debit", 0)),
-            float(entry.get("credit", 0)),
-            idx + 1,
+            proposal_entries_data,
         )
 
     # 4. Insert approval with job_id
@@ -1329,22 +1357,29 @@ async def persist_to_db_with_conn(
         raise
 
     # 7. Insert ledger_lines
+    ledger_lines_data = []
     for idx, entry in enumerate(entries):
-        line_id = uuid.uuid4()
-        await conn.execute(
+        ledger_lines_data.append(
+            (
+                uuid.uuid4(),
+                ledger_id,
+                entry.get("account_code", ""),
+                entry.get("account_name", ""),
+                float(entry.get("debit", 0)),
+                float(entry.get("credit", 0)),
+                idx + 1,
+            )
+        )
+
+    if ledger_lines_data:
+        await conn.executemany(
             """
             INSERT INTO ledger_lines
             (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT DO NOTHING
             """,
-            line_id,
-            ledger_id,
-            entry.get("account_code", ""),
-            entry.get("account_name", ""),
-            float(entry.get("debit", 0)),
-            float(entry.get("credit", 0)),
-            idx + 1,
+            ledger_lines_data,
         )
 
     logger.info(

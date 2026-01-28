@@ -332,7 +332,8 @@ Reply with:
         logger.info(f"[Activity] Committing to ledger for {job_id}")
 
         from datetime import datetime
-        from src.db import ensure_job_exists, save_journal_proposal, post_ledger_entry, get_job
+
+        from src.db import ensure_job_exists, get_job, post_ledger_entry, save_journal_proposal
 
         try:
             # 1. Ensure job exists
