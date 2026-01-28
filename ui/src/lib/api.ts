@@ -93,9 +93,9 @@ class ApiClient {
   // =====================================================
   // Documents API (for accounting app)
   // =====================================================
-  
+
   async getDocuments(params?: Record<string, string>) {
-    
+
     const response = await this.client.get('/v1/documents', { params: params || {} });
     return response.data;
   }
@@ -138,10 +138,10 @@ class ApiClient {
   // =====================================================
   // Approvals API (for accounting app)
   // =====================================================
-  
+
   async getApprovals(status?: string) {
     const params = status ? { status } : {};
-    
+
     const response = await this.client.get('/v1/approvals', { params });
     return response.data;
   }
@@ -150,6 +150,11 @@ class ApiClient {
     const response = await this.client.post(`/v1/documents/${documentId}/submit`, {
       proposal_id: proposalId,
     });
+    return response.data;
+  }
+
+  async getDocumentLedger(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/ledger`);
     return response.data;
   }
 
@@ -272,7 +277,7 @@ class ApiClient {
   // Journal Proposals API (list all proposals)
   // Uses direct path without /api prefix for unauthenticated access
   // ========================================================
-  
+
   async getJournalProposals(status?: string, limit: number = 50, offset: number = 0) {
     const params: Record<string, string | number> = { limit, offset };
     if (status) params.status = status;

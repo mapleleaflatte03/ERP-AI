@@ -82,7 +82,13 @@ export default function DocumentsInbox() {
         if (typeFilter) params.type = typeFilter;
         const response = await api.getDocuments(params);
         // API returns { documents: [], total: ... } but component expects Document[]
-        return Array.isArray(response) ? response : (response.documents || []);
+        const docs = Array.isArray(response) ? response : (response.documents || []);
+
+        // Normalize doc_type -> type
+        return docs.map((d: any) => ({
+          ...d,
+          type: d.type || d.doc_type || 'other'
+        }));
       } catch (err) {
         console.error("Failed to fetch documents:", err);
         return [];

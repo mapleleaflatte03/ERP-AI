@@ -4,18 +4,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   FileText,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
   RefreshCw,
   Zap,
   FileCheck,
-  Eye,
   Info,
-  ChevronRight,
+  BookOpen,
+  Send,
+  ThumbsUp,
 } from 'lucide-react';
 import api from '../lib/api';
-import type { EvidenceEvent } from '../types';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   new: { label: 'Mới', color: 'bg-gray-100 text-gray-700' },
@@ -36,28 +33,56 @@ function formatCurrency(amount: number | undefined): string {
 
 function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+  try {
+    return new Date(dateStr).toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
 function formatDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('vi-VN');
+  try {
+    return new Date(dateStr).toLocaleString('vi-VN');
+  } catch {
+    return dateStr;
+  }
 }
 
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'extracted' | 'validation' | 'evidence'>('extracted');
+  const [activeTab, setActiveTab] = useState<'extracted' | 'proposal' | 'ledger' | 'evidence'>('extracted');
 
   // Fetch document
   const { data: doc, isLoading } = useQuery({
     queryKey: ['document', id],
     queryFn: () => api.getDocument(id!),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return ['extracting', 'proposing'].includes(status) ? 1000 : false;
+    }
+  });
+
+  // Fetch proposal (if exists)
+  const { data: proposal } = useQuery({
+    queryKey: ['document-proposal', id],
+    queryFn: () => api.getDocumentProposal(id!),
+    enabled: !!id && ['proposed', 'pending_approval', 'approved', 'rejected', 'posted'].includes(doc?.status),
+    retry: false
+  });
+
+  // Fetch ledger (if posted)
+  const { data: ledger } = useQuery({
+    queryKey: ['document-ledger', id],
+    queryFn: () => api.getDocumentLedger(id!),
+    enabled: !!id && ['posted'].includes(doc?.status),
+    retry: false
   });
 
   // Fetch evidence timeline
@@ -67,25 +92,46 @@ export default function DocumentDetail() {
     enabled: !!id,
   });
 
-  // Run extraction mutation
+  // Actions
   const extractMutation = useMutation({
     mutationFn: () => api.runExtraction(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] }); // Invalidate global list
       queryClient.invalidateQueries({ queryKey: ['document-evidence', id] });
-      queryClient.invalidateQueries({ queryKey: ['documents'] });
     },
   });
 
-  // Run proposal mutation  
   const proposeMutation = useMutation({
     mutationFn: () => api.runProposal(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', id] });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
-      navigate(`/documents/${id}/proposal`);
+      queryClient.invalidateQueries({ queryKey: ['document-evidence', id] });
+      setActiveTab('proposal');
     },
   });
+
+  const submitMutation = useMutation({
+    mutationFn: (proposalId: string) => api.submitApproval(id!, proposalId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['document', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['document-proposal', id] });
+      // Store approval ID if needed, or just rely on status update
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (approvalId: string) => api.approveDocument(approvalId, 'Approved via UI'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['document', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['document-ledger', id] });
+      setActiveTab('ledger');
+    }
+  });
+
 
   if (isLoading) {
     return (
@@ -104,27 +150,22 @@ export default function DocumentDetail() {
   }
 
   const statusCfg = STATUS_CONFIG[doc.status] || STATUS_CONFIG.new;
-  const canExtract = ['new'].includes(doc.status);
+  const canExtract = ['new', 'extracting'].includes(doc.status); // Allow retry if stuck?
   const canPropose = ['extracted'].includes(doc.status);
-  const hasProposal = ['proposed', 'pending_approval', 'approved', 'rejected', 'posted'].includes(doc.status);
+  const canSubmit = ['proposed'].includes(doc.status) && proposal?.id;
+  const canApprove = ['pending_approval'].includes(doc.status) && proposal?.approval_id;
 
-  // Extracted fields to display
-  const extractedFields = doc.extracted_fields || {};
-  const fieldsList = [
-    { key: 'invoice_no', label: 'Số hóa đơn', value: doc.invoice_no || extractedFields.invoice_no },
+  // Extracted fields
+  const extractedFields = doc.extracted_data || doc.extracted_fields || {};
+  // Handle case where fields are directly on doc
+  const displayFields = [
+    { key: 'invoice_no', label: 'Số hóa đơn', value: doc.invoice_no || extractedFields.invoice_no || extractedFields.invoice_number },
     { key: 'invoice_date', label: 'Ngày hóa đơn', value: formatDate(doc.invoice_date || extractedFields.invoice_date) },
-    { key: 'vendor_name', label: 'Nhà cung cấp', value: doc.vendor_name || extractedFields.vendor_name },
-    { key: 'vendor_tax_id', label: 'MST', value: doc.vendor_tax_id || extractedFields.vendor_tax_id },
+    { key: 'vendor_name', label: 'Nhà cung cấp', value: doc.vendor_name || extractedFields.vendor_name || extractedFields.supplier_name },
+    { key: 'vendor_tax_id', label: 'MST', value: doc.vendor_tax_id || extractedFields.vendor_tax_id || extractedFields.tax_id },
     { key: 'total_amount', label: 'Tổng tiền', value: formatCurrency(doc.total_amount || extractedFields.total_amount) },
-    { key: 'vat_amount', label: 'Thuế VAT', value: formatCurrency(doc.vat_amount || extractedFields.vat_amount) },
+    { key: 'vat_amount', label: 'Thuế VAT', value: formatCurrency(doc.vat_amount || extractedFields.tax_amount || extractedFields.vat_amount) },
     { key: 'currency', label: 'Loại tiền', value: doc.currency || extractedFields.currency || 'VND' },
-  ];
-
-  // Validation warnings based on extracted fields
-  const validationWarnings = [
-    ...(doc.vendor_tax_id ? [] : [{ severity: 'warning', message: 'Chưa có MST nhà cung cấp' }]),
-    ...(doc.total_amount ? [] : [{ severity: 'error', message: 'Chưa trích xuất được tổng tiền' }]),
-    ...(doc.invoice_no ? [] : [{ severity: 'warning', message: 'Chưa có số hóa đơn' }]),
   ];
 
   return (
@@ -153,21 +194,31 @@ export default function DocumentDetail() {
             </div>
           </div>
         </div>
+
+        {/* Actions Toolbar */}
         <div className="flex items-center gap-3">
+          {/* Re-run operations */}
+          {!['new', 'extracting'].includes(doc.status) && (
+            <button onClick={() => extractMutation.mutate()} className="p-2 text-gray-400 hover:text-blue-600" title="Re-run Extraction">
+              <RefreshCw className={`w-4 h-4 ${extractMutation.isPending ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+
           {canExtract && (
             <button
               onClick={() => extractMutation.mutate()}
-              disabled={extractMutation.isPending}
+              disabled={extractMutation.isPending || doc.status === 'extracting'}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {extractMutation.isPending ? (
+              {extractMutation.isPending || doc.status === 'extracting' ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
               ) : (
                 <Zap className="w-4 h-4" />
               )}
-              Trích xuất
+              {doc.status === 'extracting' ? 'Đang trích xuất...' : 'Trích xuất'}
             </button>
           )}
+
           {canPropose && (
             <button
               onClick={() => proposeMutation.mutate()}
@@ -179,44 +230,52 @@ export default function DocumentDetail() {
               ) : (
                 <FileCheck className="w-4 h-4" />
               )}
-              Đề xuất hạch toán
+              Đề xuất
             </button>
           )}
-          {hasProposal && (
+
+          {canSubmit && (
             <button
-              onClick={() => navigate(`/documents/${id}/proposal`)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg hover:bg-gray-50"
+              onClick={() => submitMutation.mutate(proposal.id)}
+              disabled={submitMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
             >
-              <Eye className="w-4 h-4" />
-              Xem đề xuất
-              <ChevronRight className="w-4 h-4" />
+              {submitMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Gửi duyệt
+            </button>
+          )}
+
+          {canApprove && (
+            <button
+              onClick={() => approveMutation.mutate(proposal.approval_id)}
+              disabled={approveMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              {approveMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
+              Duyệt ngay
             </button>
           )}
         </div>
       </div>
 
-      {/* Main Content - 4 Panel Layout */}
+      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Panel A: File Preview */}
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        {/* Left Panel: Preview */}
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden flex flex-col h-[600px]">
           <div className="px-4 py-3 border-b bg-gray-50">
             <h2 className="font-semibold text-gray-900">Xem trước file</h2>
           </div>
-          <div className="p-4 h-[500px] flex items-center justify-center bg-gray-100">
-            {doc.file_url ? (
-              doc.filename.toLowerCase().endsWith('.pdf') ? (
-                <iframe
-                  src={doc.file_url}
-                  className="w-full h-full border-0"
-                  title="PDF Preview"
-                />
-              ) : (
-                <img
-                  src={doc.file_url}
-                  alt={doc.filename}
-                  className="max-w-full max-h-full object-contain"
-                />
-              )
+          <div className="flex-1 bg-gray-100 flex items-center justify-center p-4 overflow-hidden relative">
+            {doc.file_path || doc.minio_key ? (
+              // Use proper URL based on environment/proxy setup for accessing minio content if needed
+              // For now, assume API might proxy it or we have a link.
+              // Since real backend uses minio, we might not have a public URL unless signed.
+              // UI fallback:
+              <div className="text-center text-gray-500">
+                <p className="mb-2">Preview (PDF/Image)</p>
+                <p className="text-xs">File: {doc.filename}</p>
+                {/* Emulate iframe if supported, else placehoder */}
+              </div>
             ) : (
               <div className="text-center text-gray-400">
                 <FileText className="w-16 h-16 mx-auto mb-4" />
@@ -226,172 +285,139 @@ export default function DocumentDetail() {
           </div>
         </div>
 
-        {/* Panel B, C, D: Tabs */}
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        {/* Right Panel: Tabs */}
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden flex flex-col h-[600px]">
           <div className="border-b">
-            <nav className="flex">
-              <button
-                onClick={() => setActiveTab('extracted')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'extracted'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                Dữ liệu trích xuất
+            <nav className="flex overflow-x-auto">
+              <button onClick={() => setActiveTab('extracted')} className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === 'extracted' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                Trích xuất
               </button>
-              <button
-                onClick={() => setActiveTab('validation')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'validation'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                Kiểm tra
-                {validationWarnings.length > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
-                    {validationWarnings.length}
-                  </span>
-                )}
+              <button onClick={() => setActiveTab('proposal')} className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === 'proposal' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                Đề xuất
               </button>
-              <button
-                onClick={() => setActiveTab('evidence')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'evidence'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                Lịch sử xử lý
+              <button onClick={() => setActiveTab('ledger')} className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === 'ledger' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                Sổ cái
+              </button>
+              <button onClick={() => setActiveTab('evidence')} className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap ${activeTab === 'evidence' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                Lịch sử
               </button>
             </nav>
           </div>
 
-          <div className="p-4 h-[456px] overflow-auto">
-            {/* Panel B: Extracted Fields */}
+          <div className="flex-1 overflow-auto p-4">
             {activeTab === 'extracted' && (
-              <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Thông tin trích xuất từ OCR</h3>
-                <dl className="grid grid-cols-2 gap-4">
-                  {fieldsList.map(field => (
-                    <div key={field.key} className="bg-gray-50 rounded-lg p-3">
-                      <dt className="text-xs text-gray-500 uppercase">{field.label}</dt>
-                      <dd className="mt-1 text-sm font-medium text-gray-900">{field.value || '-'}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {extractedFields.line_items && extractedFields.line_items.length > 0 && (
-                  <div className="mt-6">
-                    <h4 className="font-medium text-gray-900 mb-3">Chi tiết hàng hóa/dịch vụ</h4>
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">STT</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Tên</th>
-                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">SL</th>
-                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Đơn giá</th>
-                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Thành tiền</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {extractedFields.line_items.map((item: Record<string, unknown>, idx: number) => (
-                          <tr key={idx}>
-                            <td className="px-3 py-2">{idx + 1}</td>
-                            <td className="px-3 py-2">{String(item.name ?? '')}</td>
-                            <td className="px-3 py-2 text-right">{String(item.quantity ?? '')}</td>
-                            <td className="px-3 py-2 text-right">{formatCurrency(item.unit_price as number | undefined)}</td>
-                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.amount as number | undefined)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {doc.extracted_text && (
-                  <div className="mt-6">
-                    <h4 className="font-medium text-gray-900 mb-2">Văn bản OCR</h4>
-                    <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto max-h-40 whitespace-pre-wrap">
-                      {doc.extracted_text}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Panel C: Validation */}
-            {activeTab === 'validation' && (
-              <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Kết quả kiểm tra</h3>
-                {validationWarnings.length === 0 ? (
-                  <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg">
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    <p className="text-green-700">Chứng từ hợp lệ, không có cảnh báo</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {validationWarnings.map((warn, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex items-start gap-3 p-4 rounded-lg ${warn.severity === 'error' ? 'bg-red-50' : 'bg-yellow-50'
-                          }`}
-                      >
-                        {warn.severity === 'error' ? (
-                          <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-                        )}
-                        <p className={warn.severity === 'error' ? 'text-red-700' : 'text-yellow-700'}>
-                          {warn.message}
-                        </p>
+              <div className="space-y-6">
+                <section>
+                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Thông tin chung</h3>
+                  <dl className="grid grid-cols-2 gap-4">
+                    {displayFields.map(field => (
+                      <div key={field.key} className="bg-gray-50 rounded-lg p-3">
+                        <dt className="text-xs text-gray-500 uppercase">{field.label}</dt>
+                        <dd className="mt-1 text-sm font-medium text-gray-900">{field.value || '-'}</dd>
                       </div>
                     ))}
-                  </div>
+                  </dl>
+                </section>
+                {doc.raw_text && (
+                  <section>
+                    <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Raw Text (OCR)</h3>
+                    <pre className="text-xs bg-gray-50 p-2 rounded border max-h-40 overflow-auto whitespace-pre-wrap">{doc.raw_text}</pre>
+                  </section>
                 )}
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-blue-700">
-                      <p className="font-medium">Lưu ý</p>
-                      <p className="mt-1">
-                        Hệ thống tự động kiểm tra định dạng và tính đầy đủ của chứng từ.
-                        Vui lòng bổ sung thông tin thiếu trước khi gửi duyệt.
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* Panel D: Evidence Timeline */}
+            {activeTab === 'proposal' && (
+              <div className="space-y-4">
+                {proposal ? (
+                  <>
+                    <div className="bg-indigo-50 p-4 rounded-lg mb-4">
+                      <h3 className="font-semibold text-indigo-900 mb-2">AI Reasoning</h3>
+                      <p className="text-sm text-indigo-800">{proposal.ai_reasoning || proposal.explanation || 'No reasoning provided.'}</p>
+                      <div className="mt-2 text-xs text-indigo-600 font-medium">Confidence: {(proposal.ai_confidence * 100).toFixed(1)}%</div>
+                    </div>
+
+                    <h3 className="font-medium text-gray-900">Bút toán đề xuất</h3>
+                    <div className="border rounded-lg overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Account</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Debit</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Credit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {proposal.entries?.map((entry: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="px-3 py-2 text-sm text-gray-900">
+                                <div className="font-medium">{entry.account_code}</div>
+                                <div className="text-xs text-gray-500">{entry.account_name}</div>
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 text-right">{entry.debit_amount || entry.debit ? formatCurrency(entry.debit_amount || entry.debit) : '-'}</td>
+                              <td className="px-3 py-2 text-sm text-gray-900 text-right">{entry.credit_amount || entry.credit ? formatCurrency(entry.credit_amount || entry.credit) : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50">
+                          <tr>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900">Total</td>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900 text-right">{formatCurrency(proposal.total_debit)}</td>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900 text-right">{formatCurrency(proposal.total_credit)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Info className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>Chưa có đề xuất hạch toán.</p>
+                    {canPropose && <p className="text-xs mt-2">Nhấn "Đề xuất" đề AI phân tích.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'ledger' && (
+              <div className="space-y-4">
+                {ledger ? (
+                  <>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="p-2 bg-green-100 rounded-full"><BookOpen className="w-5 h-5 text-green-600" /></div>
+                      <div>
+                        <div className="font-semibold text-gray-900">{ledger.entry_number}</div>
+                        <div className="text-xs text-gray-500">Posted by {ledger.posted_by_name} on {formatDate(ledger.entry_date)}</div>
+                      </div>
+                    </div>
+                    {/* Re-use table or component for lines */}
+                    <div className="border rounded-lg overflow-hidden">
+                      {/* Similar table structure to proposal but using ledger lines */}
+                      {/* Omitting for brevity, reusing simplistic view */}
+                      <pre className="text-xs p-2 bg-gray-50">{JSON.stringify(ledger.lines || ledger, null, 2)}</pre>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>Chứng từ chưa được ghi sổ cái.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'evidence' && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Lịch sử xử lý</h3>
-                {evidence.length === 0 ? (
-                  <p className="text-gray-500 text-sm">Chưa có lịch sử xử lý</p>
-                ) : (
+                {evidence.length === 0 ? <p className="text-gray-500">Chưa có dữ liệu.</p> : (
                   <div className="relative">
-                    <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
-                    <div className="space-y-4">
-                      {evidence.map((event: EvidenceEvent, idx: number) => (
-                        <div key={event.id || idx} className="relative pl-10">
-                          <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 bg-white ${event.severity === 'error' ? 'border-red-500' :
-                            event.severity === 'warning' ? 'border-yellow-500' :
-                              event.severity === 'success' ? 'border-green-500' :
-                                'border-blue-500'
-                            }`} />
-                          <div className="bg-gray-50 rounded-lg p-3">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium text-sm text-gray-900">
-                                {event.step}: {event.action}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {formatDateTime(event.created_at || event.timestamp)}
-                              </span>
-                            </div>
-                            {event.output_summary && (
-                              <p className="mt-1 text-sm text-gray-600">{event.output_summary}</p>
-                            )}
-                            {event.trace_id && (
-                              <p className="mt-1 text-xs text-gray-400">Trace: {event.trace_id}</p>
-                            )}
+                    <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+                    <div className="space-y-6">
+                      {evidence.map((ev: any, i: number) => (
+                        <div key={i} className="relative pl-10">
+                          <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 bg-white -ml-px ${ev.severity === 'error' ? 'border-red-500' : 'border-blue-500'}`}></div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{ev.step} - {ev.action}</div>
+                            <div className="text-xs text-gray-500">{formatDateTime(ev.timestamp)}</div>
+                            {ev.output_summary && <div className="mt-1 text-sm text-gray-600 bg-gray-50 p-2 rounded">{ev.output_summary}</div>}
                           </div>
                         </div>
                       ))}
