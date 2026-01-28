@@ -144,8 +144,9 @@ class ApiClient {
   // Approvals API (for accounting app)
   // =====================================================
 
-  async getApprovals(status?: string) {
-    const params = status ? { status } : {};
+  async getApprovals(status?: string, limit: number = 20, offset: number = 0) {
+    const params: Record<string, string | number> = { limit, offset };
+    if (status) params.status = status;
 
     const response = await this.client.get('/v1/approvals', { params });
     return response.data;
@@ -183,7 +184,7 @@ class ApiClient {
   // Copilot Chat API
   // =====================================================
 
-  async sendCopilotMessage(message: string, context?: { document_id?: string }) {
+  async sendCopilotMessage(message: string, context?: Record<string, any>) {
     const response = await this.client.post('/v1/copilot/chat', {
       message,
       context,
@@ -275,6 +276,22 @@ class ApiClient {
   // Evidence
   async getEvidence() {
     const response = await this.client.get('/v1/evidence/summary');
+    return response.data;
+  }
+
+  async getGlobalTimeline(limit: number = 50) {
+    const response = await this.client.get('/v1/evidence/timeline', { params: { limit } });
+    return response.data;
+  }
+
+  // =====================================================
+  // Reports API
+  // =====================================================
+
+  async getGeneralLedger(startDate: string, endDate: string) {
+    const response = await this.client.get('/v1/reports/general-ledger', {
+      params: { start_date: startDate, end_date: endDate },
+    });
     return response.data;
   }
 

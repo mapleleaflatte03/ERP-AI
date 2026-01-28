@@ -1,19 +1,19 @@
 // Document types for accounting
-export type DocumentStatus = 
-  | 'new' 
-  | 'extracting' 
-  | 'extracted' 
+export type DocumentStatus =
+  | 'new'
+  | 'extracting'
+  | 'extracted'
   | 'proposing'
-  | 'proposed' 
-  | 'pending_approval' 
-  | 'approved' 
-  | 'rejected' 
+  | 'proposed'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
   | 'posted';
 
-export type DocumentType = 
-  | 'invoice' 
-  | 'receipt' 
-  | 'bank_statement' 
+export type DocumentType =
+  | 'invoice'
+  | 'receipt'
+  | 'bank_statement'
   | 'contract'
   | 'payment_voucher'
   | 'other';
@@ -115,11 +115,20 @@ export interface BankTransaction {
   status: 'unmatched' | 'matched' | 'suspicious';
 }
 
+export interface ChatAction {
+  id: string;
+  label: string;
+  tool: string;
+  params: Record<string, unknown>;
+  style?: 'primary' | 'danger' | 'neutral';
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   citations?: string[];
+  actions?: ChatAction[];
   created_at: string;
 }
 

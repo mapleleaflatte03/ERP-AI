@@ -494,7 +494,7 @@ async def post_ledger_entry(
 
             await conn.executemany(
                 """
-                INSERT INTO ledger_lines (id, entry_id, account_code, account_name, debit, credit, description, line_order)
+                INSERT INTO ledger_lines (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, description, line_order)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 ledger_lines_data,

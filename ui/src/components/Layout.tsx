@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api from '../lib/api';
 import LoginModal from './LoginModal';
+import { CommandPalette } from './CommandPalette';
 
 const navigation = [
   { name: 'Chứng từ', href: '/', icon: FileText },
@@ -26,7 +27,7 @@ const navigation = [
   { name: 'Duyệt', href: '/approvals', icon: CheckSquare },
   { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight, comingSoon: true },
   { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle, beta: true },
-  { name: 'Báo cáo', href: '/reports', icon: BarChart3, comingSoon: true },
+  { name: 'Báo cáo', href: '/reports', icon: BarChart3 },
   { name: 'Lịch sử', href: '/evidence', icon: Clock },
 ];
 
@@ -57,6 +58,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <CommandPalette />
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -193,11 +195,17 @@ export default function Layout() {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <h1 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900">
-            {navigation.find((n) => n.href === location.pathname)?.name ||
-              adminNavigation.find((n) => n.href === location.pathname)?.name ||
-              'AI Kế Toán'}
-          </h1>
+          <div className="flex-1 flex items-center justify-between">
+            <h1 className="ml-2 lg:ml-0 text-lg font-semibold text-gray-900">
+              {navigation.find((n) => n.href === location.pathname)?.name ||
+                adminNavigation.find((n) => n.href === location.pathname)?.name ||
+                'AI Kế Toán'}
+            </h1>
+            <div className="hidden md:flex items-center gap-2 text-xs text-gray-400">
+              <span className="px-2 py-1 bg-gray-100 rounded border">⌘K</span>
+              <span>to search</span>
+            </div>
+          </div>
         </header>
 
         {/* Page content */}

@@ -23,6 +23,7 @@ async def list_pending_approvals(
     tenant_id: str | None = None,
     status: str = "pending",
     limit: int = 50,
+    offset: int = 0,
 ) -> list[dict]:
     """
     List approvals with given status.
@@ -32,6 +33,7 @@ async def list_pending_approvals(
         tenant_id: Filter by tenant (optional)
         status: Filter by status (pending/approved/rejected)
         limit: Max results
+        offset: Pagination offset
 
     Returns:
         List of approval records with proposal context
@@ -40,6 +42,7 @@ async def list_pending_approvals(
         SELECT 
             a.id,
             a.proposal_id,
+            jp.document_id,
             a.job_id,
             a.tenant_id,
             a.status,
@@ -55,9 +58,12 @@ async def list_pending_approvals(
             ei.vendor_name,
             ei.invoice_number,
             ei.total_amount,
-            ei.currency
+            ei.currency,
+            d.filename,
+            d.doc_type
         FROM approvals a
         LEFT JOIN journal_proposals jp ON a.proposal_id = jp.id
+        LEFT JOIN documents d ON jp.document_id = d.id
         LEFT JOIN extracted_invoices ei ON jp.invoice_id = ei.id
         WHERE (a.action = $1 OR a.status = $1)
     """
@@ -67,8 +73,13 @@ async def list_pending_approvals(
         query += " AND a.tenant_id = $2"
         params.append(uuid.UUID(tenant_id) if isinstance(tenant_id, str) and len(tenant_id) > 10 else tenant_id)
 
-    query += " ORDER BY a.created_at DESC LIMIT $" + str(len(params) + 1)
+    # Use numbered parameters correctly for limit and offset
+    limit_idx = len(params) + 1
+    offset_idx = len(params) + 2
+    
+    query += f" ORDER BY a.created_at DESC LIMIT ${limit_idx} OFFSET ${offset_idx}"
     params.append(limit)
+    params.append(offset)
 
     rows = await conn.fetch(query, *params)
 
@@ -76,6 +87,7 @@ async def list_pending_approvals(
         {
             "id": str(row["id"]),
             "proposal_id": str(row["proposal_id"]) if row["proposal_id"] else None,
+            "document_id": str(row["document_id"]) if row.get("document_id") else (str(row["id"]) if not row["proposal_id"] else None), # Fallback if needed, but should be there
             "job_id": str(row["job_id"]) if row["job_id"] else None,
             "tenant_id": str(row["tenant_id"]) if row["tenant_id"] else None,
             "status": row["status"] or row["action"],
@@ -90,6 +102,13 @@ async def list_pending_approvals(
             "invoice_number": row["invoice_number"],
             "total_amount": float(row["total_amount"]) if row["total_amount"] else None,
             "currency": row["currency"],
+            "document": {
+                "id": str(row["document_id"]) if row.get("document_id") else None,
+                "filename": row["filename"],
+                "doc_type": row["doc_type"],
+                "vendor_name": row["vendor_name"],
+                "total_amount": float(row["total_amount"]) if row["total_amount"] else None,
+            } if row.get("document_id") else None
         }
         for row in rows
     ]

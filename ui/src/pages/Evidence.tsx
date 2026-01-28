@@ -16,8 +16,6 @@ import {
   Upload,
   Brain,
   Bookmark,
-  Printer,
-  Download,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { EvidenceEvent } from '../types';
@@ -153,18 +151,28 @@ export default function Evidence() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterAction, setFilterAction] = useState<string>('all');
 
-  // Fetch evidence from backend API - no mock data
-  const { data: eventsData, isLoading } = useQuery<{ events?: EvidenceEvent[] }>({
-    queryKey: ['evidence', documentId],
+  // Fetch summary stats (system-wide)
+  const { data: summaryData } = useQuery({
+    queryKey: ['evidence-summary'],
+    queryFn: () => api.getEvidence(),
+    enabled: !documentId, // Only fetch if not looking at specific document
+  });
+
+  // Fetch timeline events
+  const { data: eventsWrapper, isLoading } = useQuery<{ events: EvidenceEvent[] } | EvidenceEvent[]>({
+    queryKey: ['evidence-events', documentId],
     queryFn: async () => {
       if (documentId) {
         return api.getDocumentEvidence(documentId);
       }
-      return api.getEvidence();
+      return api.getGlobalTimeline();
     },
   });
 
-  const events: EvidenceEvent[] = eventsData?.events || [];
+  // Normalize events data (backend might return array or { events: [...] })
+  const events: EvidenceEvent[] = Array.isArray(eventsWrapper)
+    ? eventsWrapper
+    : (eventsWrapper?.events || []);
 
   const filteredEvents = events.filter(evt => {
     if (filterAction !== 'all' && evt.action !== filterAction) return false;
@@ -173,15 +181,17 @@ export default function Evidence() {
       return (
         evt.action.toLowerCase().includes(searchLower) ||
         evt.actor.toLowerCase().includes(searchLower) ||
-        evt.document_id.toLowerCase().includes(searchLower)
+        (evt.document_id && evt.document_id.toLowerCase().includes(searchLower))
       );
     }
     return true;
   });
 
+  const metrics = summaryData?.metrics || {};
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* ... Header ... */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {documentId && (
@@ -202,19 +212,13 @@ export default function Evidence() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50">
-            <Download className="w-4 h-4" />
-            Xuất CSV
-          </button>
-          <button className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50">
-            <Printer className="w-4 h-4" />
-            In
-          </button>
+          {/* Export buttons... */}
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters ... */}
       <div className="flex gap-4 items-center">
+        {/* ... Search ... */}
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -247,19 +251,19 @@ export default function Evidence() {
       {!documentId && (
         <div className="grid grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-gray-900">47</div>
-            <div className="text-sm text-gray-500">Chứng từ hôm nay</div>
+            <div className="text-2xl font-bold text-gray-900">{metrics.total_documents || 0}</div>
+            <div className="text-sm text-gray-500">Tổng chứng từ</div>
           </div>
           <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-green-600">32</div>
+            <div className="text-2xl font-bold text-green-600">{metrics.approved_documents || 0}</div>
             <div className="text-sm text-gray-500">Đã duyệt</div>
           </div>
           <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-amber-600">12</div>
-            <div className="text-sm text-gray-500">Chờ duyệt</div>
+            <div className="text-2xl font-bold text-amber-600">{metrics.pending_documents || 0}</div>
+            <div className="text-sm text-gray-500">Đang xử lý</div>
           </div>
           <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-red-600">3</div>
+            <div className="text-2xl font-bold text-red-600">{metrics.rejected_documents || 0}</div>
             <div className="text-sm text-gray-500">Từ chối</div>
           </div>
         </div>

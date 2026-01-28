@@ -26,7 +26,7 @@ import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Add project root
 sys.path.insert(0, "/root/erp-ai")
@@ -2286,6 +2286,7 @@ async def list_approvals(
     status: str = "pending",
     tenant_id: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ):
     """
     List approvals filtered by status.
@@ -2294,6 +2295,7 @@ async def list_approvals(
     - status: pending|approved|rejected (default: pending)
     - tenant_id: filter by tenant (optional)
     - limit: max results (default: 50)
+    - offset: pagination offset (default: 0)
 
     Returns list of approvals with proposal context.
     """
@@ -2305,10 +2307,13 @@ async def list_approvals(
                 tenant_id=tenant_id,
                 status=status,
                 limit=limit,
+                offset=offset,
             )
             return {
                 "approvals": approvals,
                 "count": len(approvals),
+                "limit": limit,
+                "offset": offset,
                 "status_filter": status,
             }
         finally:
@@ -3582,13 +3587,24 @@ async def get_system_evidence():
         conn = await get_db_connection()
         try:
             counters = {}
+            # Basic counts
             for table in ["documents", "invoices", "proposals", "approvals", "ledger_entries", "jobs"]:
                 try:
                     result = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
                     counters[table] = result or 0
                 except Exception:
                     counters[table] = 0
+            
+            # Detailed Metrics
+            metrics = {
+                "total_documents": counters.get("documents", 0),
+                "approved_documents": await conn.fetchval("SELECT COUNT(*) FROM documents WHERE status = 'posted'"),
+                "pending_documents": await conn.fetchval("SELECT COUNT(*) FROM documents WHERE status IN ('uploaded', 'extracted', 'proposed')"),
+                "rejected_documents": await conn.fetchval("SELECT COUNT(*) FROM documents WHERE status = 'rejected'"),
+                "pending_approvals": await conn.fetchval("SELECT COUNT(*) FROM approvals WHERE status = 'pending'"),
+            }
             evidence["postgres"] = counters
+            evidence["metrics"] = metrics
         finally:
             await conn.close()
     except Exception as e:
@@ -3684,6 +3700,123 @@ async def get_system_evidence():
         logger.warning(f"MLflow evidence failed: {e}")
 
     return evidence
+
+
+@app.get("/v1/evidence/timeline")
+async def get_global_timeline(limit: int = 50):
+    """
+    Get global timeline/audit log for the system.
+    """
+    conn = await get_db_connection()
+    try:
+        query = """
+            SELECT 
+                ae.id,
+                ae.document_id,
+                ae.step_name,
+                ae.action,
+                ae.outcome,
+                ae.input_summary,
+                ae.output_summary,
+                ae.started_at,
+                ae.completed_at,
+                ae.trace_id,
+                d.filename
+            FROM audit_evidence ae
+            LEFT JOIN documents d ON ae.document_id = d.id::text
+            ORDER BY ae.started_at DESC
+            LIMIT $1
+        """
+        rows = await conn.fetch(query, limit)
+
+        return {
+            "events": [
+                {
+                    "id": str(row["id"]),
+                    "document_id": row["document_id"],
+                    "document_filename": row["filename"],
+                    "action": row["action"],
+                    "actor": row["step_name"] or "system",
+                    "timestamp": row["started_at"].isoformat() if row["started_at"] else None,
+                    "payload": {
+                        "outcome": row["outcome"],
+                        "trace_id": row["trace_id"],
+                        "summary": row["output_summary"]
+                    }
+                }
+                for row in rows
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch timeline: {e}")
+        return {"events": []}
+    finally:
+        await conn.close()
+
+
+@app.get("/v1/reports/general-ledger")
+async def get_general_ledger(start_date: str, end_date: str):
+    """
+    Get General Ledger summary (Trial Balance style) for a date range.
+    """
+    try:
+        s_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+        e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    conn = await get_db_connection()
+    try:
+        query = """
+            WITH opening AS (
+                SELECT ll.account_code, SUM(ll.debit_amount - ll.credit_amount) as balance
+                FROM ledger_lines ll
+                JOIN ledger_entries le ON ll.ledger_entry_id = le.id
+                WHERE le.entry_date < $1
+                GROUP BY ll.account_code
+            ),
+            period AS (
+                SELECT ll.account_code, SUM(ll.debit_amount) as total_debit, SUM(ll.credit_amount) as total_credit
+                FROM ledger_lines ll
+                JOIN ledger_entries le ON ll.ledger_entry_id = le.id
+                WHERE le.entry_date BETWEEN $1 AND $2
+                GROUP BY ll.account_code
+            )
+            SELECT 
+                coa.code as account_code,
+                coa.name as account_name,
+                COALESCE(op.balance, 0) as opening_balance,
+                COALESCE(p.total_debit, 0) as period_debit,
+                COALESCE(p.total_credit, 0) as period_credit,
+                (COALESCE(op.balance, 0) + COALESCE(p.total_debit, 0) - COALESCE(p.total_credit, 0)) as closing_balance
+            FROM accounts coa
+            LEFT JOIN opening op ON coa.code = op.account_code
+            LEFT JOIN period p ON coa.code = p.account_code
+            WHERE coa.is_active = TRUE AND (op.balance IS NOT NULL OR p.total_debit IS NOT NULL OR p.total_credit IS NOT NULL)
+            ORDER BY coa.code
+        """
+        rows = await conn.fetch(query, s_date, e_date)
+        
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "entries": [
+                {
+                    "account_code": row["account_code"],
+                    "account_name": row["account_name"],
+                    "opening_balance": float(row["opening_balance"]),
+                    "debit": float(row["period_debit"]),
+                    "credit": float(row["period_credit"]),
+                    "closing_balance": float(row["closing_balance"]),
+                }
+                for row in rows
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Report generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await conn.close()
 
 
 @app.get("/v1/forecasts/latest")
@@ -4381,28 +4514,134 @@ class ChatRequest(BaseModel):
     context: dict[str, Any] | None = None
 
 
+class ChatAction(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    label: str
+    tool: str
+    params: dict[str, Any]
+    style: str = "primary"  # primary, danger, etc.
+
 class ChatResponse(BaseModel):
     response: str
+    actions: list[ChatAction] | None = None
     context: dict[str, Any] | None = None
 
 
 @app.post("/v1/copilot/chat", response_model=ChatResponse)
 async def chat_copilot(request: ChatRequest):
     """
-    Chat with the ERPX Copilot.
+    Chat with the ERPX Copilot with Agentic Capabilities.
     """
     try:
         from src.llm.client import LLMClient
+        from src.copilot import tools
+        import json
+
+        # 1. Handle Confirmed Actions from UI
+        if request.context and request.context.get("confirmed_action"):
+            action = request.context["confirmed_action"]
+            tool_name = action.get("tool")
+            params = action.get("params", {})
+            
+            logger.info(f"Executing confirmed action: {tool_name} with {params}")
+            
+            if tool_name == "approve_proposal":
+                res = await tools.approve_proposal(params["id"])
+                if "error" in res:
+                    return ChatResponse(response=f"⚠️ Internal Error: {res['error']}")
+                return ChatResponse(response=f"✅ Approved proposal {params['id']} and posted to ledger.")
+                
+            elif tool_name == "reject_proposal":
+                res = await tools.reject_proposal(params["id"])
+                if "error" in res:
+                    return ChatResponse(response=f"⚠️ Internal Error: {res['error']}")
+                return ChatResponse(response=f"❌ Rejected proposal {params['id']}.")
 
         client = LLMClient()
 
-        system_prompt = "You are ERPX Copilot, a helpful accounting assistant."
-        if request.context:
-            system_prompt += f"\nContext: {request.context}"
+        # 2. Agent Decision Loop
+        system_prompt = """You are ERPX Copilot, an AI accounting assistant capable of executing tasks.
+        
+        AVAILABLE TOOLS:
+        1. list_pending_approvals(limit): List pending journal proposals requiring approval.
+        2. approve_proposal(id): Approve a specific proposal (requires ID).
+        3. reject_proposal(id): Reject a specific proposal (requires ID).
+        
+        INSTRUCTIONS:
+        - If the user asks a question, answer it.
+        - If the user asks to perform an action, output a JSON object describing the tool call.
+        - Do NOT hallucinate IDs. If ID is missing, ask the user.
+        
+        OUTPUT FORMAT (JSON):
+        {
+            "thought": "Reasoning about what to do",
+            "tool": "tool_name_or_none",
+            "params": { ... parameters ... },
+            "response": "Text response to user (optional if tool is called)"
+        }
+        """
+        
+        # User prompt wrapper
+        prompt = request.message
+        
+        # Call LLM
+        try:
+            decision = await client.generate_json(
+                prompt=prompt,
+                system=system_prompt,
+                temperature=0.1
+            )
+        except Exception as e:
+            # Fallback for non-JSON response
+            logger.warning(f"Agent JSON parse failed: {e}")
+            return ChatResponse(response="I'm having trouble processing that request. Please try again.")
 
-        result = await client.generate(system=system_prompt, prompt=request.message, temperature=0.7)
+        tool = decision.get("tool")
+        params = decision.get("params", {})
+        thought = decision.get("thought", "")
 
-        return ChatResponse(response=result.content, context=request.context)
+        # 3. Execution Logic
+        
+        # Read-Only Tools (Auto-Execute)
+        if tool == "list_pending_approvals":
+            LIMIT = params.get("limit", 5)
+            rows = await tools.list_pending_approvals(limit=LIMIT)
+            if not rows:
+                return ChatResponse(response="No pending approvals found.")
+            
+            # Format text response
+            summary = "**Pending Approvals:**\n"
+            for r in rows:
+                doc_info = f"Doc: {r['document']['filename']}" if r.get('document') else "Doc: N/A"
+                summary += f"- **{r['vendor_name']}** ({r['invoice_number']}): {r['total_amount']} {r['currency']} (ID: `{r['id']}`) - {doc_info}\n"
+            
+            return ChatResponse(response=summary)
+
+        # Write Tools (Safe Mode - Require Confirmation)
+        elif tool in ["approve_proposal", "reject_proposal"]:
+            proposal_id = params.get("id")
+            if not proposal_id:
+                return ChatResponse(response="I need the Proposal ID to proceed.")
+                
+            # Return Action Request
+            label = "Approve Proposal" if tool == "approve_proposal" else "Reject Proposal"
+            style = "primary" if tool == "approve_proposal" else "danger"
+            
+            return ChatResponse(
+                response=f"I found a request to {tool.replace('_', ' ')}. Please confirm:",
+                actions=[
+                    ChatAction(
+                        label=f"{label} {proposal_id[:8]}...",
+                        tool=tool,
+                        params={"id": proposal_id},
+                        style=style
+                    )
+                ]
+            )
+
+        # Default / Conversational
+        return ChatResponse(response=decision.get("response") or thought)
+
     except Exception as e:
         logger.error(f"Copilot chat failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return ChatResponse(response="Sorry, I encountered an internal system error.")

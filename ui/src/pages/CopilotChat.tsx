@@ -45,19 +45,21 @@ export default function CopilotChat() {
 
   // Chat mutation
   const chatMutation = useMutation({
-    mutationFn: (message: string) => api.sendCopilotMessage(message),
+    mutationFn: (variables: { message: string, context?: any }) =>
+      api.sendCopilotMessage(variables.message, variables.context),
     onSuccess: (response) => {
       const assistantMessage: ChatMessage = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: response.content || response.message || 'Xin lỗi, tôi không thể xử lý yêu cầu này.',
+        // Backend returns 'response' field
+        content: response.response || response.content || 'Xin lỗi, tôi không thể xử lý yêu cầu này.',
         citations: response.citations,
+        actions: response.actions, // Map actions
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, assistantMessage]);
     },
     onError: (error) => {
-      // Show actual error - no mock response
       const errorMessage: ChatMessage = {
         id: Date.now().toString(),
         role: 'assistant',
@@ -80,7 +82,24 @@ export default function CopilotChat() {
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    chatMutation.mutate(input.trim());
+    chatMutation.mutate({ message: input.trim() });
+  };
+
+  const handleActionClick = (action: any) => {
+    // Optimistic update or just trigger chat
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: `CONFIRM: ${action.label}`, // Show user what they clicked
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    // Call API with confirmed_action context
+    chatMutation.mutate({
+      message: "Confirmed",
+      context: { confirmed_action: action }
+    });
   };
 
   const handleSuggestedQuestion = (question: string) => {
@@ -119,11 +138,10 @@ export default function CopilotChat() {
               key={msg.id}
               className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
             >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                msg.role === 'user' 
-                  ? 'bg-blue-600' 
-                  : 'bg-gradient-to-br from-blue-500 to-purple-600'
-              }`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user'
+                ? 'bg-blue-600'
+                : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                }`}>
                 {msg.role === 'user' ? (
                   <User className="w-4 h-4 text-white" />
                 ) : (
@@ -131,13 +149,31 @@ export default function CopilotChat() {
                 )}
               </div>
               <div className={`max-w-[70%] ${msg.role === 'user' ? 'text-right' : ''}`}>
-                <div className={`rounded-2xl px-4 py-3 ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}>
+                <div className={`rounded-2xl px-4 py-3 ${msg.role === 'user'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-900'
+                  }`}>
                   <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                 </div>
+
+                {/* Actions */}
+                {msg.actions && msg.actions.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    {msg.actions.map(action => (
+                      <div key={action.id} className="p-3 bg-white border rounded-lg shadow-sm">
+                        <p className="text-sm font-medium text-gray-900 mb-2">{action.label}</p>
+                        <button
+                          onClick={() => handleActionClick(action)}
+                          className={`w-full px-3 py-1.5 rounded text-sm font-medium text-white transition-colors ${action.style === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                            }`}
+                        >
+                          Xác nhận
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {msg.citations && msg.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {msg.citations.map((cite, idx) => (
@@ -151,6 +187,7 @@ export default function CopilotChat() {
                     ))}
                   </div>
                 )}
+                {/* Actions Tool bar for assistant */}
                 {msg.role === 'assistant' && (
                   <div className="flex items-center gap-2 mt-2">
                     <button
@@ -210,7 +247,6 @@ export default function CopilotChat() {
             </div>
           </div>
         )}
-
         {/* Input */}
         <div className="p-4 border-t bg-gray-50">
           <div className="flex gap-3">
@@ -219,7 +255,7 @@ export default function CopilotChat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              placeholder="Nhập câu hỏi về nghiệp vụ kế toán..."
+              placeholder="Nhập câu hỏi hoặc yêu cầu (VD: Duyệt phiếu số...)"
               className="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               disabled={chatMutation.isPending}
             />
@@ -236,7 +272,7 @@ export default function CopilotChat() {
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2 text-center">
-            AI có thể mắc lỗi. Vui lòng kiểm tra thông tin quan trọng.
+            Trợ lý có thể thực hiện tác vụ (duyệt, từ chối) khi được yêu cầu.
           </p>
         </div>
       </div>

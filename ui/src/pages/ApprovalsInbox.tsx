@@ -34,11 +34,14 @@ export default function ApprovalsInbox() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected' | ''>('pending');
   const [searchQuery, setSearchQuery] = useState('');
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
 
   // Fetch approvals
   const { data: response, isLoading, refetch } = useQuery({
-    queryKey: ['approvals', statusFilter],
-    queryFn: () => api.getApprovals(statusFilter || undefined),
+    queryKey: ['approvals', statusFilter, page, limit],
+    queryFn: () => api.getApprovals(statusFilter || undefined, limit, (page - 1) * limit),
   });
 
   // Handle potential object response { approvals: [], count: ... } or array []
@@ -47,6 +50,12 @@ export default function ApprovalsInbox() {
     : (response && typeof response === 'object' && 'approvals' in response)
       ? (response.approvals || [])
       : [];
+
+  const totalCount = (response && !Array.isArray(response) && 'count' in response)
+    ? response.count
+    : approvalsList.length;
+
+  const totalPages = Math.ceil(totalCount / limit);
 
   // Approve mutation
   const approveMutation = useMutation({
@@ -135,10 +144,13 @@ export default function ApprovalsInbox() {
           ].map(filter => (
             <button
               key={filter.value}
-              onClick={() => setStatusFilter(filter.value as typeof statusFilter)}
+              onClick={() => {
+                setStatusFilter(filter.value as typeof statusFilter);
+                setPage(1); // Reset page on filter change
+              }}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${statusFilter === filter.value
-                  ? `bg-${filter.color}-100 text-${filter.color}-700 border border-${filter.color}-300`
-                  : 'bg-white border hover:bg-gray-50'
+                ? `bg-${filter.color}-100 text-${filter.color}-700 border border-${filter.color}-300`
+                : 'bg-white border hover:bg-gray-50'
                 }`}
             >
               <filter.icon className="w-4 h-4" />
@@ -151,11 +163,13 @@ export default function ApprovalsInbox() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Approvals List */}
-        <div className="lg:col-span-1 bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50">
-            <h2 className="font-semibold text-gray-900">Danh sách ({filteredApprovals.length})</h2>
+        <div className="lg:col-span-1 bg-white rounded-xl border shadow-sm overflow-hidden flex flex-col h-[700px]">
+          <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
+            <h2 className="font-semibold text-gray-900">Danh sách ({totalCount})</h2>
+            <div className="text-xs text-gray-500">Trang {page}/{totalPages || 1}</div>
           </div>
-          <div className="divide-y max-h-[600px] overflow-auto">
+
+          <div className="flex-1 divide-y overflow-auto">
             {isLoading ? (
               <div className="p-8 text-center">
                 <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400" />
@@ -187,27 +201,52 @@ export default function ApprovalsInbox() {
                         </p>
                       )}
                     </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${approval.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        approval.status === 'approved' ? 'bg-green-100 text-green-700' :
-                          'bg-red-100 text-red-700'
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${approval.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                      approval.status === 'approved' ? 'bg-green-100 text-green-700' :
+                        'bg-red-100 text-red-700'
                       }`}>
-                      {approval.status === 'pending' ? 'Chờ duyệt' :
-                        approval.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
+                      {approval.status === 'pending' ? 'PENDING' :
+                        approval.status === 'approved' ? 'APPROVED' : 'REJECTED'}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    {formatDate(approval.created_at)}
-                  </p>
+                  <div className="flex justify-between items-center mt-2">
+                    <p className="text-xs text-gray-400">
+                      {formatDate(approval.created_at)}
+                    </p>
+                    {/* Show document ID small for debugging */}
+                    {/* <span className="text-[9px] text-gray-300 font-mono">{approval.document_id?.slice(0,8)}</span> */}
+                  </div>
                 </div>
               ))
             )}
           </div>
+
+          {/* Pagination Controls */}
+          <div className="p-2 border-t bg-gray-50 flex justify-between items-center">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-2 py-1 text-xs border rounded hover:bg-white disabled:opacity-50"
+            >
+              Trước
+            </button>
+            <span className="text-xs text-gray-600">
+              {page} / {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages || 1, p + 1))}
+              disabled={page >= (totalPages || 1)}
+              className="px-2 py-1 text-xs border rounded hover:bg-white disabled:opacity-50"
+            >
+              Sau
+            </button>
+          </div>
         </div>
 
         {/* Approval Detail */}
-        <div className="lg:col-span-2 bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-xl border shadow-sm overflow-hidden h-[700px] flex flex-col">
           {!selectedApproval ? (
-            <div className="h-[600px] flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center">
               <div className="text-center text-gray-400">
                 <Eye className="w-12 h-12 mx-auto mb-4" />
                 <p>Chọn một mục để xem chi tiết</p>
@@ -215,7 +254,7 @@ export default function ApprovalsInbox() {
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h2 className="font-semibold text-gray-900">
                     {selectedApproval.document?.filename || 'Chi tiết phê duyệt'}
@@ -249,7 +288,7 @@ export default function ApprovalsInbox() {
                 )}
               </div>
 
-              <div className="p-4 max-h-[540px] overflow-auto space-y-6">
+              <div className="p-4 overflow-auto flex-1 space-y-6">
                 {/* Summary Cards */}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-gray-50 rounded-lg p-3">
@@ -348,11 +387,19 @@ export default function ApprovalsInbox() {
 
                 {/* View Document Link */}
                 <button
-                  onClick={() => navigate(`/documents/${selectedApproval.document_id}`)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
+                  onClick={() => {
+                    // Prefer the top-level document_id from the approval item
+                    const docId = selectedApproval.document_id || selectedApproval.proposal?.document_id || selectedApproval.document?.id;
+                    if (docId) {
+                      navigate(`/documents/${docId}`);
+                    } else {
+                      alert("Không tìm thấy ID chứng từ");
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 border-blue-200 text-blue-700 bg-blue-50/50"
                 >
                   <Eye className="w-4 h-4" />
-                  Xem chứng từ gốc
+                  Xem chứng từ gốc & Lịch sử
                 </button>
               </div>
             </>

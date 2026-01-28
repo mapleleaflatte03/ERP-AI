@@ -57,21 +57,28 @@ const REPORTS = [
   },
 ];
 
-// No mock data - backend endpoint needed for ledger reports
 
+import { useQuery } from '@tanstack/react-query';
+import api from '../lib/api';
+
+function formatCurrency(val: number) {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+}
 
 
 export default function Reports() {
   const [selectedReport, setSelectedReport] = useState<string | null>('general_ledger');
-  const [dateRange, setDateRange] = useState({ from: '2026-01-01', to: '2026-01-23' });
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [dateRange, setDateRange] = useState({ from: '2025-01-01', to: '2025-12-31' }); // Default to current year or broad range
+
+  const { data: reportData, isLoading, refetch } = useQuery({
+    queryKey: ['report-gl', dateRange.from, dateRange.to],
+    queryFn: () => api.getGeneralLedger(dateRange.from, dateRange.to),
+    enabled: false, // Wait for button
+  });
 
   const handleGenerate = () => {
-    // Will call backend API when endpoint is ready
-    setIsGenerating(true);
-    setIsGenerating(false);
+    refetch();
   };
-
 
   return (
     <div className="space-y-6">
@@ -90,25 +97,23 @@ export default function Reports() {
             key={report.id}
             onClick={() => report.available && setSelectedReport(report.id)}
             disabled={!report.available}
-            className={`relative text-left p-4 rounded-xl border transition-all ${
-              selectedReport === report.id
-                ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500'
-                : report.available
-                  ? 'bg-white hover:bg-gray-50 hover:border-gray-300'
-                  : 'bg-gray-50 opacity-60 cursor-not-allowed'
-            }`}
+            className={`relative text-left p-4 rounded-xl border transition-all ${selectedReport === report.id
+              ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500'
+              : report.available
+                ? 'bg-white hover:bg-gray-50 hover:border-gray-300'
+                : 'bg-gray-50 opacity-60 cursor-not-allowed'
+              }`}
           >
+            {/* ... same icon logic ... */}
             {!report.available && (
               <div className="absolute top-2 right-2">
                 <Lock className="w-4 h-4 text-gray-400" />
               </div>
             )}
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${
-              selectedReport === report.id ? 'bg-blue-100' : 'bg-gray-100'
-            }`}>
-              <report.icon className={`w-5 h-5 ${
-                selectedReport === report.id ? 'text-blue-600' : 'text-gray-500'
-              }`} />
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${selectedReport === report.id ? 'bg-blue-100' : 'bg-gray-100'
+              }`}>
+              <report.icon className={`w-5 h-5 ${selectedReport === report.id ? 'text-blue-600' : 'text-gray-500'
+                }`} />
             </div>
             <h3 className="font-medium text-gray-900">{report.name}</h3>
             <p className="text-sm text-gray-500 mt-1">{report.description}</p>
@@ -145,10 +150,10 @@ export default function Reports() {
             </div>
             <button
               onClick={handleGenerate}
-              disabled={isGenerating}
+              disabled={isLoading}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {isGenerating ? (
+              {isLoading ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
               ) : (
                 <RefreshCw className="w-4 h-4" />
@@ -173,25 +178,38 @@ export default function Reports() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mã TK</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tên tài khoản</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Số dư đầu kỳ</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Phát sinh Nợ</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Phát sinh Có</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Số dư cuối kỳ</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Dư đầu kỳ</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">PS Nợ</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">PS Có</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Dư cuối kỳ</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                    <FileText className="w-10 h-10 mx-auto text-gray-300 mb-3" />
-                    <p>Chưa có dữ liệu sổ cái</p>
-                    <p className="text-sm text-gray-400 mt-1">Dữ liệu sẽ hiển thị khi có bút toán đã ghi sổ</p>
-                  </td>
-                </tr>
+                {!reportData?.entries || reportData.entries.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      <FileText className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+                      <p>{isLoading ? 'Đang tải...' : 'Chưa có dữ liệu sổ cái'}</p>
+                      {!isLoading && <p className="text-sm text-gray-400 mt-1">Dữ liệu sẽ hiển thị khi có bút toán đã ghi sổ trong kỳ này</p>}
+                    </td>
+                  </tr>
+                ) : (
+                  reportData.entries.map((row: any) => (
+                    <tr key={row.account_code} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-mono font-medium text-blue-600">{row.account_code}</td>
+                      <td className="px-4 py-3 text-gray-900">{row.account_name}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600">{formatCurrency(row.opening_balance)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600">{formatCurrency(row.debit)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600">{formatCurrency(row.credit)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-medium text-gray-900">{formatCurrency(row.closing_balance)}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -204,14 +222,14 @@ export default function Reports() {
             <h2 className="font-semibold text-gray-900">Bảng cân đối phát sinh</h2>
           </div>
           <div className="p-8 text-center text-gray-500">
-            <BarChart3 className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-            <p>Chọn kỳ báo cáo và nhấn "Tạo báo cáo"</p>
+            <p>Chức năng đang được cập nhật. Vui lòng sử dụng Sổ cái tổng hợp.</p>
           </div>
         </div>
       )}
 
       {/* Coming Soon Notice */}
       <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
+        {/* ... same ... */}
         <h3 className="font-semibold text-purple-900 flex items-center gap-2">
           <HelpCircle className="w-5 h-5" />
           Tính năng đang phát triển
