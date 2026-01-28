@@ -617,8 +617,12 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
-            with open(file_path, encoding="utf-8", errors="ignore") as f:
-                text = f.read()
+
+            def _read_text_file():
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
+                    return f.read()
+
+            text = await asyncio.to_thread(_read_text_file)
 
         ocr_latency_ms = int((time.time() - ocr_start) * 1000)
 
@@ -1360,7 +1364,7 @@ async def persist_to_db_with_conn(
     }
 
 
-async def extract_pdf(file_path: str) -> str:
+def _extract_pdf_sync(file_path: str) -> str:
     """Extract text from PDF using pdfplumber, with OCR fallback for scanned PDFs"""
     try:
         import pdfplumber
@@ -1375,16 +1379,20 @@ async def extract_pdf(file_path: str) -> str:
         # If pdfplumber returns empty (scanned PDF), try OCR fallback
         if not full_text or len(full_text) < 20:
             logger.info("pdfplumber returned empty/short text, trying OCR fallback")
-            return await extract_image(file_path)
+            return _extract_image_sync(file_path)
 
         return full_text
     except Exception as e:
         logger.warning(f"pdfplumber failed: {e}, trying fallback")
         # Fallback to OCR
-        return await extract_image(file_path)
+        return _extract_image_sync(file_path)
 
 
-async def extract_image(file_path: str) -> str:
+async def extract_pdf(file_path: str) -> str:
+    return await asyncio.to_thread(_extract_pdf_sync, file_path)
+
+
+def _extract_image_sync(file_path: str) -> str:
     """Extract text from image or scanned PDF using pytesseract"""
     import pytesseract
     from PIL import Image
@@ -1443,7 +1451,11 @@ async def extract_image(file_path: str) -> str:
     return ""
 
 
-async def extract_excel(file_path: str) -> str:
+async def extract_image(file_path: str) -> str:
+    return await asyncio.to_thread(_extract_image_sync, file_path)
+
+
+def _extract_excel_sync(file_path: str) -> str:
     """Extract data from Excel file"""
     try:
         import pandas as pd
@@ -1463,6 +1475,10 @@ async def extract_excel(file_path: str) -> str:
     except Exception as e:
         logger.error(f"Excel extraction failed: {e}")
         return ""
+
+
+async def extract_excel(file_path: str) -> str:
+    return await asyncio.to_thread(_extract_excel_sync, file_path)
 
 
 def validate_proposal(data: dict[str, Any]) -> dict[str, Any]:
