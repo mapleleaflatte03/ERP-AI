@@ -1568,6 +1568,11 @@ def setup_otel_instrumentation(app: FastAPI):
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logger.info("ERPX AI API starting...")
+    from src.core import config as core_config
+    if core_config.USE_MOCKS:
+        logger.warning("!!! RUNNING IN MOCK MODE !!! (USE_MOCKS=True)")
+    else:
+        logger.info("Running in REAL MODE (USE_MOCKS=False)")
 
     # Startup: Check LLM configuration
     try:

@@ -102,45 +102,53 @@ def format_proposal(row: dict) -> dict:
 @router.get("")
 async def list_documents(
     status: Optional[str] = Query(None, description="Filter by status"),
+    doc_type: Optional[str] = Query(None, alias="type", description="Filter by document type"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    """List all documents with optional status filter."""
+    """List all documents with optional status and type filter."""
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with pool.acquire() as conn:
+        conditions = []
+        params = []
+        param_idx = 1
+
         if status:
-            rows = await conn.fetch(
-                """
-                SELECT id, filename, content_type, file_size, status, doc_type,
-                       extracted_data, minio_bucket, minio_key, raw_text,
-                       created_at, updated_at
-                FROM documents
-                WHERE status = $1
-                ORDER BY created_at DESC
-                LIMIT $2 OFFSET $3
-                """,
-                status,
-                limit,
-                offset,
-            )
-            count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM documents WHERE status = $1", status)
-        else:
-            rows = await conn.fetch(
-                """
-                SELECT id, filename, content_type, file_size, status, doc_type,
-                       extracted_data, minio_bucket, minio_key, raw_text,
-                       created_at, updated_at
-                FROM documents
-                ORDER BY created_at DESC
-                LIMIT $1 OFFSET $2
-                """,
-                limit,
-                offset,
-            )
-            count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM documents")
+            conditions.append(f"status = ${param_idx}")
+            params.append(status)
+            param_idx += 1
+        
+        if doc_type:
+            conditions.append(f"doc_type = ${param_idx}")
+            params.append(doc_type)
+            param_idx += 1
+
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        query = f"""
+            SELECT id, filename, content_type, file_size, status, doc_type,
+                   extracted_data, minio_bucket, minio_key, raw_text,
+                   created_at, updated_at
+            FROM documents
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """
+        
+        # Add limit and offset to params
+        params.append(limit)
+        params.append(offset)
+
+        rows = await conn.fetch(query, *params)
+        
+        # Get count
+        count_query = f"SELECT COUNT(*) as total FROM documents {where_clause}"
+        # For count we only need the filter params, not limit/offset
+        count_params = params[:-2] 
+        count_row = await conn.fetchrow(count_query, *count_params)
 
         documents = [format_document(dict(row)) for row in rows]
         total = count_row["total"] if count_row else 0

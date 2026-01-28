@@ -15,7 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import api from '../lib/api';
-import type {  EvidenceEvent } from '../types';
+import type { EvidenceEvent } from '../types';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   new: { label: 'Mới', color: 'bg-gray-100 text-gray-700' },
@@ -73,6 +73,7 @@ export default function DocumentDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', id] });
       queryClient.invalidateQueries({ queryKey: ['document-evidence', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
     },
   });
 
@@ -81,6 +82,7 @@ export default function DocumentDetail() {
     mutationFn: () => api.runProposal(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
       navigate(`/documents/${id}/proposal`);
     },
   });
@@ -230,21 +232,19 @@ export default function DocumentDetail() {
             <nav className="flex">
               <button
                 onClick={() => setActiveTab('extracted')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'extracted'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'extracted'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 Dữ liệu trích xuất
               </button>
               <button
                 onClick={() => setActiveTab('validation')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'validation'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'validation'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 Kiểm tra
                 {validationWarnings.length > 0 && (
@@ -255,11 +255,10 @@ export default function DocumentDetail() {
               </button>
               <button
                 onClick={() => setActiveTab('evidence')}
-                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'evidence'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'evidence'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
               >
                 Lịch sử xử lý
               </button>
@@ -331,9 +330,8 @@ export default function DocumentDetail() {
                     {validationWarnings.map((warn, idx) => (
                       <div
                         key={idx}
-                        className={`flex items-start gap-3 p-4 rounded-lg ${
-                          warn.severity === 'error' ? 'bg-red-50' : 'bg-yellow-50'
-                        }`}
+                        className={`flex items-start gap-3 p-4 rounded-lg ${warn.severity === 'error' ? 'bg-red-50' : 'bg-yellow-50'
+                          }`}
                       >
                         {warn.severity === 'error' ? (
                           <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
@@ -374,12 +372,11 @@ export default function DocumentDetail() {
                     <div className="space-y-4">
                       {evidence.map((event: EvidenceEvent, idx: number) => (
                         <div key={event.id || idx} className="relative pl-10">
-                          <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 bg-white ${
-                            event.severity === 'error' ? 'border-red-500' :
+                          <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 bg-white ${event.severity === 'error' ? 'border-red-500' :
                             event.severity === 'warning' ? 'border-yellow-500' :
-                            event.severity === 'success' ? 'border-green-500' :
-                            'border-blue-500'
-                          }`} />
+                              event.severity === 'success' ? 'border-green-500' :
+                                'border-blue-500'
+                            }`} />
                           <div className="bg-gray-50 rounded-lg p-3">
                             <div className="flex items-center justify-between">
                               <span className="font-medium text-sm text-gray-900">

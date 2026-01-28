@@ -56,6 +56,9 @@ class Config:
     # Feature Flags (PR14: Durable Ingestion)
     ENABLE_MINIO: bool = os.getenv("ENABLE_MINIO", "1") == "1"
     ENABLE_QDRANT: bool = os.getenv("ENABLE_QDRANT", "1") == "1"
+    
+    # Feature Flags (Cleanup: Mock Data Control)
+    USE_MOCKS: bool = os.getenv("USE_MOCKS", "false").lower() == "true"
 
     # Feature Flags (PR15: Observability)
     ENABLE_OTEL: bool = os.getenv("ENABLE_OTEL", "1") == "1"

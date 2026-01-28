@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   Upload,
@@ -63,7 +63,9 @@ function formatDate(dateStr: string): string {
 }
 
 
+
 export default function DocumentsInbox() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | ''>('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
@@ -121,13 +123,15 @@ export default function DocumentsInbox() {
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
-    
+
     setUploading(true);
     try {
       await Promise.all(files.map(file => api.uploadDocument(file)));
+      // Invalidate queries to refresh list immediately
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -141,6 +145,7 @@ export default function DocumentsInbox() {
     setUploading(true);
     try {
       await Promise.all(files.map(file => api.uploadDocument(file)));
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -170,11 +175,10 @@ export default function DocumentsInbox() {
           <button
             key={tab.value}
             onClick={() => setTypeFilter(tab.value as DocumentType | '')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-              typeFilter === tab.value
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border hover:bg-gray-50 text-gray-700'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${typeFilter === tab.value
+              ? 'bg-blue-600 text-white'
+              : 'bg-white border hover:bg-gray-50 text-gray-700'
+              }`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -187,9 +191,8 @@ export default function DocumentsInbox() {
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-          isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-        }`}
+        className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+          }`}
       >
         <input
           type="file"
