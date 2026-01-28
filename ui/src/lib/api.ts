@@ -94,9 +94,9 @@ class ApiClient {
   // Documents API (for accounting app)
   // =====================================================
   
-  async getDocuments(status?: string) {
-    const params = status ? { status } : {};
-    const response = await this.client.get('/v1/documents', { params });
+  async getDocuments(params?: Record<string, string>) {
+    
+    const response = await this.client.get('/v1/documents', { params: params || {} });
     return response.data;
   }
 
@@ -141,6 +141,7 @@ class ApiClient {
   
   async getApprovals(status?: string) {
     const params = status ? { status } : {};
+    
     const response = await this.client.get('/v1/approvals', { params });
     return response.data;
   }

@@ -12,6 +12,10 @@ import {
   Clock,
   XCircle,
   Eye,
+  Receipt,
+  CreditCard,
+  Wallet,
+  FolderOpen,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Document, DocumentStatus, DocumentType } from '../types';
@@ -58,60 +62,6 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('vi-VN');
 }
 
-// Mock data for demo when API is not available
-const MOCK_DOCUMENTS: Document[] = [
-  {
-    id: 'doc-001',
-    filename: 'hoadon_vpp_01.pdf',
-    type: 'invoice',
-    status: 'proposed',
-    vendor_name: 'Công ty TNHH Văn Phòng Phẩm ABC',
-    invoice_no: 'HD-2024-001234',
-    invoice_date: '2026-01-15',
-    total_amount: 11000000,
-    vat_amount: 1000000,
-    created_at: '2026-01-23T10:30:00Z',
-    updated_at: '2026-01-23T11:00:00Z',
-  },
-  {
-    id: 'doc-002',
-    filename: 'sao_ke_vietcombank_t12.xlsx',
-    type: 'bank_statement',
-    status: 'extracted',
-    created_at: '2026-01-22T09:00:00Z',
-    updated_at: '2026-01-22T10:30:00Z',
-  },
-  {
-    id: 'doc-003',
-    filename: 'phieu_chi_pc2026_045.pdf',
-    type: 'payment_voucher',
-    status: 'pending_approval',
-    vendor_name: 'Nhà cung cấp XYZ',
-    total_amount: 5500000,
-    created_at: '2026-01-21T14:00:00Z',
-    updated_at: '2026-01-21T15:00:00Z',
-  },
-  {
-    id: 'doc-004',
-    filename: 'invoice_dien_evn_01.pdf',
-    type: 'invoice',
-    status: 'approved',
-    vendor_name: 'Điện lực EVN',
-    invoice_no: 'EVN-2026-0045',
-    total_amount: 3200000,
-    vat_amount: 320000,
-    created_at: '2026-01-20T08:00:00Z',
-    updated_at: '2026-01-20T11:00:00Z',
-  },
-  {
-    id: 'doc-005',
-    filename: 'hop_dong_thue_van_phong.pdf',
-    type: 'contract',
-    status: 'new',
-    created_at: '2026-01-23T08:00:00Z',
-    updated_at: '2026-01-23T08:00:00Z',
-  },
-];
 
 export default function DocumentsInbox() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,17 +70,20 @@ export default function DocumentsInbox() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Use mock data for demo, try API first
-  const { data: documents = MOCK_DOCUMENTS, isLoading, error } = useQuery<Document[]>({
-    queryKey: ['documents', statusFilter],
+  // Fetch documents from real backend API only
+  const { data: documents = [], isLoading, error } = useQuery<Document[]>({
+    queryKey: ['documents', statusFilter, typeFilter],
     queryFn: async () => {
       try {
-        const response = await api.getDocuments(statusFilter || undefined);
+        const params: Record<string, string> = {};
+        if (statusFilter) params.status = statusFilter;
+        if (typeFilter) params.type = typeFilter;
+        const response = await api.getDocuments(params);
         // API returns { documents: [], total: ... } but component expects Document[]
-        return Array.isArray(response) ? response : (response.documents || MOCK_DOCUMENTS);
+        return Array.isArray(response) ? response : (response.documents || []);
       } catch (err) {
         console.error("Failed to fetch documents:", err);
-        return MOCK_DOCUMENTS;
+        return [];
       }
     },
   });
@@ -202,6 +155,31 @@ export default function DocumentsInbox() {
           <h1 className="text-2xl font-bold text-gray-900">Inbox Chứng từ</h1>
           <p className="text-gray-500 text-sm mt-1">Quản lý hóa đơn, phiếu thu/chi, và chứng từ kế toán</p>
         </div>
+      </div>
+
+      {/* Document Type Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {[
+          { value: '', label: 'Tất cả', icon: FolderOpen },
+          { value: 'invoice', label: 'Hóa đơn', icon: Receipt },
+          { value: 'receipt', label: 'Phiếu thu', icon: Wallet },
+          { value: 'payment_voucher', label: 'Phiếu chi', icon: CreditCard },
+          { value: 'bank_statement', label: 'Sổ phụ NH', icon: FileText },
+          { value: 'other', label: 'Khác', icon: FileText },
+        ].map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => setTypeFilter(tab.value as DocumentType | '')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              typeFilter === tab.value
+                ? 'bg-blue-600 text-white'
+                : 'bg-white border hover:bg-gray-50 text-gray-700'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Upload Area */}

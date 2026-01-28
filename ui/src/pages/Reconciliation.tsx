@@ -3,38 +3,25 @@ import {
   Link2,
   Unlink,
   AlertTriangle,
-  CheckCircle,
   Search,
   ArrowRight,
   Ban,
   HelpCircle,
 } from 'lucide-react';
 
-// Mock data for demo
-const MOCK_BANK_TRANSACTIONS = [
-  { id: 'bt-1', date: '2026-01-20', description: 'TT cho NCC ABC Corp', amount: 15000000, type: 'debit', status: 'unmatched' },
-  { id: 'bt-2', date: '2026-01-19', description: 'Thu tiền KH XYZ Ltd', amount: 8500000, type: 'credit', status: 'matched', matched_invoice: 'INV-001' },
-  { id: 'bt-3', date: '2026-01-18', description: 'Chi phí vận chuyển', amount: 2300000, type: 'debit', status: 'suspicious' },
-  { id: 'bt-4', date: '2026-01-17', description: 'TT hóa đơn #HD456', amount: 45000000, type: 'debit', status: 'unmatched' },
-  { id: 'bt-5', date: '2026-01-15', description: 'Thu nợ KH Minh Anh', amount: 12000000, type: 'credit', status: 'matched', matched_invoice: 'INV-002' },
-];
+// No mock data - feature not yet implemented in backend
 
-const MOCK_INVOICES = [
-  { id: 'inv-1', invoice_no: 'HD-2026-001', vendor: 'ABC Corp', amount: 15000000, date: '2026-01-15', status: 'unmatched' },
-  { id: 'inv-2', invoice_no: 'HD-2026-002', vendor: 'DEF Ltd', amount: 8500000, date: '2026-01-14', status: 'matched' },
-  { id: 'inv-3', invoice_no: 'HD-2026-003', vendor: 'GHI JSC', amount: 45000000, date: '2026-01-10', status: 'unmatched' },
-];
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-}
 
 export default function Reconciliation() {
   const [activeTab, setActiveTab] = useState<'unmatched' | 'matched' | 'suspicious'>('unmatched');
   const [selectedTransaction, setSelectedTransaction] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
 
-  const filteredTransactions = MOCK_BANK_TRANSACTIONS.filter(t => t.status === activeTab);
+  // No data - feature not yet implemented
+  
+  
+  const filteredTransactions: never[] = [];
+  const invoices: never[] = [];
 
   const handleMatch = () => {
     if (selectedTransaction && selectedInvoice) {
@@ -61,9 +48,9 @@ export default function Reconciliation() {
       {/* Tabs */}
       <div className="flex gap-2">
         {[
-          { value: 'unmatched', label: 'Chưa khớp', icon: Unlink, count: 3 },
-          { value: 'matched', label: 'Đã khớp', icon: Link2, count: 2 },
-          { value: 'suspicious', label: 'Nghi vấn', icon: AlertTriangle, count: 1 },
+          { value: 'unmatched', label: 'Chưa khớp', icon: Unlink, count: 0 },
+          { value: 'matched', label: 'Đã khớp', icon: Link2, count: 0 },
+          { value: 'suspicious', label: 'Nghi vấn', icon: AlertTriangle, count: 0 },
         ].map(tab => (
           <button
             key={tab.value}
@@ -95,37 +82,12 @@ export default function Reconciliation() {
           <div className="divide-y max-h-[500px] overflow-auto">
             {filteredTransactions.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                <CheckCircle className="w-10 h-10 mx-auto text-green-400 mb-3" />
-                <p>Không có giao dịch {activeTab === 'unmatched' ? 'chưa khớp' : activeTab === 'suspicious' ? 'nghi vấn' : ''}</p>
+                <Unlink className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+                <p>Chưa có giao dịch ngân hàng</p>
+                <p className="text-sm text-gray-400 mt-1">Tính năng đang phát triển</p>
               </div>
             ) : (
-              filteredTransactions.map(tx => (
-                <div
-                  key={tx.id}
-                  onClick={() => setSelectedTransaction(tx.id)}
-                  className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                    selectedTransaction === tx.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">{tx.description}</p>
-                      <p className="text-sm text-gray-500">{tx.date}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`font-medium ${tx.type === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
-                        {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
-                      </p>
-                      {tx.status === 'suspicious' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
-                          <AlertTriangle className="w-3 h-3" />
-                          Nghi vấn
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
+              null
             )}
           </div>
         </div>
@@ -146,24 +108,13 @@ export default function Reconciliation() {
             </div>
           </div>
           <div className="divide-y max-h-[400px] overflow-auto">
-            {MOCK_INVOICES.filter(inv => inv.status === 'unmatched').map(inv => (
-              <div
-                key={inv.id}
-                onClick={() => setSelectedInvoice(inv.id)}
-                className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                  selectedInvoice === inv.id ? 'bg-green-50 border-l-4 border-green-500' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium text-gray-900">{inv.invoice_no}</p>
-                    <p className="text-sm text-gray-500">{inv.vendor}</p>
-                    <p className="text-xs text-gray-400">{inv.date}</p>
-                  </div>
-                  <p className="font-medium text-gray-900">{formatCurrency(inv.amount)}</p>
-                </div>
+            {invoices.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <Unlink className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+                <p>Chưa có hóa đơn</p>
+                <p className="text-sm text-gray-400 mt-1">Tính năng đang phát triển</p>
               </div>
-            ))}
+            ) : null}
           </div>
         </div>
       </div>

@@ -350,23 +350,6 @@ services:
       retries: 3
     logging: *default-logging
 
-  # ==========================================================================
-  # Web UI
-  # ==========================================================================
-  web:
-    image: nginx:alpine
-    container_name: erpx-web
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    volumes:
-      - ./src/web:/usr/share/nginx/html:ro
-      - ./infrastructure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - api
-    networks:
-      - erpx-network
-    logging: *default-logging
 
   # ==========================================================================
   # Kong - API Gateway

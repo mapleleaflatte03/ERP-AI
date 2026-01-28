@@ -118,7 +118,7 @@ export default function DocumentDetail() {
     { key: 'currency', label: 'Loại tiền', value: doc.currency || extractedFields.currency || 'VND' },
   ];
 
-  // Validation warnings (mock for now)
+  // Validation warnings based on extracted fields
   const validationWarnings = [
     ...(doc.vendor_tax_id ? [] : [{ severity: 'warning', message: 'Chưa có MST nhà cung cấp' }]),
     ...(doc.total_amount ? [] : [{ severity: 'error', message: 'Chưa trích xuất được tổng tiền' }]),

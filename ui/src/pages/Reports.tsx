@@ -57,21 +57,9 @@ const REPORTS = [
   },
 ];
 
-// Mock data for general ledger
-const MOCK_LEDGER_DATA = [
-  { account: '111', name: 'Tiền mặt', opening: 50000000, debit: 120000000, credit: 95000000, closing: 75000000 },
-  { account: '112', name: 'Tiền gửi ngân hàng', opening: 200000000, debit: 350000000, credit: 280000000, closing: 270000000 },
-  { account: '131', name: 'Phải thu KH', opening: 80000000, debit: 150000000, credit: 120000000, closing: 110000000 },
-  { account: '152', name: 'Nguyên vật liệu', opening: 45000000, debit: 60000000, credit: 55000000, closing: 50000000 },
-  { account: '331', name: 'Phải trả NCC', opening: 65000000, debit: 70000000, credit: 90000000, closing: 85000000 },
-  { account: '511', name: 'Doanh thu', opening: 0, debit: 0, credit: 280000000, closing: 280000000 },
-  { account: '632', name: 'Giá vốn hàng bán', opening: 0, debit: 180000000, credit: 0, closing: 180000000 },
-  { account: '642', name: 'Chi phí quản lý', opening: 0, debit: 35000000, credit: 0, closing: 35000000 },
-];
+// No mock data - backend endpoint needed for ledger reports
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('vi-VN').format(amount);
-}
+
 
 export default function Reports() {
   const [selectedReport, setSelectedReport] = useState<string | null>('general_ledger');
@@ -79,9 +67,11 @@ export default function Reports() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerate = () => {
+    // Will call backend API when endpoint is ready
     setIsGenerating(true);
-    setTimeout(() => setIsGenerating(false), 1500);
+    setIsGenerating(false);
   };
+
 
   return (
     <div className="space-y-6">
@@ -195,26 +185,14 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {MOCK_LEDGER_DATA.map(row => (
-                  <tr key={row.account} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-sm font-medium text-gray-900">{row.account}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{row.name}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-600">{formatCurrency(row.opening)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-blue-600">{formatCurrency(row.debit)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-red-600">{formatCurrency(row.credit)}</td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">{formatCurrency(row.closing)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-gray-50 border-t font-medium">
                 <tr>
-                  <td colSpan={2} className="px-4 py-3 text-right text-sm text-gray-700">Tổng cộng:</td>
-                  <td className="px-4 py-3 text-right text-sm">{formatCurrency(440000000)}</td>
-                  <td className="px-4 py-3 text-right text-sm text-blue-600">{formatCurrency(965000000)}</td>
-                  <td className="px-4 py-3 text-right text-sm text-red-600">{formatCurrency(920000000)}</td>
-                  <td className="px-4 py-3 text-right text-sm">{formatCurrency(485000000)}</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    <FileText className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+                    <p>Chưa có dữ liệu sổ cái</p>
+                    <p className="text-sm text-gray-400 mt-1">Dữ liệu sẽ hiển thị khi có bút toán đã ghi sổ</p>
+                  </td>
                 </tr>
-              </tfoot>
+              </tbody>
             </table>
           </div>
         </div>

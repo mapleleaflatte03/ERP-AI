@@ -5,7 +5,6 @@ import './index.css';
 
 // Security: One-time token cleanup after deploy
 import { cleanupTokenOnce } from './lib/tokenCleanup';
-import api from './lib/api';
 
 // Run cleanup before React renders
 cleanupTokenOnce();

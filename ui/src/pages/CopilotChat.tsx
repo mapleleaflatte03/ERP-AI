@@ -56,15 +56,15 @@ export default function CopilotChat() {
       };
       setMessages(prev => [...prev, assistantMessage]);
     },
-    onError: () => {
-      // Mock response for demo
-      const mockResponse: ChatMessage = {
+    onError: (error) => {
+      // Show actual error - no mock response
+      const errorMessage: ChatMessage = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Xin lỗi, hệ thống đang bảo trì. Vui lòng thử lại sau.\n\n*Lưu ý: Tính năng Copilot đang trong giai đoạn phát triển.*',
+        content: `Không thể kết nối đến dịch vụ AI. Vui lòng kiểm tra:\n\n• Backend API đang hoạt động\n• LLM provider đã được cấu hình\n\nLỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
         created_at: new Date().toISOString(),
       };
-      setMessages(prev => [...prev, mockResponse]);
+      setMessages(prev => [...prev, errorMessage]);
     },
   });
 

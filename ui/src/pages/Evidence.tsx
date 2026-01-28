@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Clock,
@@ -18,113 +19,9 @@ import {
   Printer,
   Download,
 } from 'lucide-react';
+import api from '../lib/api';
 import type { EvidenceEvent } from '../types';
 
-// Mock evidence data
-const MOCK_EVIDENCE: EvidenceEvent[] = [
-  {
-    id: 'evt-001',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T14:35:00Z',
-    actor: 'user:nguyen.thi.mai@company.com',
-    action: 'document.posted',
-    payload: { ledger: 'GL', entry_id: 'JE-2026-0847' },
-  },
-  {
-    id: 'evt-002',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T14:30:00Z',
-    actor: 'user:nguyen.thi.mai@company.com',
-    action: 'journal.approved',
-    payload: { proposal_id: 'prop-001', note: 'Đã xác minh với NCC' },
-  },
-  {
-    id: 'evt-003',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T11:20:00Z',
-    actor: 'agent:accounting-agent',
-    action: 'journal.proposed',
-    payload: {
-      proposal_id: 'prop-001',
-      confidence: 0.92,
-      entries_count: 2,
-      total_debit: 11000000,
-      total_credit: 11000000,
-    },
-  },
-  {
-    id: 'evt-004',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T11:15:00Z',
-    actor: 'agent:ocr-extractor',
-    action: 'extraction.completed',
-    payload: {
-      fields_extracted: 8,
-      line_items: 3,
-      confidence: 0.95,
-    },
-  },
-  {
-    id: 'evt-005',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T11:10:00Z',
-    actor: 'agent:ocr-extractor',
-    action: 'extraction.started',
-    payload: { model: 'gpt-4o-vision', pages: 1 },
-  },
-  {
-    id: 'evt-006',
-    document_id: 'doc-001',
-    timestamp: '2026-01-23T11:05:00Z',
-    actor: 'user:le.van.tuan@company.com',
-    action: 'document.uploaded',
-    payload: { filename: 'hoadon_vpp_01.pdf', size_bytes: 245678, mime_type: 'application/pdf' },
-  },
-];
-
-// More mock data for recent activity
-const RECENT_ACTIVITY: EvidenceEvent[] = [
-  {
-    id: 'evt-r01',
-    document_id: 'doc-015',
-    timestamp: '2026-01-23T15:42:00Z',
-    actor: 'user:nguyen.thi.mai@company.com',
-    action: 'journal.approved',
-    payload: { proposal_id: 'prop-015' },
-  },
-  {
-    id: 'evt-r02',
-    document_id: 'doc-014',
-    timestamp: '2026-01-23T15:38:00Z',
-    actor: 'agent:accounting-agent',
-    action: 'journal.proposed',
-    payload: { confidence: 0.88 },
-  },
-  {
-    id: 'evt-r03',
-    document_id: 'doc-013',
-    timestamp: '2026-01-23T15:30:00Z',
-    actor: 'user:le.van.tuan@company.com',
-    action: 'document.uploaded',
-    payload: { filename: 'invoice_abc.pdf' },
-  },
-  {
-    id: 'evt-r04',
-    document_id: 'doc-012',
-    timestamp: '2026-01-23T15:25:00Z',
-    actor: 'agent:ocr-extractor',
-    action: 'extraction.completed',
-    payload: { fields_extracted: 12 },
-  },
-  {
-    id: 'evt-r05',
-    document_id: 'doc-011',
-    timestamp: '2026-01-23T15:20:00Z',
-    actor: 'user:nguyen.thi.mai@company.com',
-    action: 'journal.rejected',
-    payload: { reason: 'Sai tài khoản đối ứng' },
-  },
-];
 
 const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   'document.uploaded': Upload,
@@ -256,8 +153,18 @@ export default function Evidence() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterAction, setFilterAction] = useState<string>('all');
 
-  // If documentId provided, show document-specific evidence
-  const events = documentId ? MOCK_EVIDENCE : RECENT_ACTIVITY;
+  // Fetch evidence from backend API - no mock data
+  const { data: eventsData, isLoading } = useQuery<{ events?: EvidenceEvent[] }>({
+    queryKey: ['evidence', documentId],
+    queryFn: async () => {
+      if (documentId) {
+        return api.getDocumentEvidence(documentId);
+      }
+      return api.getEvidence();
+    },
+  });
+
+  const events: EvidenceEvent[] = eventsData?.events || [];
 
   const filteredEvents = events.filter(evt => {
     if (filterAction !== 'all' && evt.action !== filterAction) return false;
@@ -360,10 +267,15 @@ export default function Evidence() {
 
       {/* Timeline */}
       <div className="space-y-3">
-        {filteredEvents.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-12 bg-white rounded-xl border">
+            <Clock className="w-12 h-12 mx-auto text-gray-300 mb-4 animate-pulse" />
+            <p className="text-gray-500">Đang tải dữ liệu...</p>
+          </div>
+        ) : filteredEvents.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-xl border">
             <Clock className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500">Không tìm thấy sự kiện nào</p>
+            <p className="text-gray-500">Chưa có hoạt động nào</p>
           </div>
         ) : (
           filteredEvents.map(event => (
