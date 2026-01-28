@@ -18,6 +18,7 @@ import {
   Trash2
 } from 'lucide-react';
 import api from '../lib/api';
+import DocumentPreview from '../components/DocumentPreview';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   new: { label: 'Mới', color: 'bg-gray-100 text-gray-700', icon: FileText },
@@ -312,23 +313,21 @@ export default function DocumentDetail() {
               {/* Zoom controls placeholder */}
             </div>
           </div>
-          <div className="flex-1 bg-gray-100/50 flex items-center justify-center p-6 relative">
-            <div className="absolute inset-0 pattern-grid-lg text-gray-100 opacity-50" />
-            {doc.file_path ? (
-              <div className="text-center">
-                <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100 transform transition-transform hover:scale-[1.01]">
-                  <div className="w-20 h-20 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-100">
-                    <FileText className="w-10 h-10 text-red-500" />
-                  </div>
-                  <p className="font-medium text-gray-900 line-clamp-1 max-w-[250px]">{doc.filename}</p>
-                  <p className="text-sm text-gray-500 mt-1">PDF Document</p>
-                  {/* If we had a real URL: <iframe src={doc.signed_url} ... /> */}
-                </div>
-              </div>
+          <div className="flex-1 bg-gray-100/50 relative overflow-hidden">
+            {doc.file_url ? (
+              <DocumentPreview
+                fileUrl={doc.file_url}
+                filename={doc.filename}
+                contentType={doc.content_type || 'application/pdf'}
+                ocrBoxes={doc.ocr_boxes}
+              />
             ) : (
-              <div className="text-center text-gray-400">
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p>No preview available</p>
+                <p className="text-xs mt-2 italic px-8 text-center text-gray-300">
+                  {doc.status === 'new' ? 'Processing...' : 'Direct file preview not available for this record.'}
+                </p>
               </div>
             )}
           </div>
@@ -348,8 +347,8 @@ export default function DocumentDetail() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === tab.id
-                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                 >
                   <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'}`} />
