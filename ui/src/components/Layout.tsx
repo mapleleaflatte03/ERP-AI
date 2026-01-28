@@ -13,7 +13,7 @@ import {
   X,
   LogOut,
   CheckCircle2,
-  
+
   Settings,
   Bot,
 } from 'lucide-react';
@@ -24,9 +24,9 @@ const navigation = [
   { name: 'Chứng từ', href: '/', icon: FileText },
   { name: 'Đề xuất hạch toán', href: '/proposals', icon: Edit3 },
   { name: 'Duyệt', href: '/approvals', icon: CheckSquare },
-  { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight },
-  { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle },
-  { name: 'Báo cáo', href: '/reports', icon: BarChart3 },
+  { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight, comingSoon: true },
+  { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle, beta: true },
+  { name: 'Báo cáo', href: '/reports', icon: BarChart3, comingSoon: true },
   { name: 'Lịch sử', href: '/evidence', icon: Clock },
 ];
 
@@ -89,22 +89,41 @@ export default function Layout() {
 
         <nav className="mt-6 px-3 space-y-1">
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href || 
+            const isActive = location.pathname === item.href ||
               (item.href === '/' && location.pathname.startsWith('/documents'));
+
+            // Handle Coming Soon items
+            if ((item as any).comingSoon) {
+              return (
+                <div key={item.name} className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 cursor-not-allowed opacity-60">
+                  <div className="flex items-center gap-3">
+                    <item.icon className="w-5 h-5" />
+                    {item.name}
+                  </div>
+                  <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700">SOON</span>
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={() => setSidebarOpen(false)}
                 className={clsx(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                   isActive
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                 )}
               >
-                <item.icon className="w-5 h-5" />
-                {item.name}
+                <div className="flex items-center gap-3">
+                  <item.icon className="w-5 h-5" />
+                  {item.name}
+                </div>
+                {(item as any).beta && (
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">BETA</span>
+                )}
               </Link>
             );
           })}

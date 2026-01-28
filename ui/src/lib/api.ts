@@ -105,6 +105,11 @@ class ApiClient {
     return response.data;
   }
 
+  async deleteDocument(documentId: string) {
+    const response = await this.client.delete(`/v1/documents/${documentId}`);
+    return response.data;
+  }
+
   async uploadDocument(file: File, tenantId: string = 'default') {
     const formData = new FormData();
     formData.append('file', file);

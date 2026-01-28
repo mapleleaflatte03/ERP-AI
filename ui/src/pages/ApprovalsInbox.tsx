@@ -36,10 +36,17 @@ export default function ApprovalsInbox() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch approvals
-  const { data: approvals = [], isLoading, refetch } = useQuery({
+  const { data: response, isLoading, refetch } = useQuery({
     queryKey: ['approvals', statusFilter],
     queryFn: () => api.getApprovals(statusFilter || undefined),
   });
+
+  // Handle potential object response { approvals: [], count: ... } or array []
+  const approvalsList = Array.isArray(response)
+    ? response
+    : (response && typeof response === 'object' && 'approvals' in response)
+      ? (response.approvals || [])
+      : [];
 
   // Approve mutation
   const approveMutation = useMutation({
@@ -76,7 +83,7 @@ export default function ApprovalsInbox() {
     }
   };
 
-  const filteredApprovals = approvals.filter((approval: Approval) => {
+  const filteredApprovals = (approvalsList || []).filter((approval: Approval) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
@@ -129,11 +136,10 @@ export default function ApprovalsInbox() {
             <button
               key={filter.value}
               onClick={() => setStatusFilter(filter.value as typeof statusFilter)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === filter.value
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${statusFilter === filter.value
                   ? `bg-${filter.color}-100 text-${filter.color}-700 border border-${filter.color}-300`
                   : 'bg-white border hover:bg-gray-50'
-              }`}
+                }`}
             >
               <filter.icon className="w-4 h-4" />
               {filter.label}
@@ -164,9 +170,8 @@ export default function ApprovalsInbox() {
                 <div
                   key={approval.id}
                   onClick={() => setSelectedApproval(approval)}
-                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    selectedApproval?.id === approval.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                  }`}
+                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${selectedApproval?.id === approval.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                    }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
@@ -182,13 +187,12 @@ export default function ApprovalsInbox() {
                         </p>
                       )}
                     </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      approval.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                      approval.status === 'approved' ? 'bg-green-100 text-green-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${approval.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        approval.status === 'approved' ? 'bg-green-100 text-green-700' :
+                          'bg-red-100 text-red-700'
+                      }`}>
                       {approval.status === 'pending' ? 'Chờ duyệt' :
-                       approval.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
+                        approval.status === 'approved' ? 'Đã duyệt' : 'Từ chối'}
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 mt-2">

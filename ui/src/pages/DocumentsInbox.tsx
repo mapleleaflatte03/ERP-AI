@@ -8,9 +8,7 @@ import {
   ChevronRight,
   AlertCircle,
   Loader2,
-  CheckCircle2,
   Clock,
-  XCircle,
   Eye,
   Receipt,
   CreditCard,
@@ -72,48 +70,55 @@ export default function DocumentsInbox() {
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Pagination State
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+
   // Fetch documents from real backend API only
-  const { data: documents = [], isLoading, error } = useQuery<Document[]>({
-    queryKey: ['documents', statusFilter, typeFilter],
+  const { data, isLoading, error } = useQuery<{ docs: Document[], total: number }>({
+    queryKey: ['documents', statusFilter, typeFilter, page, limit],
     queryFn: async () => {
       try {
-        const params: Record<string, string> = {};
+        const params: Record<string, string | number> = {
+          limit,
+          offset: (page - 1) * limit
+        };
         if (statusFilter) params.status = statusFilter;
         if (typeFilter) params.type = typeFilter;
-        const response = await api.getDocuments(params);
-        // API returns { documents: [], total: ... } but component expects Document[]
-        const docs = Array.isArray(response) ? response : (response.documents || []);
+
+        const response = await api.getDocuments(params as any);
+
+        // API returns { documents: [], total: ... }
+        const rawDocs = Array.isArray(response) ? response : (response.documents || []);
+        const total = Array.isArray(response) ? response.length : (response.total || 0);
 
         // Normalize doc_type -> type
-        return docs.map((d: any) => ({
+        const docs = rawDocs.map((d: any) => ({
           ...d,
           type: d.type || d.doc_type || 'other'
         }));
+
+        return { docs, total };
       } catch (err) {
         console.error("Failed to fetch documents:", err);
-        return [];
+        return { docs: [], total: 0 };
       }
     },
+    placeholderData: (prev) => prev // Keep previous data while fetching new page
   });
 
-  // Calculate stats in one pass
-  const stats = useMemo(() => {
-    return (documents || []).reduce(
-      (acc, doc) => {
-        if (doc.status === 'pending_approval') acc.pending++;
-        else if (doc.status === 'approved' || doc.status === 'posted') acc.approved++;
-        else if (doc.status === 'rejected') acc.rejected++;
-        return acc;
-      },
-      { pending: 0, approved: 0, rejected: 0 }
-    );
-  }, [documents]);
+  const documents = data?.docs || [];
+  const totalCount = data?.total || 0;
+  const totalPages = Math.ceil(totalCount / limit);
 
-  // Filter documents
+  // Calculate stats in one pass (note: this only reflects fetched documents, ideally should come from API stats endpoint)
+  // const stats = ... (removed to fix unused variable error)
+
+  // Filter documents client-side ONLY for search (since API search might not be implemented fully yet)
+  // Ideally search should be passed to API
   const filteredDocuments = useMemo(() => {
     return (documents || []).filter(doc => {
-      if (statusFilter && doc.status !== statusFilter) return false;
-      if (typeFilter && doc.type !== typeFilter) return false;
+      // Status and Type are already filtered on server
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         return (
@@ -124,7 +129,7 @@ export default function DocumentsInbox() {
       }
       return true;
     });
-  }, [documents, statusFilter, typeFilter, searchQuery]);
+  }, [documents, searchQuery]);
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -138,6 +143,7 @@ export default function DocumentsInbox() {
       await Promise.all(files.map(file => api.uploadDocument(file)));
       // Invalidate queries to refresh list immediately
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      setPage(1); // Reset to first page
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -152,6 +158,7 @@ export default function DocumentsInbox() {
     try {
       await Promise.all(files.map(file => api.uploadDocument(file)));
       queryClient.invalidateQueries({ queryKey: ['documents'] });
+      setPage(1); // Reset to first page
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -180,7 +187,7 @@ export default function DocumentsInbox() {
         ].map(tab => (
           <button
             key={tab.value}
-            onClick={() => setTypeFilter(tab.value as DocumentType | '')}
+            onClick={() => { setTypeFilter(tab.value as DocumentType | ''); setPage(1); }}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${typeFilter === tab.value
               ? 'bg-blue-600 text-white'
               : 'bg-white border hover:bg-gray-50 text-gray-700'
@@ -242,7 +249,7 @@ export default function DocumentsInbox() {
         </div>
         <select
           value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as DocumentStatus | '')}
+          onChange={e => { setStatusFilter(e.target.value as DocumentStatus | ''); setPage(1); }}
           className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Tất cả trạng thái</option>
@@ -251,14 +258,13 @@ export default function DocumentsInbox() {
           ))}
         </select>
         <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value as DocumentType | '')}
+          value={limit}
+          onChange={e => { setLimit(Number(e.target.value)); setPage(1); }}
           className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">Tất cả loại</option>
-          {Object.entries(TYPE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
+          <option value="20">20 / trang</option>
+          <option value="50">50 / trang</option>
+          <option value="100">100 / trang</option>
         </select>
       </div>
 
@@ -270,7 +276,7 @@ export default function DocumentsInbox() {
               <FileText className="w-5 h-5 text-gray-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{documents?.length || 0}</div>
+              <div className="text-2xl font-bold">{totalCount}</div>
               <div className="text-sm text-gray-500">Tổng chứng từ</div>
             </div>
           </div>
@@ -281,33 +287,13 @@ export default function DocumentsInbox() {
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{stats.pending}</div>
+              {/* Note: Pending stats here are only for current page. Ideal solution needs endpoint for aggregated stats */}
+              <div className="text-xl font-bold text-gray-400">--</div>
               <div className="text-sm text-gray-500">Chờ duyệt</div>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{stats.approved}</div>
-              <div className="text-sm text-gray-500">Đã duyệt</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <XCircle className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{stats.rejected}</div>
-              <div className="text-sm text-gray-500">Từ chối</div>
-            </div>
-          </div>
-        </div>
+        {/* ... (Other stats placeholders since we don't have aggregated stats API yet) ... */}
       </div>
 
       {/* Documents List */}
@@ -329,58 +315,102 @@ export default function DocumentsInbox() {
             <p className="text-gray-400 text-sm">Tải lên chứng từ đầu tiên của bạn</p>
           </div>
         ) : (
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên file</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loại</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NCC / Khách hàng</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Số tiền</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ngày tạo</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filteredDocuments.map(doc => (
-                <tr key={doc.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      <span className="font-medium text-gray-900 truncate max-w-[200px]">{doc.filename}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {TYPE_LABELS[doc.type] || doc.type}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 truncate max-w-[200px]">
-                    {doc.vendor_name || '-'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-right text-gray-900 font-medium">
-                    {formatCurrency(doc.total_amount)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[doc.status]}`}>
-                      {STATUS_LABELS[doc.status]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {formatDate(doc.created_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/documents/${doc.id}`}
-                      className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Xem
-                      <ChevronRight className="w-4 h-4" />
-                    </Link>
-                  </td>
+          <>
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên file</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loại</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NCC / Khách hàng</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Số tiền</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ngày tạo</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y">
+                {filteredDocuments.map(doc => (
+                  <tr key={doc.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span className="font-medium text-gray-900 truncate max-w-[200px]">{doc.filename}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {TYPE_LABELS[doc.type] || doc.type}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 truncate max-w-[200px]">
+                      {doc.vendor_name || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-900 font-medium">
+                      {formatCurrency(doc.total_amount)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[doc.status]}`}>
+                        {STATUS_LABELS[doc.status]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {formatDate(doc.created_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/documents/${doc.id}`}
+                        className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Xem
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination Controls */}
+            {totalCount > 0 && (
+              <div className="bg-gray-50 border-t px-4 py-3 flex items-center justify-between">
+                <div className="text-sm text-gray-500">
+                  Hiển thị {(page - 1) * limit + 1} đến {Math.min(page * limit, totalCount)} trong số {totalCount}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1 border rounded bg-white disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    Trước
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {/* Simple page numbers */}
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let p = i + 1;
+                      if (totalPages > 5 && page > 3) p = page - 2 + i;
+                      if (p > totalPages) return null;
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={`px-3 py-1 rounded ${page === p ? 'bg-blue-600 text-white' : 'hover:bg-gray-200'}`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-3 py-1 border rounded bg-white disabled:opacity-50 hover:bg-gray-50"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
