@@ -464,11 +464,11 @@ async def get_document_evidence(document_id: str) -> List[dict]:
         # Try audit_evidence table first
         rows = await conn.fetch(
             """
-            SELECT id, step_name, action, outcome, input_summary, output_summary, 
-                   started_at, completed_at, trace_id
+            SELECT id, llm_stage, decision, llm_input_preview, llm_output_raw, 
+                   created_at, updated_at
             FROM audit_evidence
             WHERE document_id = $1 OR job_id = $1
-            ORDER BY started_at ASC
+            ORDER BY created_at ASC
             """,
             document_id,
         )
@@ -478,13 +478,13 @@ async def get_document_evidence(document_id: str) -> List[dict]:
             events.append(
                 {
                     "id": str(row["id"]),
-                    "step": row.get("step_name", "processing"),
-                    "action": row.get("action", "unknown"),
-                    "timestamp": row["started_at"].isoformat() if row.get("started_at") else None,
-                    "created_at": row["started_at"].isoformat() if row.get("started_at") else None,
-                    "output_summary": row.get("output_summary"),
-                    "severity": "success" if row.get("outcome") == "success" else "info",
-                    "trace_id": row.get("trace_id"),
+                    "step": row.get("llm_stage", "processing"),
+                    "action": row.get("llm_stage", "unknown"),
+                    "timestamp": row["created_at"].isoformat() if row.get("created_at") else None,
+                    "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                    "output_summary": row.get("llm_output_raw"),
+                    "severity": "success" if row.get("decision") == "approved" else "info",
+                    "trace_id": None,
                 }
             )
 

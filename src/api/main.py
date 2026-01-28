@@ -154,7 +154,8 @@ class ApprovalResponse(BaseModel):
 
 # PR-8: Approval Inbox Models
 class ApprovalActionRequest(BaseModel):
-    approver: str
+    approver: str | None = None
+    user_id: str | None = None
     comment: str | None = None
 
 
@@ -2361,13 +2362,19 @@ async def approve_approval(
     - comment: approval comment (optional)
     """
     request_id = x_request_id or get_request_id()
+    
+    # Handle alias
+    approver = request.approver or request.user_id
+    if not approver:
+        raise HTTPException(status_code=422, detail="Field 'approver' or 'user_id' is required")
+
     try:
         conn = await get_db_connection()
         try:
             result = await approve_proposal(
                 conn,
                 approval_id=approval_id,
-                approver=request.approver,
+                approver=approver,
                 comment=request.comment,
                 request_id=request_id,
             )
@@ -4496,6 +4503,14 @@ async def _test_mlflow():
 # ===========================================================================
 # Run Server
 # ===========================================================================
+
+@app.get("/v1/version")
+async def get_version():
+    return {
+        "commit": os.getenv("GIT_COMMIT", "unknown"),
+        "build_time": datetime.now().isoformat(),
+        "status": "active"
+    }
 
 if __name__ == "__main__":
     port = int(os.getenv("API_PORT", "8000"))
