@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build argument for git commit SHA
+ARG GIT_COMMIT=unknown
+
 # Copy package files
 COPY package*.json ./
 
@@ -14,6 +17,9 @@ COPY . .
 
 # Build
 RUN npm run build
+
+# Create version.json with build info
+RUN echo "{\"ui_build\":\"${GIT_COMMIT}\",\"build_time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > dist/version.json
 
 # Production stage
 FROM nginx:alpine
