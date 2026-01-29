@@ -160,6 +160,12 @@ class ApiClient {
     return response.data;
   }
 
+  // Lấy preview dạng text/HTML (dùng cho XLSX preview)
+  async getFilePreview(url: string): Promise<string> {
+    const response = await this.client.get(url, { responseType: 'text' });
+    return response.data as string;
+  }
+
   // =====================================================
   // Approvals API (for accounting app)
   // =====================================================
