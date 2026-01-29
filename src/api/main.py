@@ -4547,6 +4547,13 @@ async def get_report_timeseries(
     end_date: str = Query(..., description="End date YYYY-MM-DD")
 ):
     """Get revenue and expenses timeseries from journal entries."""
+    try:
+        from datetime import datetime
+        start_dt = datetime.fromisoformat(start_date)
+        end_dt = datetime.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -4558,10 +4565,11 @@ async def get_report_timeseries(
             WITH monthly_data AS (
                 SELECT 
                     TO_CHAR(jp.created_at, 'YYYY-MM') as month,
-                    SUM(CASE WHEN doc_type = 'invoice' THEN total_amount ELSE 0 END) as revenue,
-                    SUM(CASE WHEN doc_type IN ('receipt', 'payment_voucher') THEN total_amount ELSE 0 END) as expense
+                    SUM(CASE WHEN d.doc_type = 'invoice' THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as revenue,
+                    SUM(CASE WHEN d.doc_type IN ('receipt', 'payment_voucher') THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as expense
                 FROM journal_proposals jp
                 JOIN documents d ON jp.document_id = d.id
+                LEFT JOIN extracted_invoices ei ON d.id = ei.document_id
                 WHERE jp.created_at BETWEEN $1::date AND $2::date
                   AND jp.status IN ('approved', 'posted', 'pending_approval') 
                 GROUP BY 1
@@ -4570,7 +4578,7 @@ async def get_report_timeseries(
             FROM monthly_data 
             ORDER BY month
         """
-        rows = await conn.fetch(query, start_date, end_date)
+        rows = await conn.fetch(query, start_dt, end_dt)
         
         labels = [row['month'] for row in rows]
         revenue_data = [float(row['revenue'] or 0) for row in rows]
