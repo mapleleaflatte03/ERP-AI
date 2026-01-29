@@ -4674,14 +4674,14 @@ async def chat_copilot(request: ChatRequest):
             if tool_name == "approve_proposal":
                 res = await tools.approve_proposal(params["id"])
                 if "error" in res:
-                    return ChatResponse(response=f"⚠️ Internal Error: {res['error']}")
-                return ChatResponse(response=f"✅ Approved proposal {params['id']} and posted to ledger.")
+                    return ChatResponse(response=f"⚠️ Lỗi nội bộ: {res['error']}")
+                return ChatResponse(response=f"✅ Đã duyệt đề xuất {params['id']} và ghi sổ cái thành công.")
                 
             elif tool_name == "reject_proposal":
                 res = await tools.reject_proposal(params["id"])
                 if "error" in res:
-                    return ChatResponse(response=f"⚠️ Internal Error: {res['error']}")
-                return ChatResponse(response=f"❌ Rejected proposal {params['id']}.")
+                    return ChatResponse(response=f"⚠️ Lỗi nội bộ: {res['error']}")
+                return ChatResponse(response=f"❌ Đã từ chối đề xuất {params['id']}.")
 
         client = LLMClient()
 

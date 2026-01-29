@@ -27,13 +27,28 @@ class ApiClient {
       return config;
     });
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling (Phase 6 - Fix C)
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
+        const status = error.response?.status;
+        let message = "Có lỗi xảy ra, vui lòng thử lại sau.";
+
+        if (status === 401) {
           this.clearToken();
+          message = "Phiên làm việc hết hạn. Vui lòng đăng nhập lại.";
+        } else if (status === 403) {
+          message = "Bạn không có quyền thực hiện hành động này.";
+        } else if (status === 404) {
+          message = "Không tìm thấy dữ liệu yêu cầu.";
+        } else if (status === 500) {
+          message = "Lỗi hệ thống (500). Vui lòng liên hệ quản trị viên.";
+        } else if (!error.response) {
+          message = "Không thể kết nối đến máy chủ. Kiểm tra mạng của bạn.";
         }
+
+        // Attach localized message for UI use
+        if (error.response) error.response.data = { ...error.response.data, ui_message: message };
         return Promise.reject(error);
       }
     );
