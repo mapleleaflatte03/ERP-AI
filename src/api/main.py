@@ -4546,7 +4546,7 @@ async def get_report_timeseries(
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD")
 ):
-    """Get revenue and expenses timeseries from journal entries."""
+    """Get revenue and expenses timeseries from posted ledger entries."""
     try:
         from datetime import datetime
         start_dt = datetime.fromisoformat(start_date)
@@ -4559,19 +4559,18 @@ async def get_report_timeseries(
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with pool.acquire() as conn:
-        # Aggregate by month from journal proposals (approximating real ledger for demo)
-        # In a real system, we'd query ledger_lines but proposals are easier to access for now
+        # Aggregate by month from ledger_entries (POSTED data only)
         query = """
             WITH monthly_data AS (
                 SELECT 
-                    TO_CHAR(jp.created_at, 'YYYY-MM') as month,
+                    TO_CHAR(le.entry_date, 'YYYY-MM') as month,
                     SUM(CASE WHEN d.doc_type = 'invoice' THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as revenue,
-                    SUM(CASE WHEN d.doc_type IN ('receipt', 'payment_voucher') THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as expense
-                FROM journal_proposals jp
+                    SUM(CASE WHEN d.doc_type IN ('receipt', 'payment') THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as expense
+                FROM ledger_entries le
+                JOIN journal_proposals jp ON le.proposal_id = jp.id
                 JOIN documents d ON jp.document_id = d.id
                 LEFT JOIN extracted_invoices ei ON d.id = ei.document_id
-                WHERE jp.created_at BETWEEN $1::date AND $2::date
-                  AND jp.status IN ('approved', 'posted', 'pending_approval') 
+                WHERE le.entry_date BETWEEN $1::date AND $2::date
                 GROUP BY 1
             )
             SELECT month, revenue, expense 
@@ -4580,11 +4579,20 @@ async def get_report_timeseries(
         """
         rows = await conn.fetch(query, start_dt, end_dt)
         
+        # Add fallback for empty data to prevent chart breaking
+        if not rows:
+             return {
+                "labels": [datetime.now().strftime("%Y-%m")],
+                "datasets": [
+                    {"label": "Doanh thu", "data": [0], "color": "#10b981"},
+                    {"label": "Chi phí", "data": [0], "color": "#ef4444"}
+                ],
+                "meta": {"currency": "VND", "period": f"{start_date} to {end_date}"}
+            }
+
         labels = [row['month'] for row in rows]
         revenue_data = [float(row['revenue'] or 0) for row in rows]
         expense_data = [float(row['expense'] or 0) for row in rows]
-        
-        # Fill missing months if needed, but for now just return sparse data
         
         return {
             "labels": labels,
