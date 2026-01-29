@@ -140,6 +140,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getFileBlob(url: string) {
+    const response = await this.client.get(url, { responseType: 'blob' });
+    return response.data;
+  }
+
   // =====================================================
   // Approvals API (for accounting app)
   // =====================================================
@@ -290,6 +295,13 @@ class ApiClient {
 
   async getGeneralLedger(startDate: string, endDate: string) {
     const response = await this.client.get('/v1/reports/general-ledger', {
+      params: { start_date: startDate, end_date: endDate },
+    });
+    return response.data;
+  }
+
+  async getReportTimeseries(startDate: string, endDate: string) {
+    const response = await this.client.get('/v1/reports/timeseries', {
       params: { start_date: startDate, end_date: endDate },
     });
     return response.data;

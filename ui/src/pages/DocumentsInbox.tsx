@@ -46,8 +46,8 @@ const TYPE_LABELS: Record<DocumentType, string> = {
   invoice: 'Hóa đơn',
   receipt: 'Phiếu thu',
   bank_statement: 'Sổ phụ NH',
-  contract: 'Hợp đồng',
   payment_voucher: 'Phiếu chi',
+  contract: 'Hợp đồng',
   other: 'Khác',
 };
 

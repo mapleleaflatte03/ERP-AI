@@ -11,6 +11,16 @@ import {
   HelpCircle,
   Lock,
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 const REPORTS = [
   {
@@ -74,6 +84,12 @@ export default function Reports() {
     queryKey: ['report-gl', dateRange.from, dateRange.to],
     queryFn: () => api.getGeneralLedger(dateRange.from, dateRange.to),
     enabled: false, // Wait for button
+  });
+
+  const { data: chartData } = useQuery({
+    queryKey: ['report-timeseries', dateRange.from, dateRange.to],
+    queryFn: () => api.getReportTimeseries(dateRange.from, dateRange.to),
+    enabled: !!selectedReport, // Auto load for charts
   });
 
   const handleGenerate = () => {
@@ -217,12 +233,42 @@ export default function Reports() {
       )}
 
       {selectedReport === 'trial_balance' && (
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50">
-            <h2 className="font-semibold text-gray-900">Bảng cân đối phát sinh</h2>
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden p-6">
+          <div className="border-b pb-4 mb-4 flex justify-between items-center">
+            <h2 className="font-semibold text-gray-900">Doanh thu & Chi phí (Theo thời gian)</h2>
           </div>
-          <div className="p-8 text-center text-gray-500">
-            <p>Chức năng đang được cập nhật. Vui lòng sử dụng Sổ cái tổng hợp.</p>
+
+          <div className="h-[400px] w-full">
+            {!chartData ? (
+              <div className="h-full flex items-center justify-center text-gray-400">Loading chart data...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData.labels.map((label: string, i: number) => ({
+                    name: label,
+                    revenue: chartData.datasets[0].data[i],
+                    expense: chartData.datasets[1].data[i],
+                  }))}
+                  margin={{
+                    top: 20,
+                    right: 30,
+                    left: 20,
+                    bottom: 5,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" />
+                  <YAxis tickFormatter={(val) => new Intl.NumberFormat('en', { notation: "compact" }).format(val)} />
+                  <Tooltip
+                    formatter={(value: any) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(value || 0))}
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Legend />
+                  <Bar dataKey="revenue" name="Doanh thu" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expense" name="Chi phí" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}

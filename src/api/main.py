@@ -4541,6 +4541,64 @@ async def get_file(bucket: str, key: str):
         raise HTTPException(status_code=404, detail="File not found")
 
 
+@app.get("/v1/reports/timeseries")
+async def get_report_timeseries(
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD")
+):
+    """Get revenue and expenses timeseries from journal entries."""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        # Aggregate by month from journal proposals (approximating real ledger for demo)
+        # In a real system, we'd query ledger_lines but proposals are easier to access for now
+        query = """
+            WITH monthly_data AS (
+                SELECT 
+                    TO_CHAR(jp.created_at, 'YYYY-MM') as month,
+                    SUM(CASE WHEN doc_type = 'invoice' THEN total_amount ELSE 0 END) as revenue,
+                    SUM(CASE WHEN doc_type IN ('receipt', 'payment_voucher') THEN total_amount ELSE 0 END) as expense
+                FROM journal_proposals jp
+                JOIN documents d ON jp.document_id = d.id
+                WHERE jp.created_at BETWEEN $1::date AND $2::date
+                  AND jp.status IN ('approved', 'posted', 'pending_approval') 
+                GROUP BY 1
+            )
+            SELECT month, revenue, expense 
+            FROM monthly_data 
+            ORDER BY month
+        """
+        rows = await conn.fetch(query, start_date, end_date)
+        
+        labels = [row['month'] for row in rows]
+        revenue_data = [float(row['revenue'] or 0) for row in rows]
+        expense_data = [float(row['expense'] or 0) for row in rows]
+        
+        # Fill missing months if needed, but for now just return sparse data
+        
+        return {
+            "labels": labels,
+            "datasets": [
+                {
+                    "label": "Doanh thu",
+                    "data": revenue_data,
+                    "color": "#10b981", # emerald-500
+                },
+                {
+                    "label": "Chi phí",
+                    "data": expense_data,
+                    "color": "#ef4444", # red-500
+                }
+            ],
+            "meta": {
+                "currency": "VND",
+                "period": f"{start_date} to {end_date}"
+            }
+        }
+
+
 @app.get("/v1/version")
 async def get_version():
     return {
@@ -4612,22 +4670,19 @@ async def chat_copilot(request: ChatRequest):
         client = LLMClient()
 
         # 2. Agent Decision Loop
-        system_prompt = """You are ERPX Copilot, a senior AI accounting assistant.
+        system_prompt = """Bạn là ERPX Copilot, trợ lý kế toán AI cao cấp.
         
-        AVAILABLE TOOLS:
-        1. list_pending_approvals(limit): List pending journal proposals requiring approval.
-        2. get_approval_statistics(): Get counts of documents by status (approved/pending/rejected).
-        3. approve_proposal(id): Approve a specific proposal (requires ID).
-        4. reject_proposal(id): Reject a specific proposal (requires ID).
+        CÁC CÔNG CỤ CÓ SẴN:
+        1. list_pending_approvals(limit): Liệt kê các chứng từ chờ duyệt.
+        2. get_approval_statistics(): Lấy thống kê số lượng chứng từ theo trạng thái.
+        3. approve_proposal(id): Duyệt một chứng từ cụ thể (cần ID).
+        4. reject_proposal(id): Từ chối một chứng từ cụ thể (cần ID).
         
-        INSTRUCTIONS:
-        - You help the user manage accounting workflows (approvals, statistics, bookkeeping).
-        - If the user asks for counts or status summaries, use get_approval_statistics.
-        - When listing approvals, provide a clean summary including Vendor and Amount. Use the tool list_pending_approvals.
-        - If the user asks to "approve" or "reject", use the respective tools with the ID. 
-        - DO NOT hallucinate IDs. If the user doesn't provide an ID, list the pending ones first and ask to pick.
-        - If data is missing (e.g., Vendor is Unknown), mention it clearly.
-        
+        QUY TẮC:
+        - Luôn trả lời bằng Tiếng Việt.
+        - Khi người dùng hỏi cần thực hiện hành động (duyệt/từ chối), hãy trả về JSON tool call.
+        - Nếu chỉ hỏi thông tin, trả về JSON với field "response".
+        - Định dạng số tiền VND đẹp mắt.
         OUTPUT FORMAT (JSON):
         {
             "thought": "Reasoning about what to do",
@@ -4663,27 +4718,35 @@ async def chat_copilot(request: ChatRequest):
             LIMIT = params.get("limit", 10)
             rows = await tools.list_pending_approvals(limit=LIMIT)
             if not rows:
-                return ChatResponse(response="No pending approvals found.")
+                return ChatResponse(response="Hiện không có chứng từ nào chờ duyệt.")
             
             # Format text response using enriched tool output
-            summary = "**Pending Approvals:**\n"
+            summary = "**Danh sách chờ duyệt:**\n"
             for r in rows:
-                summary += f"- **{r['counterparty']}** ({r['doc_type']}): {r['amount']} {r['currency']} (ID: `{r['id']}`) - Doc: {r['file_name']}\n"
+                doc_name = r.get('doc_name') or "Tài liệu"
+                vendor = r.get('counterparty') or "Khách lẻ"
+                amount = r.get('amount') or 0
+                currency = r.get('currency') or "VND"
+                summary += f"- 📄 **{doc_name}** ({vendor}): {amount:,.0f} {currency} (ID: `{r['id']}`) - File: {r.get('file_name')}\n"
             
             return ChatResponse(response=summary)
 
         elif tool == "get_approval_statistics":
             stats = await tools.get_approval_statistics()
             if "error" in stats:
-                return ChatResponse(response=f"⚠️ Error fetching stats: {stats['error']}")
+                return ChatResponse(response=f"⚠️ Lỗi lấy thống kê: {stats['error']}")
             
-            summary = "**Approval Statistics:**\n"
-            summary += f"- ⏳ **Pending**: {stats.get('pending', 0)}\n"
-            summary += f"- ✅ **Approved**: {stats.get('approved', 0)}\n"
-            summary += f"- ❌ **Rejected**: {stats.get('rejected', 0)}\n"
+            summary = "**Thống kê duyệt:**\n"
+            confirmed_pending = stats.get('pending', 0)
+            confirmed_approved = stats.get('approved', 0)
+            confirmed_rejected = stats.get('rejected', 0)
             
-            total = sum(stats.values()) if isinstance(stats, dict) else 0
-            summary += f"\nTotal documents in workflow: **{total}**"
+            summary += f"- ⏳ **Chờ duyệt**: {confirmed_pending}\n"
+            summary += f"- ✅ **Đã lấy**: {confirmed_approved}\n"
+            summary += f"- ❌ **Từ chối**: {confirmed_rejected}\n"
+            
+            total = confirmed_pending + confirmed_approved + confirmed_rejected
+            summary += f"\nTổng số chứng từ: **{total}**"
             
             return ChatResponse(response=summary)
 
@@ -4691,14 +4754,15 @@ async def chat_copilot(request: ChatRequest):
         elif tool in ["approve_proposal", "reject_proposal"]:
             proposal_id = params.get("id")
             if not proposal_id:
-                return ChatResponse(response="I need the Proposal ID to proceed.")
+                return ChatResponse(response="Tôi cần Proposal ID để thực hiện.")
                 
             # Return Action Request
-            label = "Approve Proposal" if tool == "approve_proposal" else "Reject Proposal"
+            label = "Duyệt chứng từ" if tool == "approve_proposal" else "Từ chối chứng từ"
             style = "primary" if tool == "approve_proposal" else "danger"
+            confirm_msg = "Tôi tìm thấy yêu cầu duyệt. Vui lòng xác nhận:" if tool == "approve_proposal" else "Xác nhận từ chối chứng từ này:"
             
             return ChatResponse(
-                response=f"I found a request to {tool.replace('_', ' ')}. Please confirm:",
+                response=confirm_msg,
                 actions=[
                     ChatAction(
                         label=f"{label} {proposal_id[:8]}...",

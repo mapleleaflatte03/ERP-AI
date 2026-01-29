@@ -612,8 +612,12 @@ async def delete_document(document_id: str) -> dict:
         if not doc:
              raise HTTPException(status_code=404, detail="Document not found")
         
-        # Delete from documents (cascade should handle the rest or manual cleanup required)
-        # For this phase, we assume DB constraints or manual cleanup isn't critical for demo hygiene
+        # Delete dependent records first (manual cascade)
+        await conn.execute("DELETE FROM approvals WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)", document_id)
+        await conn.execute("DELETE FROM journal_proposals WHERE document_id = $1", document_id)
+        await conn.execute("DELETE FROM extracted_invoices WHERE document_id = $1", document_id)
+        
+        # Finally delete the document
         await conn.execute("DELETE FROM documents WHERE id::text = $1", document_id)
 
     return {"message": "Document deleted", "id": document_id}
