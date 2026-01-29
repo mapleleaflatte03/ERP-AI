@@ -61,7 +61,7 @@ def format_document(row: dict) -> dict:
         # OCR Boxes
         "ocr_boxes": extracted_data.get("ocr_boxes", []),
         # File URL
-        "file_url": f"/api/v1/files/{row.get('minio_bucket')}/{row.get('minio_key')}" if row.get("minio_key") else None,
+        "file_url": f"/v1/files/{row.get('minio_bucket')}/{row.get('minio_key')}" if row.get("minio_key") else None,
     }
 
 
