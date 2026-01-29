@@ -12,13 +12,14 @@ interface OCRBox {
 }
 
 interface DocumentPreviewProps {
-    fileUrl: string; // This is the API path e.g. /v1/files/...
+    fileUrl?: string; // Legacy
+    documentId?: string; // New: preferred
     filename: string;
     contentType: string;
     ocrBoxes?: any[];
 }
 
-export default function DocumentPreview({ fileUrl, filename, contentType, ocrBoxes = [] }: DocumentPreviewProps) {
+export default function DocumentPreview({ fileUrl, documentId, filename, contentType, ocrBoxes = [] }: DocumentPreviewProps) {
     const [showOverlay, setShowOverlay] = useState(true);
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -28,6 +29,7 @@ export default function DocumentPreview({ fileUrl, filename, contentType, ocrBox
     // Identify type based on content type
     const isImage = contentType.startsWith('image/');
     const isPDF = contentType === 'application/pdf';
+    const isExcel = contentType.includes('spreadsheet') || contentType.includes('excel') || filename.endsWith('.xlsx') || filename.endsWith('.xls');
 
     const containerRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -41,21 +43,39 @@ export default function DocumentPreview({ fileUrl, filename, contentType, ocrBox
 
         async function fetchFile() {
             try {
-                if (!fileUrl) {
-                    throw new Error("No file URL provided");
+                // Determine effective URL
+                let effectiveUrl = fileUrl;
+                if (documentId) {
+                    effectiveUrl = `/v1/documents/${documentId}/preview`;
+                }
+
+                if (!effectiveUrl) {
+                    throw new Error("No file identifier provided");
                 }
 
                 // If it's already a blob url or external http, use it directly (optimization)
-                if (fileUrl.startsWith('blob:') || fileUrl.startsWith('http')) {
+                if (effectiveUrl.startsWith('blob:') || effectiveUrl.startsWith('http')) {
                     if (active) {
-                        setBlobUrl(fileUrl);
+                        setBlobUrl(effectiveUrl);
+                        setLoading(false);
+                    }
+                    return;
+                }
+
+                // Phase 2.1: Excel Preview
+                if (isExcel) {
+                    const previewUrl = effectiveUrl.includes('?') ? `${effectiveUrl}&preview=true` : `${effectiveUrl}?preview=true`;
+                    const response = await api.client.get(previewUrl);
+                    // Backend returns HTML string if preview=true
+                    if (active) {
+                        setBlobUrl(response.data); // Store HTML string in blobUrl state for Excel
                         setLoading(false);
                     }
                     return;
                 }
 
                 // Fetch via API client to include Auth headers
-                const blob = await api.getFileBlob(fileUrl);
+                const blob = await api.getFileBlob(effectiveUrl);
                 const objectUrl = URL.createObjectURL(blob);
 
                 if (active) {
@@ -65,7 +85,7 @@ export default function DocumentPreview({ fileUrl, filename, contentType, ocrBox
             } catch (err) {
                 console.error("Failed to load file:", err);
                 if (active) {
-                    setError("Không thể tải file. Vui lòng kiểm tra quyền truy cập.");
+                    setError("Không thể xem trước file này (Lỗi quyền hoặc định dạng).");
                     setLoading(false);
                 }
             }
@@ -75,11 +95,36 @@ export default function DocumentPreview({ fileUrl, filename, contentType, ocrBox
 
         return () => {
             active = false;
+            // Only revoke if it's a real blob URL, not HTML string
             if (blobUrl && blobUrl.startsWith('blob:')) {
                 URL.revokeObjectURL(blobUrl);
             }
         };
-    }, [fileUrl]);
+    }, [fileUrl, isExcel]);
+
+    // ... (keep box logic) ...
+
+    if (isExcel && !loading && blobUrl) {
+        return (
+            <div className="w-full h-full flex flex-col bg-white">
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
+                        {filename}
+                    </span>
+                    <a href={fileUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">
+                        Tải file gốc
+                    </a>
+                </div>
+                <div
+                    className="flex-1 overflow-auto bg-gray-50 p-4"
+                    dangerouslySetInnerHTML={{ __html: blobUrl }}
+                />
+            </div>
+        );
+    }
+
+    // Fallback for other types (Excel fallback if blobUrl null?)
+    // ...
 
     // Normalize boxes
     const normalizedBoxes: OCRBox[] = ocrBoxes.map(box => {

@@ -316,7 +316,7 @@ export default function DocumentDetail() {
           <div className="flex-1 bg-gray-100/50 relative overflow-hidden">
             {doc.file_url ? (
               <DocumentPreview
-                fileUrl={doc.file_url}
+                documentId={doc.id}
                 filename={doc.filename}
                 contentType={doc.content_type || 'application/pdf'}
                 ocrBoxes={doc.ocr_boxes}

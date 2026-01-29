@@ -112,12 +112,12 @@ async def verify_token(token: str) -> dict:
         return decoded
 
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.")
     except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Phiên đăng nhập không hợp lệ: {str(e)}")
     except Exception as e:
         logger.error(f"Token verification error: {e}")
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        raise HTTPException(status_code=401, detail="Lỗi xác thực người dùng.")
 
 
 async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
@@ -133,7 +133,7 @@ async def get_current_user(request: Request, credentials: HTTPAuthorizationCrede
         token = request.query_params.get("token")
         if not token:
             raise HTTPException(
-                status_code=401, detail="Missing authorization header", headers={"WWW-Authenticate": "Bearer"}
+                status_code=401, detail="Vui lòng đăng nhập để thực hiện thao tác này.", headers={"WWW-Authenticate": "Bearer"}
             )
     else:
         token = credentials.credentials

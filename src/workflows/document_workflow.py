@@ -109,14 +109,16 @@ if TEMPORAL_AVAILABLE:
     @activity.defn(name="extract_document")
     async def extract_document_activity(input: DocumentInput) -> ExtractionResult:
         """Extract text and fields from document"""
+        from src.core import config
         from src.processing import process_document
         from src.storage import download_document
 
         logger.info(f"[{input.job_id}] Extracting document: {input.document_key}")
 
         try:
-            # Download document
-            doc_data = download_document(input.document_key)
+            # Download document (Phase 1.1 Fix)
+            # Assuming input.document_key is the key, and we use default bucket
+            doc_data = download_document(config.MINIO_BUCKET, input.document_key)
             if doc_data is None:
                 return ExtractionResult(
                     success=False, extracted_text="", key_fields={}, error=f"Document not found: {input.document_key}"

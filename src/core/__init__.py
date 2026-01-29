@@ -6,6 +6,11 @@ DO Agent qwen3-32b ONLY - NO LOCAL LLM
 """
 
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum

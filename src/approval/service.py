@@ -15,6 +15,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from datetime import datetime
+from typing import Any
+from src.api.evidence import write_evidence
+
 logger = logging.getLogger("erpx.approval")
 
 
@@ -218,6 +222,16 @@ async def approve_proposal(
         await post_to_ledger(conn, proposal_id, approval_id, approver, request_id)
 
     logger.info(f"[{request_id}] Approval {approval_id} approved by {approver}")
+    
+    # Evidence
+    await write_evidence(
+        document_id=str(approval.get("document_id") or approval_id),
+        stage="approval",
+        action="approve",
+        tenant_id=approval.get("tenant_id"),
+        decision="approved",
+        output_summary={"approver": approver, "comment": comment}
+    )
 
     return {
         "approval_id": approval_id,
@@ -279,8 +293,25 @@ async def reject_proposal(
             "UPDATE journal_proposals SET status = 'rejected', updated_at = NOW() WHERE id = $1",
             uuid.UUID(approval["proposal_id"]),
         )
+        
+        # Update document status to rejected
+        if approval.get("document_id"):
+            await conn.execute(
+                "UPDATE documents SET status = 'rejected', updated_at = NOW() WHERE id = $1",
+                approval["document_id"],
+            )
 
     logger.info(f"[{request_id}] Approval {approval_id} rejected by {approver}")
+
+    # Evidence
+    await write_evidence(
+        document_id=str(approval.get("document_id") or approval_id),
+        stage="approval",
+        action="reject",
+        tenant_id=approval.get("tenant_id"),
+        decision="rejected",
+        output_summary={"approver": approver, "comment": comment}
+    )
 
     return {
         "approval_id": approval_id,
@@ -421,3 +452,137 @@ async def create_pending_approval(
 
     logger.info(f"[{request_id}] Created pending approval {approval_id} for proposal {proposal_id}")
     return str(approval_id)
+
+
+async def rollback_ledger(
+    conn,
+    ledger_entry_id: str,
+    rolled_back_by: str,
+    reason: str | None = None,
+    request_id: str | None = None,
+) -> dict:
+    """
+    Rollback (reverse) a ledger entry by creating a reversing entry.
+
+    Args:
+        conn: asyncpg connection
+        ledger_entry_id: Ledger entry UUID to reverse
+        rolled_back_by: User performing the rollback
+        reason: Reason for rollback
+        request_id: Request ID for tracing
+
+    Returns:
+        Dict with original and reversing entry IDs
+    """
+    # Get original entry
+    original = await conn.fetchrow(
+        "SELECT * FROM ledger_entries WHERE id = $1",
+        uuid.UUID(ledger_entry_id),
+    )
+    if not original:
+        raise ValueError(f"Ledger entry not found: {ledger_entry_id}")
+
+    if original.get("reversed"):
+        raise ValueError(f"Ledger entry {ledger_entry_id} is already reversed")
+
+    # Get original lines
+    original_lines = await conn.fetch(
+        "SELECT * FROM ledger_lines WHERE ledger_entry_id = $1 ORDER BY line_order",
+        uuid.UUID(ledger_entry_id),
+    )
+
+    # Create reversing entry
+    reversing_id = uuid.uuid4()
+    entry_number = f"REV-{original['entry_number']}" if original.get("entry_number") else f"REV-{datetime.now().strftime('%Y%m%d')}"
+
+    await conn.execute(
+        """
+        INSERT INTO ledger_entries
+        (id, proposal_id, approval_id, tenant_id, entry_date, entry_number, 
+         description, posted_by_name, is_reversal, original_entry_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)
+        """,
+        reversing_id,
+        original["proposal_id"],
+        original["approval_id"],
+        original["tenant_id"],
+        datetime.now().date(),
+        entry_number,
+        f"ROLLBACK: {original['description'] or 'N/A'} - {reason or 'No reason provided'}",
+        rolled_back_by,
+        uuid.UUID(ledger_entry_id),
+    )
+
+    # Create reversing lines (swap debit/credit)
+    reversing_lines_data = [
+        (
+            uuid.uuid4(),
+            reversing_id,
+            line["account_code"],
+            line["account_name"],
+            line["credit_amount"],  # Swap: original credit -> new debit
+            line["debit_amount"],   # Swap: original debit -> new credit
+            line["line_order"],
+        )
+        for line in original_lines
+    ]
+
+    if reversing_lines_data:
+        await conn.executemany(
+            """
+            INSERT INTO ledger_lines
+            (id, ledger_entry_id, account_code, account_name, debit_amount, credit_amount, line_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+            reversing_lines_data,
+        )
+
+    # Mark original as reversed
+    await conn.execute(
+        """
+        UPDATE ledger_entries 
+        SET reversed = TRUE, 
+            reversed_by_name = $2,
+            reversed_at = NOW()
+        WHERE id = $1
+        """,
+        uuid.UUID(ledger_entry_id),
+        rolled_back_by,
+    )
+
+    # Update document status back to proposed if linked
+    if original.get("proposal_id"):
+        proposal = await conn.fetchrow(
+            "SELECT document_id FROM journal_proposals WHERE id = $1",
+            original["proposal_id"],
+        )
+        if proposal and proposal.get("document_id"):
+            await conn.execute(
+                "UPDATE documents SET status = 'proposed', updated_at = NOW() WHERE id = $1",
+                proposal["document_id"],
+            )
+
+    logger.info(f"[{request_id}] Rolled back ledger entry {ledger_entry_id} -> {reversing_id}")
+
+    # Evidence
+    await write_evidence(
+        document_id=str(original.get("proposal_id") or ledger_entry_id),
+        stage="ledger",
+        action="rollback",
+        tenant_id=str(original["tenant_id"]) if original.get("tenant_id") else None,
+        decision="rolled_back",
+        output_summary={
+            "original_entry_id": ledger_entry_id,
+            "reversing_entry_id": str(reversing_id),
+            "rolled_back_by": rolled_back_by,
+            "reason": reason,
+        }
+    )
+
+    return {
+        "original_entry_id": ledger_entry_id,
+        "reversing_entry_id": str(reversing_id),
+        "rolled_back_by": rolled_back_by,
+        "reason": reason,
+        "message": "Ledger entry reversed successfully",
+    }

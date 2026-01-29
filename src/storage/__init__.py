@@ -57,11 +57,11 @@ def ensure_bucket(bucket_name: str):
 # =============================================================================
 
 
-def upload_document(
+def upload_document_v2(
     file_data: bytes,
     filename: str,
     content_type: str,
-    company_id: str = "default",
+    tenant_id: str = "default",
     job_id: str | None = None,
 ) -> tuple[str, str, str, int]:
     """
@@ -83,9 +83,9 @@ def upload_document(
     # Calculate checksum
     checksum = hashlib.sha256(file_data).hexdigest()
 
-    # Build key path: raw/{company_id}/{yyyy}/{mm}/{job_id}/{filename}
+    # Build key path: raw/{tenant_id}/{yyyy}/{mm}/{job_id}/{filename}
     now = datetime.utcnow()
-    key = f"raw/{company_id}/{now.year}/{now.month:02d}/{job_id}/{filename}"
+    key = f"raw/{tenant_id}/{now.year}/{now.month:02d}/{job_id}/{filename}"
 
     # Upload to MinIO
     try:
@@ -97,7 +97,7 @@ def upload_document(
             content_type=content_type,
             metadata={
                 "job_id": job_id,
-                "company_id": company_id,
+                "tenant_id": tenant_id,
                 "original_filename": filename,
                 "checksum": checksum,
                 "uploaded_at": now.isoformat(),
@@ -116,7 +116,7 @@ def upload_file_object(
     filename: str,
     content_type: str,
     file_size: int,
-    company_id: str = "default",
+    tenant_id: str = "default",
     job_id: str | None = None,
 ) -> tuple[str, str, str, int]:
     """
@@ -129,11 +129,11 @@ def upload_file_object(
     file_data = file_obj.read()
     file_obj.seek(0)  # Reset for potential re-read
 
-    return upload_document(
+    return upload_document_v2(
         file_data=file_data,
         filename=filename,
         content_type=content_type,
-        company_id=company_id,
+        tenant_id=tenant_id,
         job_id=job_id,
     )
 
@@ -155,6 +155,22 @@ def download_document(bucket: str, key: str) -> bytes:
         return data
     except S3Error as e:
         logger.error(f"Failed to download from MinIO: {e}")
+        raise
+
+
+def stream_document(bucket: str, key: str):
+    """
+    Get a streamable response from MinIO.
+    Returns (response_object, content_type, size)
+    """
+    client = get_minio_client()
+    try:
+        response = client.get_object(bucket, key)
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        size = response.headers.get("Content-Length")
+        return response, content_type, size
+    except S3Error as e:
+        logger.error(f"Failed to stream from MinIO: {e}")
         raise
 
 
@@ -244,9 +260,10 @@ def list_documents(bucket: str, prefix: str = "", limit: int = 1000) -> list:
 __all__ = [
     "get_minio_client",
     "ensure_bucket",
-    "upload_document",
+    "upload_document_v2",
     "upload_file_object",
     "download_document",
+    "stream_document",
     "get_document_url",
     "document_exists",
     "get_document_metadata",

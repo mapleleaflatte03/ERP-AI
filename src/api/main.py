@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 # Add project root
@@ -33,6 +33,7 @@ sys.path.insert(0, "/root/erp-ai")
 
 # Import config and storage for health check
 # Import middleware and logging config
+from src.api.auth import get_current_user, User
 from src.api.document_routes import get_db_pool
 from src.api.document_routes import router as document_router
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
@@ -99,7 +100,8 @@ from src.policy.engine import (
 
 # Import schema validation
 from src.schemas.llm_output import coerce_and_validate
-from src.storage import get_minio_client
+from src.storage import get_minio_client, upload_document_v2
+from src.api.evidence import write_evidence
 
 # Import Temporal workflow starter (PR16)
 from src.workflows.temporal_client import start_document_workflow
@@ -536,7 +538,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         if core_config.ENABLE_MINIO:
             try:
-                from src.storage import upload_document as minio_upload
+                from src.storage import upload_document_v2 as minio_upload
 
                 # Read file content
                 with open(file_path, "rb") as f:
@@ -546,7 +548,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
                     file_data=file_data,
                     filename=file_info.get("filename", "unknown.bin"),
                     content_type=file_info.get("content_type", "application/octet-stream"),
-                    company_id=tenant_id,
+                    tenant_id=tenant_id,
                     job_id=job_id,
                 )
 
@@ -627,6 +629,16 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
             raise ValueError("Failed to extract text from document")
 
         logger.info(f"[{request_id}] Extracted {len(text)} chars in {ocr_latency_ms}ms")
+
+        # 1.4 Evidence: EXTRACT
+        from src.api.evidence import write_evidence
+        await write_evidence(
+            document_id=job_id,
+            stage="extract",
+            action="extract_text",
+            tenant_id=tenant_id,
+            output_summary={"text_length": len(text), "ocr_latency_ms": ocr_latency_ms}
+        )
 
         # Record OCR metrics (ms-based histogram buckets)
         await record_counter(conn, "ocr_calls_total", 1.0, {"tenant": tenant_id})
@@ -712,7 +724,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
 Trả về JSON với format:
 {
-    "doc_type": "purchase_invoice|sales_invoice|expense|other",
+    "doc_type": "invoice|receipt|payment_voucher|bank_statement|other",
     "vendor": "tên nhà cung cấp",
     "invoice_no": "số hóa đơn",
     "invoice_date": "YYYY-MM-DD",
@@ -754,6 +766,22 @@ Trả về JSON theo format đã định."""
         proposal = validate_proposal(response)
 
         logger.info(f"[{request_id}] LLM response in {llm_latency_ms}ms, confidence={proposal.get('confidence')}")
+
+        # 1.2 Persist doc_type in documents table (Lưu DB đúng)
+        doc_type = proposal.get("doc_type", "other")
+        await conn.execute(
+            "UPDATE documents SET doc_type = $1, updated_at = NOW() WHERE id = $2",
+            doc_type, doc_uuid
+        )
+
+        # 1.4 Evidence: CLASSIFY
+        await write_evidence(
+            document_id=job_id,
+            stage="classify",
+            action="classify_document",
+            tenant_id=tenant_id,
+            output_summary={"doc_type": doc_type, "confidence": proposal.get("confidence")}
+        )
 
         await update_job_state(conn, job_id, JobState.PROPOSED, request_id=request_id)
 
@@ -826,6 +854,20 @@ Trả về JSON theo format đã định."""
             document_id=job_id,
             processing_time_ms=llm_latency_ms,
             request_id=request_id,
+        )
+
+        # 1.4 Evidence: PROPOSE
+        from src.api.evidence import write_evidence
+        await write_evidence(
+            document_id=job_id,
+            stage="propose",
+            action="generate_proposal",
+            tenant_id=tenant_id,
+            output_summary={
+                "model": model_name,
+                "confidence": proposal.get("confidence"),
+                "entries_count": len(proposal.get("entries", []))
+            }
         )
 
         # =========== STEP 4: GOVERNANCE GATING (PR13.3) ===========
@@ -1041,9 +1083,12 @@ async def persist_proposal_only(
     await conn.execute(
         """
         INSERT INTO documents 
-        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (id) DO UPDATE SET status = 'processed'
+        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status, doc_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (id) DO UPDATE SET 
+            status = 'processed',
+            doc_type = EXCLUDED.doc_type,
+            updated_at = NOW()
         """,
         doc_uuid,
         tenant_uuid,
@@ -1054,6 +1099,7 @@ async def persist_proposal_only(
         file_info.get("path", ""),
         file_info.get("checksum", ""),
         "processed",
+        proposal.get("doc_type", "other")
     )
 
     # 1. Insert into extracted_invoices
@@ -1162,9 +1208,12 @@ async def persist_to_db_with_conn(
     await conn.execute(
         """
         INSERT INTO documents 
-        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (id) DO UPDATE SET status = 'processed', updated_at = NOW()
+        (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, status, doc_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (id) DO UPDATE SET 
+            status = 'processed', 
+            doc_type = EXCLUDED.doc_type,
+            updated_at = NOW()
         """,
         doc_uuid,
         tenant_uuid,
@@ -1175,6 +1224,7 @@ async def persist_to_db_with_conn(
         file_info.get("path", ""),
         file_info.get("checksum", ""),
         "processed",
+        proposal.get("doc_type", "other")
     )
 
     # 1. Insert into extracted_invoices
@@ -1925,8 +1975,8 @@ async def upload_document(
     job_id = str(uuid.uuid4())
     trace_id = x_trace_id or job_id
 
-    # Calculate checksum
-    checksum = hashlib.md5(content).hexdigest()
+    # Calculate checksum (SHA256)
+    checksum = hashlib.sha256(content).hexdigest()
 
     # Save file
     upload_dir = Path("/root/erp-ai/data/uploads") / x_tenant_id
@@ -1952,41 +2002,35 @@ async def upload_document(
 
     logger.info(f"Upload received: job_id={job_id} file={file.filename} size={len(content)}")
 
-    # PR16: Start Temporal workflow if ENABLE_TEMPORAL=1, else fallback to background task
-    from src.core import config as core_config
+    # 1. ALWAYS Upload to MinIO (Required for Preview & Temporal)
+    try:
+        minio_bucket, minio_key, file_checksum, file_size = upload_document_v2(
+            content, file.filename, content_type, tenant_id=x_tenant_id, job_id=job_id
+        )
+        logger.info(f"MinIO upload: s3://{minio_bucket}/{minio_key}")
+        
+        # Add to file_info so background task knows about it
+        file_info["minio_bucket"] = minio_bucket
+        file_info["minio_key"] = minio_key
 
-    use_temporal = getattr(core_config, "ENABLE_TEMPORAL", False)
-    workflow_started = False
+    except Exception as e:
+        logger.error(f"MinIO upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Storage upload failed")
 
-    if use_temporal:
-        try:
-            # PR16: Upload to MinIO and create document record BEFORE starting workflow
-            import asyncpg
-
-            from src.storage import upload_document
-
-            # 1. Upload to MinIO
-            minio_bucket, minio_key, file_checksum, file_size = upload_document(
-                content, file.filename, content_type, x_tenant_id, job_id
-            )
-            logger.info(f"MinIO upload: s3://{minio_bucket}/{minio_key}")
-
-            # 2. Insert document record with MinIO info
-            db_url = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@postgres:5432/erpx")
-            conn = await asyncpg.connect(db_url)
-
+    # 2. Persist to DB immediately (Golden Source)
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
             # Ensure tenant exists
             tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
             if not tenant_row:
-                tenant_uuid = uuid.uuid4()
+                tenant_uuid_val = uuid.uuid4()
                 await conn.execute(
                     "INSERT INTO tenants (id, name, code) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING",
-                    tenant_uuid,
-                    f"Tenant {x_tenant_id}",
-                    x_tenant_id,
+                    tenant_uuid_val, f"Tenant {x_tenant_id}", x_tenant_id
                 )
                 tenant_row = await conn.fetchrow("SELECT id FROM tenants WHERE code = $1", x_tenant_id)
-
+            
             tenant_uuid = tenant_row["id"]
             doc_uuid = uuid.UUID(job_id)
 
@@ -1996,33 +2040,47 @@ async def upload_document(
                 (id, tenant_id, job_id, filename, content_type, file_size, file_path, checksum, 
                  minio_bucket, minio_key, status)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (id) DO NOTHING
+                ON CONFLICT (id) DO UPDATE SET
+                    minio_bucket = EXCLUDED.minio_bucket,
+                    minio_key = EXCLUDED.minio_key,
+                    updated_at = NOW()
                 """,
-                doc_uuid,
-                tenant_uuid,
-                job_id,
-                file.filename,
-                content_type,
-                len(content),
-                str(file_path),
-                checksum,
-                minio_bucket,
-                minio_key,
-                "pending",
+                doc_uuid, tenant_uuid, job_id, file.filename, content_type, 
+                len(content), str(file_path), checksum, minio_bucket, minio_key, "pending"
             )
-            await conn.close()
-            logger.info(f"Document record created: {job_id}")
+    except Exception as e:
+        logger.error(f"DB persistence failed: {e}")
+        # Continue? If DB fails, workflow will likely fail too.
+    
+    # 3. Write Evidence (Action: UPLOAD)
+    await write_evidence(
+        document_id=job_id,
+        stage="upload",
+        action="user_upload_file",
+        tenant_id=x_tenant_id,
+        output_summary={
+            "filename": file.filename,
+            "size": len(content),
+            "content_type": content_type,
+            "storage_path": f"{minio_bucket}/{minio_key}"
+        }
+    )
 
-            # 3. Start Temporal workflow (async)
+    # 4. Dispatch Workflow
+    from src.core import config as core_config
+    use_temporal = getattr(core_config, "ENABLE_TEMPORAL", False)
+    workflow_started = False
+
+    if use_temporal:
+        try:
             workflow_id = await start_document_workflow(job_id)
             workflow_started = True
-            logger.info(f"Temporal workflow started: workflow_id={workflow_id} job_id={job_id}")
+            logger.info(f"Temporal workflow started: workflow_id={workflow_id}")
         except Exception as e:
-            logger.warning(f"Temporal workflow start failed, falling back to async: {e}")
-            workflow_started = False
+            logger.warning(f"Temporal start failed: {e}")
 
     if not workflow_started:
-        # Fallback: Start background processing (original behavior)
+        # Fallback to background processing
         background_tasks.add_task(process_document_async, job_id, str(file_path), file_info)
 
     return UploadResponse(
@@ -2424,6 +2482,54 @@ async def reject_approval(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[{request_id}] Failed to reject {approval_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RollbackRequest(BaseModel):
+    user_id: str = Field(..., description="User performing the rollback")
+    reason: str | None = Field(None, description="Reason for rollback")
+
+
+@app.post("/v1/ledger/{entry_id}/rollback")
+async def rollback_ledger_entry(
+    entry_id: str,
+    request: RollbackRequest,
+    x_request_id: str | None = Header(default=None),
+):
+    """
+    Rollback (reverse) a ledger entry.
+
+    This will:
+    1. Create a reversing entry with swapped debit/credit
+    2. Mark original entry as reversed
+    3. Update document status back to 'proposed'
+    4. Log evidence
+
+    Body:
+    - user_id: User performing the rollback (required)
+    - reason: Reason for rollback (optional)
+    """
+    request_id = x_request_id or get_request_id()
+    
+    try:
+        from src.approval.service import rollback_ledger
+        
+        conn = await get_db_connection()
+        try:
+            result = await rollback_ledger(
+                conn,
+                ledger_entry_id=entry_id,
+                rolled_back_by=request.user_id,
+                reason=request.reason,
+                request_id=request_id,
+            )
+            return result
+        finally:
+            await conn.close()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to rollback ledger entry {entry_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4509,33 +4615,117 @@ async def _test_mlflow():
 # ===========================================================================
 
 @app.get("/v1/files/{bucket}/{key:path}")
-async def get_file(bucket: str, key: str):
-    """Stream file from MinIO storage."""
+async def get_file(
+    bucket: str, 
+    key: str,
+    preview: bool = Query(False, description="Render XLSX as HTML if true"),
+    user: User = Depends(get_current_user)  # Phase 2.1: Auth Safe
+):
+    """Stream file from MinIO storage (Auth Required)."""
     try:
-        from src.storage import get_minio_client
+        from src.storage import stream_document
         
         # Security: Prevent traversing up
         if ".." in key or key.startswith("/"):
-             raise HTTPException(status_code=400, detail="Invalid path")
+             raise HTTPException(status_code=400, detail="Lòng dẫn không hợp lệ.")
 
-        client = get_minio_client()
-        response = client.get_object(bucket, key)
-        
-        # Determine content type from MinIO headers
-        content_type = response.headers.get("Content-Type", "application/octet-stream")
-        
+        # Phase 2.1: XLSX Preview
+        if preview and (key.lower().endswith(".xlsx") or key.lower().endswith(".xls")):
+            try:
+                import pandas as pd
+                import io
+                from src.storage import download_document
+                
+                # Download full content
+                data = download_document(bucket, key)
+                
+                # Convert to HTML
+                df = pd.read_excel(io.BytesIO(data))
+                
+                # Premium styling: Sticky headers, Zebra stripes, Hover effects
+                html_table = df.to_html(
+                    classes="min-w-full divide-y divide-gray-200", 
+                    border=0, 
+                    index=False,
+                    justify="left"
+                )
+                
+                # Post-process HTML for Tailwind classes
+                html_table = html_table.replace('<thead>', '<thead class="bg-gray-50 sticky top-0">')
+                html_table = html_table.replace('<th>', '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">')
+                html_table = html_table.replace('<tbody>', '<tbody class="bg-white divide-y divide-gray-200">')
+                html_table = html_table.replace('<td>', '<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-b border-gray-100">')
+                html_table = html_table.replace('<tr>', '<tr class="hover:bg-blue-50 transition-colors">')
+
+                html_content = f"""
+                <div class="h-full w-full bg-gray-50 p-4 font-sans">
+                    <div class="max-w-7xl mx-auto">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                {os.path.basename(key)}
+                            </h3>
+                            <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">Chế độ xem trước</span>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-xl overflow-hidden border border-gray-200">
+                            <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-120px)]">
+                                {html_table}
+                            </div>
+                        </div>
+                        <p class="mt-4 text-center text-xs text-gray-400">
+                            Để chỉnh sửa hoặc xem đầy đủ các trang, vui lòng tải file gốc về máy tính.
+                        </p>
+                    </div>
+                </div>
+                """
+                return HTMLResponse(content=html_content)
+                
+            except ImportError:
+                return JSONResponse(
+                    status_code=501, 
+                    content={"ui_message": "Hệ thống thiếu thư viện pandas để hiển thị Excel."}
+                )
+            except Exception as e:
+                logger.error(f"XLSX preview error: {e}")
+                return JSONResponse(
+                    status_code=422,
+                    content={"ui_message": f"Không thể hiển thị file Excel này: {str(e)}"}
+                )
+
+        # Standard Streaming using helper
+        try:
+            response_obj, content_type, size = stream_document(bucket, key)
+        except Exception as e:
+            # Phase 2.3: Map Unauthorized/NotFound
+            logger.error(f"MinIO streaming error: {e}")
+            raise HTTPException(status_code=404, detail="Không tìm thấy tập tin hoặc không có quyền truy cập.")
+
+        # Phase 2.1: Optimize for browser caching/preview
+        headers = {
+            "Content-Type": content_type,
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": f"inline; filename=\"{os.path.basename(key)}\""
+        }
+        if size:
+            headers["Content-Length"] = str(size)
+
         def iterfile():
             try:
-                for chunk in response.stream(32*1024):
+                for chunk in response_obj.stream(32*1024):
                     yield chunk
             finally:
-                response.close()
-                response.release_conn()
+                response_obj.close()
+                response_obj.release_conn()
 
         return StreamingResponse(
             iterfile(), 
-            media_type=content_type
+            media_type=content_type,
+            headers=headers
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"File serving error for {bucket}/{key}: {e}")
         raise HTTPException(status_code=404, detail="File not found")
@@ -4565,7 +4755,7 @@ async def get_report_timeseries(
                 SELECT 
                     TO_CHAR(le.entry_date, 'YYYY-MM') as month,
                     SUM(CASE WHEN d.doc_type = 'invoice' THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as revenue,
-                    SUM(CASE WHEN d.doc_type IN ('receipt', 'payment') THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as expense
+                    SUM(CASE WHEN d.doc_type IN ('receipt', 'payment', 'payment_voucher') THEN COALESCE(ei.total_amount, 0) ELSE 0 END) as expense
                 FROM ledger_entries le
                 JOIN journal_proposals jp ON le.proposal_id = jp.id
                 JOIN documents d ON jp.document_id = d.id

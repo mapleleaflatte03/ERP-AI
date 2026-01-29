@@ -50,7 +50,8 @@ RUN pip install --no-cache-dir \
     temporalio \
     opentelemetry-api \
     opentelemetry-sdk \
-    opentelemetry-exporter-otlp
+    opentelemetry-exporter-otlp \
+    PyJWT
 
 # Copy application code
 COPY . .

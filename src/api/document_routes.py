@@ -11,7 +11,9 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
+from fastapi.responses import HTMLResponse, StreamingResponse
+from src.api.auth import get_current_user, User
 
 sys.path.insert(0, "/root/erp-ai")
 
@@ -45,7 +47,9 @@ def format_document(row: dict) -> dict:
         "content_type": row.get("content_type"),
         "file_size": row.get("file_size"),
         "status": row.get("status", "pending"),
-        "document_type": row.get("doc_type"),
+        # Document type mapping
+        "type": row.get("doc_type") or "other",
+        "document_type": row.get("doc_type") or "other",
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
         "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
         # Extracted fields
@@ -233,10 +237,10 @@ async def process_extraction_task(document_id: str):
                 await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id::text = $1 OR job_id = $1", document_id)
                 return
 
-            # Download from MinIO
-            minio_client = get_minio_client()
+            # Download from MinIO using wrapper
+            from src.storage import download_document
             try:
-                data = minio_client.get_object(doc["minio_bucket"], doc["minio_key"]).read()
+                data = download_document(doc["minio_bucket"], doc["minio_key"])
             except Exception as e:
                 logger.error(f"Failed to download from MinIO: {e}")
                 await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
@@ -259,7 +263,7 @@ async def process_extraction_task(document_id: str):
                 elif "phiếu thu" in text or "receipt" in text:
                     doc_type = "receipt"
                 elif "phiếu chi" in text or "payment" in text or "vouchers" in text:
-                    doc_type = "payment"
+                    doc_type = "payment_voucher"
                 elif "sổ phụ" in text or "sao kê" in text or "bank statement" in text:
                     doc_type = "bank_statement"
                 
@@ -283,6 +287,15 @@ async def process_extraction_task(document_id: str):
                     json.dumps(extracted_payload),
                     result.document_text,
                     json.dumps({"confidence": result.confidence})
+                )
+                
+                # Phase 6: Evidence
+                from src.api.evidence import write_evidence
+                await write_evidence(
+                    document_id=document_id,
+                    stage="classification",
+                    tenant_id=doc.get("tenant_id") if doc else "default",
+                    output_summary={"doc_type": doc_type, "confidence": result.confidence}
                 )
                 
                 # Backfill extracted_invoices table for B2/B4
@@ -333,13 +346,12 @@ async def process_proposal_task(document_id: str):
             # Call LLM
             llm = get_llm_client()
             prompt = f"""
-            Analyze this accounting document text and extracted data.
-            Generate a journal entry proposal (debit/credit).
-            Return valid JSON only.
+            Dựa trên nội dung tài liệu và dữ liệu trích xuất dưới đây, hãy tạo bút toán định khoản kế toán (Ghi Nợ/Có).
+            Trả về định dạng JSON hợp lệ.
             
-            Extracted Data: {doc['extracted_data']}
+            Dữ liệu trích xuất: {doc['extracted_data']}
             
-            Document Text:
+            Nội dung tài liệu:
             {doc['raw_text'][:4000]}
             """
             
@@ -421,6 +433,16 @@ async def process_proposal_task(document_id: str):
                 
                 # Update Document
                 await conn.execute("UPDATE documents SET status = 'proposed', updated_at = NOW() WHERE id = $1", document_id)
+                
+                # Evidence
+                from src.api.evidence import write_evidence
+                await write_evidence(
+                     document_id=document_id,
+                     stage="generate_proposal",
+                     tenant_id=tenant_id,
+                     output_summary={"proposal_id": proposal_id, "entries": entries, "reasoning": response.get("reasoning")},
+                     decision="info"
+                )
 
             except Exception as llm_error:
                 logger.error(f"LLM generation failed: {llm_error}")
@@ -552,6 +574,8 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
         proposal = await conn.fetchrow(
             "SELECT id FROM journal_proposals WHERE document_id = $1 ORDER BY created_at DESC LIMIT 1", doc["id"]
         )
+        if not proposal:
+            raise HTTPException(status_code=400, detail="Chưa có đề xuất bút toán (Proposal) nào. Vui lòng chạy phân tích trước.")
 
         # Check for existing pending approval
         existing_approval = await conn.fetchrow(
@@ -636,7 +660,10 @@ async def get_document_ledger(document_id: str) -> dict:
 
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str) -> dict:
+async def delete_document(
+    document_id: str,
+    confirm: bool = Query(False, description="Force delete even if processing/posted")
+) -> dict:
     """Delete a document and its related data."""
     pool = await get_db_pool()
     if not pool:
@@ -645,10 +672,29 @@ async def delete_document(document_id: str) -> dict:
     async with pool.acquire() as conn:
         try:
             doc_uuid = uuid.UUID(document_id)
-            # Check if exists
-            doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1", doc_uuid)
+            # Check if exists and status
+            doc = await conn.fetchrow("SELECT id, status, filename FROM documents WHERE id = $1", doc_uuid)
             if not doc:
                  raise HTTPException(status_code=404, detail="Document not found")
+            
+            # Phase 8.2: Guard
+            status = doc.get("status")
+            if status in ["processing", "posted"] and not confirm:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Tài liệu đang ở trạng thái '{status}'. Vui lòng thêm xác nhận để xóa."
+                )
+
+            # Phase 8.3: Evidence Log (Before deletion)
+            from src.api.evidence import write_evidence
+            await write_evidence(
+                document_id=document_id,
+                stage="deletion",
+                action="delete_document",
+                tenant_id=str(doc.get("tenant_id") or "default"),
+                output_summary={"filename": doc.get("filename"), "status": status, "forced": confirm},
+                decision="deleted"
+            )
             
             # Delete dependent records in full cascade (Phase 4 - Fix B3)
             # 0. Data zones (multiple FKs to document, proposal, ledger)
@@ -675,6 +721,8 @@ async def delete_document(document_id: str) -> dict:
             
             # 4. Finally delete the document
             await conn.execute("DELETE FROM documents WHERE id = $1 OR job_id = $2", doc_uuid, document_id)
+        except HTTPException:
+            raise
         except ValueError:
              raise HTTPException(status_code=400, detail="Invalid document ID format")
         except Exception as e:
@@ -682,6 +730,120 @@ async def delete_document(document_id: str) -> dict:
             raise HTTPException(status_code=500, detail=f"Internal deletion error: {str(e)}")
 
     return {"message": "Document deleted", "id": document_id}
+
+
+@router.get("/{document_id}/preview", tags=["Documents"])
+async def preview_document(
+    document_id: str,
+    preview: bool = Query(True, description="Render XLSX as HTML if true"),
+    user: User = Depends(get_current_user)
+):
+    """
+    Get document content for preview using document ID.
+    Redirects/proxies to the unified file streaming logic.
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        try:
+            doc_uuid = uuid.UUID(document_id)
+            doc = await conn.fetchrow(
+                "SELECT minio_bucket, minio_key FROM documents WHERE id = $1 OR job_id = $2", 
+                doc_uuid, document_id
+            )
+        except ValueError:
+            doc = await conn.fetchrow(
+                "SELECT minio_bucket, minio_key FROM documents WHERE job_id = $1", 
+                document_id
+            )
+
+        if not doc or not doc["minio_bucket"] or not doc["minio_key"]:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tập tin để xem trước.")
+
+        # Call the unified get_file logic (importing app from main to avoid circular is tricky,
+        # so we'll just import the function or duplicate the call logic).
+        # Better: use the redirect or call a shared utility.
+        # Since main.py already has the app.get("/v1/files/...") we'll redirect if it's a browser request,
+        # but for a unified API, we better just call the logic.
+        
+        # Let's import the helper we just made
+        from src.storage import stream_document, download_document
+        bucket = doc["minio_bucket"]
+        key = doc["minio_key"]
+
+        # Phase 2.1: XLSX Preview duplicated logic for clean separation
+        if preview and (key.lower().endswith(".xlsx") or key.lower().endswith(".xls")):
+            try:
+                import pandas as pd
+                import io
+                import os
+                
+                data = download_document(bucket, key)
+                df = pd.read_excel(io.BytesIO(data))
+                
+                html_table = df.to_html(
+                    classes="min-w-full divide-y divide-gray-200", 
+                    border=0, 
+                    index=False,
+                    justify="left"
+                )
+                
+                html_table = html_table.replace('<thead>', '<thead class="bg-gray-50 sticky top-0">')
+                html_table = html_table.replace('<th>', '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">')
+                html_table = html_table.replace('<tbody>', '<tbody class="bg-white divide-y divide-gray-200">')
+                html_table = html_table.replace('<td>', '<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-b border-gray-100">')
+                html_table = html_table.replace('<tr>', '<tr class="hover:bg-blue-50 transition-colors">')
+
+                html_content = f"""
+                <div class="h-full w-full bg-gray-50 p-4 font-sans">
+                    <div class="max-w-7xl mx-auto">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                {os.path.basename(key)}
+                            </h3>
+                            <span class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded border border-gray-300">Xem trước</span>
+                        </div>
+                        <div class="bg-white rounded-xl shadow-xl overflow-hidden border border-gray-200">
+                            <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-120px)]">
+                                {html_table}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """
+                return HTMLResponse(content=html_content)
+            except Exception as e:
+                logger.error(f"XLSX preview error: {e}")
+                # Fallback to standard stream
+
+        # Standard Streaming
+        try:
+            response_obj, content_type, size = stream_document(bucket, key)
+            
+            headers = {
+                "Content-Type": content_type,
+                "Cache-Control": "private, max-age=3600",
+                "Content-Disposition": f"inline; filename=\"{os.path.basename(key)}\""
+            }
+            if size:
+                headers["Content-Length"] = str(size)
+
+            def iterfile():
+                try:
+                    for chunk in response_obj.stream(32*1024):
+                        yield chunk
+                finally:
+                    response_obj.close()
+                    response_obj.release_conn()
+
+            return StreamingResponse(iterfile(), media_type=content_type, headers=headers)
+        except Exception as e:
+             raise HTTPException(status_code=404, detail=f"Lỗi khi tải tập tin: {str(e)}")
 
 # =============================================================================
 # Journal Proposals List
