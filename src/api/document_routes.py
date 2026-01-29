@@ -251,26 +251,62 @@ async def process_extraction_task(document_id: str):
                 if result.boxes:
                     extracted_payload["ocr_boxes"] = result.boxes
 
+                # Rule-based classification (Phase 3 - Fix B2)
+                doc_type = "other"
+                text = (result.document_text or "").lower()
+                if "hóa đơn" in text or "invoice" in text or "giá trị gia tăng" in text:
+                    doc_type = "invoice"
+                elif "phiếu thu" in text or "receipt" in text:
+                    doc_type = "receipt"
+                elif "phiếu chi" in text or "payment" in text or "vouchers" in text:
+                    doc_type = "payment"
+                elif "sổ phụ" in text or "sao kê" in text or "bank statement" in text:
+                    doc_type = "bank_statement"
+                
+                # If extraction was very specific about invoice, override
+                if "invoice_number" in result.key_fields and result.key_fields["invoice_number"]:
+                    doc_type = "invoice"
+
                 await conn.execute(
                     """
                     UPDATE documents 
                     SET status = 'extracted', 
-                        extracted_data = $2, 
-                        raw_text = $3,
-                        validation_result = $4,
+                        doc_type = $2,
+                        extracted_data = $3, 
+                        raw_text = $4,
+                        validation_result = $5,
                         updated_at = NOW() 
                     WHERE id = $1
                     """,
                     document_id,
+                    doc_type,
                     json.dumps(extracted_payload),
                     result.document_text,
                     json.dumps({"confidence": result.confidence})
                 )
                 
-                # Check for invoice data to update extracted_invoices table (simplified)
-                if "invoice_number" in result.key_fields:
-                    # In a real app this would go to extracted_invoices table
-                    pass
+                # Backfill extracted_invoices table for B2/B4
+                if doc_type == "invoice":
+                    invoice_id = str(uuid.uuid4())
+                    await conn.execute(
+                        """
+                        INSERT INTO extracted_invoices 
+                        (id, document_id, tenant_id, vendor_name, vendor_tax_id, invoice_number, 
+                         invoice_date, total_amount, currency, ai_confidence, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                        ON CONFLICT DO NOTHING
+                        """,
+                        invoice_id,
+                        document_id,
+                        doc.get("tenant_id", "default"),
+                        result.key_fields.get("vendor_name") or result.key_fields.get("seller_name", "Unknown"),
+                        result.key_fields.get("vendor_tax_id", ""),
+                        result.key_fields.get("invoice_number", f"INV-{document_id[:8]}"),
+                        datetime.now().date(), # Fallback date
+                        float(result.key_fields.get("total_amount") or 0),
+                        result.key_fields.get("currency", "VND"),
+                        float(result.confidence or 0.8)
+                    )
                     
             else:
                  await conn.execute("UPDATE documents SET status = 'failed', updated_at = NOW() WHERE id = $1", document_id)
@@ -607,18 +643,43 @@ async def delete_document(document_id: str) -> dict:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     async with pool.acquire() as conn:
-        # Check if exists
-        doc = await conn.fetchrow("SELECT id FROM documents WHERE id::text = $1", document_id)
-        if not doc:
-             raise HTTPException(status_code=404, detail="Document not found")
-        
-        # Delete dependent records first (manual cascade)
-        await conn.execute("DELETE FROM approvals WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)", document_id)
-        await conn.execute("DELETE FROM journal_proposals WHERE document_id = $1", document_id)
-        await conn.execute("DELETE FROM extracted_invoices WHERE document_id = $1", document_id)
-        
-        # Finally delete the document
-        await conn.execute("DELETE FROM documents WHERE id::text = $1", document_id)
+        try:
+            doc_uuid = uuid.UUID(document_id)
+            # Check if exists
+            doc = await conn.fetchrow("SELECT id FROM documents WHERE id = $1", doc_uuid)
+            if not doc:
+                 raise HTTPException(status_code=404, detail="Document not found")
+            
+            # Delete dependent records in full cascade (Phase 4 - Fix B3)
+            # 0. Data zones (multiple FKs to document, proposal, ledger)
+            await conn.execute("DELETE FROM data_zones WHERE document_id = $1 OR job_id::text = $2", doc_uuid, document_id)
+            
+            # 1. Ledger related
+            await conn.execute("""
+                DELETE FROM ledger_lines 
+                WHERE ledger_entry_id IN (
+                    SELECT id FROM ledger_entries 
+                    WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)
+                )
+            """, doc_uuid)
+            await conn.execute("DELETE FROM ledger_entries WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)", doc_uuid)
+            
+            # 2. Proposal related
+            await conn.execute("DELETE FROM journal_proposal_entries WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)", doc_uuid)
+            await conn.execute("DELETE FROM approvals WHERE proposal_id IN (SELECT id FROM journal_proposals WHERE document_id = $1)", doc_uuid)
+            await conn.execute("DELETE FROM journal_proposals WHERE document_id = $1", doc_uuid)
+            
+            # 3. Extraction related
+            await conn.execute("DELETE FROM extracted_invoices WHERE document_id = $1", doc_uuid)
+            await conn.execute("DELETE FROM audit_evidence WHERE document_id = $1", doc_uuid)
+            
+            # 4. Finally delete the document
+            await conn.execute("DELETE FROM documents WHERE id = $1 OR job_id = $2", doc_uuid, document_id)
+        except ValueError:
+             raise HTTPException(status_code=400, detail="Invalid document ID format")
+        except Exception as e:
+            logger.error(f"Error deleting document {document_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Internal deletion error: {str(e)}")
 
     return {"message": "Document deleted", "id": document_id}
 
