@@ -4,7 +4,7 @@ import type { AxiosInstance } from 'axios';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 class ApiClient {
-  private client: AxiosInstance;
+  public client: AxiosInstance;
   private token: string | null = null;
 
   constructor() {
