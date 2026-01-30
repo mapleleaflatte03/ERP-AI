@@ -100,7 +100,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                 URL.revokeObjectURL(blobUrl);
             }
         };
-    }, [fileUrl, isExcel]);
+    }, [fileUrl, documentId, isExcel]);
 
     // ... (keep box logic) ...
 

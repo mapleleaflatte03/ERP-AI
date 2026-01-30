@@ -11,6 +11,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/root/erp-ai
 ENV TZ=Asia/Ho_Chi_Minh
 
+# Build argument for git commit SHA - injected during docker build
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 # IMPORTANT: Disable local LLM
 ENV DISABLE_LOCAL_LLM=1
 ENV LLM_PROVIDER=do_agent

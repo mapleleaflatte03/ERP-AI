@@ -44,6 +44,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
     container_name: erpx-api
     restart: unless-stopped
     ports:
@@ -282,6 +284,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
     container_name: erpx-worker
     restart: unless-stopped
     command: python -m src.workflows.worker_pr17
@@ -519,6 +523,8 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
     container_name: erpx-ui
     restart: unless-stopped
     ports:
