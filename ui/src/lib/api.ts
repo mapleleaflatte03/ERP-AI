@@ -74,7 +74,7 @@ class ApiClient {
 
   // Auth
   async login(username: string, password: string): Promise<{ access_token: string }> {
-    const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8180';
+    const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'https://auth.welliam.codes';
     const response = await axios.post(
       `${keycloakUrl}/realms/erpx/protocol/openid-connect/token`,
       new URLSearchParams({

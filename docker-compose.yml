@@ -519,6 +519,9 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        VITE_KEYCLOAK_URL: https://auth.welliam.codes
     container_name: erpx-ui
     restart: unless-stopped
     ports:

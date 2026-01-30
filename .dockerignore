@@ -17,3 +17,5 @@ ui/dist/
 .vscode/
 coverage/
 .pytest_cache/
+
+data/
