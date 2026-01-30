@@ -1710,7 +1710,18 @@ def check_storage_sync() -> bool:
     return True
 
 
+@app.get("/v1/version")
+async def get_version():
+    """Get API version and build info"""
+    return {
+        "commit": os.getenv("GIT_COMMIT", "unknown"),
+        "build_time": datetime.utcnow().isoformat(),
+        "status": "active"
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
+@app.get("/v1/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
     services = {}
