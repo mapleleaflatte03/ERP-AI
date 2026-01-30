@@ -160,6 +160,12 @@ class ApiClient {
     return response.data;
   }
 
+  // Get file preview as text/HTML (for Excel preview)
+  async getFilePreview(url: string): Promise<string> {
+    const response = await this.client.get(url, { responseType: 'text' });
+    return response.data as string;
+  }
+
   // =====================================================
   // Approvals API (for accounting app)
   // =====================================================

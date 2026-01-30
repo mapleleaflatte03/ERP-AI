@@ -65,10 +65,10 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                 // Phase 2.1: Excel Preview
                 if (isExcel) {
                     const previewUrl = effectiveUrl.includes('?') ? `${effectiveUrl}&preview=true` : `${effectiveUrl}?preview=true`;
-                    const response = await api.client.get(previewUrl);
+                    const htmlString = await api.getFilePreview(previewUrl);
                     // Backend returns HTML string if preview=true
                     if (active) {
-                        setBlobUrl(response.data); // Store HTML string in blobUrl state for Excel
+                        setBlobUrl(htmlString); // Store HTML string in blobUrl state for Excel
                         setLoading(false);
                     }
                     return;
