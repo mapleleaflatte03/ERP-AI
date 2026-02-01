@@ -47,8 +47,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  API_IMAGE_NAME: ${{ github.repository }}/api
-  UI_IMAGE_NAME: ${{ github.repository }}/ui
+  API_IMAGE_NAME: mapleleaflatte03/erp-ai/api
+  UI_IMAGE_NAME: mapleleaflatte03/erp-ai/ui
 
 permissions:
   contents: read
