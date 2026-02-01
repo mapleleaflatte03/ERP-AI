@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   MessageCircle,
   BarChart3,
+  Database,
   Clock,
   Menu,
   X,
@@ -28,6 +29,7 @@ const navigation = [
   { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight, comingSoon: true },
   { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle, beta: true },
   { name: 'Báo cáo', href: '/reports', icon: BarChart3 },
+  { name: 'Data Analyst', href: '/analyst', icon: Database, beta: true },
   { name: 'Lịch sử', href: '/evidence', icon: Clock },
 ];
 

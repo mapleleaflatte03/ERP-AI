@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.document_routes import router as document_router
 from api.approval_routes import router as approval_router
 from api.config_routes import router as config_router
+from api.analyst_routes import router as analyst_router
+from api.reconciliation_routes import router as reconciliation_router
 from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantMiddleware
 from api.routes import router
 from core.config import settings
@@ -88,6 +90,8 @@ def create_app() -> FastAPI:
     app.include_router(approval_router, prefix=API_PREFIX)
     # Config and Import routes
     app.include_router(config_router, prefix=API_PREFIX)
+app.include_router(analyst_router, prefix=API_PREFIX)
+app.include_router(reconciliation_router, prefix=API_PREFIX)
 
     # Exception handlers
     @app.exception_handler(ERPXBaseException)
