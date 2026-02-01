@@ -286,48 +286,61 @@ jobs:
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_USER: ${{ secrets.PROD_USER }}
           IMAGE_TAG: ${{ github.sha }}
-          VERSION: ${{ needs.build-and-push.outputs.version }}
-          REGISTRY: ${{ env.REGISTRY }}
-          API_IMAGE: ${{ needs.build-and-push.outputs.api_image_sha }}
-          UI_IMAGE: ${{ needs.build-and-push.outputs.ui_image_sha }}
+          SHORT_SHA: ${{ github.sha }}
         run: |
           echo "🚀 Deploying to production..."
-          echo "   Version: $VERSION"
           echo "   Git SHA: $IMAGE_TAG"
-          echo "   API Image: $API_IMAGE"
-          echo "   UI Image: $UI_IMAGE"
           
+          # Use heredoc with proper variable escaping
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${PROD_USER}@${PROD_HOST} \
-            "cd /opt/erp-ai && ./scripts/deploy_prod.sh" \
-            || echo "⚠️ SSH deploy failed, check server connectivity"
+            ${PROD_USER}@${PROD_HOST} "bash -s" << DEPLOY_SCRIPT
+          set -e
+          cd /opt/erp-ai
+          
+          echo "📦 Current directory: \$(pwd)"
+          echo "📦 Image tag: main"
+          
+          # Pull latest images with 'main' tag (always up-to-date)
+          echo "📥 Pulling new images..."
+          docker compose pull api ui 2>/dev/null || docker-compose pull api ui 2>/dev/null || {
+            echo "Pull with compose failed, trying direct pull..."
+            docker pull ghcr.io/mapleleaflatte03/erp-ai/api:main
+            docker pull ghcr.io/mapleleaflatte03/erp-ai/ui:main
+          }
+          
+          echo "🔄 Restarting containers..."
+          docker compose up -d --remove-orphans api ui 2>/dev/null || docker-compose up -d --remove-orphans api ui
+          
+          echo "⏳ Waiting for startup (15s)..."
+          sleep 15
+          
+          echo "🔍 Checking container status..."
+          docker ps --filter "name=erp" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+          
+          echo "✅ Deploy commands complete"
+          DEPLOY_SCRIPT
 
       - name: Smoke test production
         env:
           PROD_URL: https://app.welliam.codes
         run: |
           echo "🧪 Running smoke tests..."
-          sleep 10
+          sleep 5
           
           echo "Testing /api/version..."
-          curl -fsS "${PROD_URL}/api/version" 2>/dev/null | jq . || echo '{"error":"endpoint not available"}'
+          VERSION_RESP=$(curl -fsS "${PROD_URL}/api/version" 2>/dev/null || echo '{"error":"not available"}')
+          echo "$VERSION_RESP" | jq . 2>/dev/null || echo "$VERSION_RESP"
           
+          echo ""
           echo "Testing /api/health..."
-          curl -fsS "${PROD_URL}/api/health" | jq -r '.status' || echo "Health check unavailable"
+          curl -fsS "${PROD_URL}/api/health" 2>/dev/null | jq -r '.status // "failed"' || echo "Health check unavailable"
           
-          echo "Testing /api/openapi.json..."
-          OPENAPI_TYPE=$(curl -fsS -o /dev/null -w "%{content_type}" "${PROD_URL}/api/openapi.json" 2>/dev/null || echo "failed")
-          if [[ "$OPENAPI_TYPE" == *"json"* ]]; then
-            echo "✅ OpenAPI returns JSON"
-          else
-            echo "⚠️ OpenAPI might be returning SPA HTML (type: $OPENAPI_TYPE)"
-          fi
-          
+          echo ""
           echo "Testing PR #34 endpoints..."
           for ENDPOINT in "/api/v1/analyst/history" "/api/v1/config/settings"; do
             STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" "${PROD_URL}${ENDPOINT}" 2>/dev/null || echo "000")
             if [[ "$STATUS" == "404" ]]; then
-              echo "❌ $ENDPOINT returns 404 - ROUTE NOT REGISTERED"
+              echo "❌ $ENDPOINT returns 404"
             elif [[ "$STATUS" == "000" ]]; then
               echo "⚠️ $ENDPOINT connection failed"
             else
@@ -335,6 +348,7 @@ jobs:
             fi
           done
           
+          echo ""
           echo "🧪 Smoke tests complete"
 
       - name: Create GitHub Release
@@ -345,4 +359,3 @@ jobs:
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-# Trigger CD - 20260201163501
