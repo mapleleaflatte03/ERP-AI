@@ -5,13 +5,17 @@ WORKDIR /app
 
 # Build args for environment variables
 ARG VITE_KEYCLOAK_URL
+ARG VITE_API_URL=/api
+ARG VITE_BUILD_SHA=unknown
 ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_BUILD_SHA=$VITE_BUILD_SHA
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (use install instead of ci for flexibility)
+RUN npm install --legacy-peer-deps
 
 # Copy source
 COPY . .
