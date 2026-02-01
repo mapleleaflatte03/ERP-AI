@@ -11,6 +11,12 @@ import {
   Copy,
   ThumbsUp,
   ThumbsDown,
+  Upload,
+  Paperclip,
+  FileText,
+  X,
+  AlertCircle,
+  Check,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { ChatMessage } from '../types';
@@ -28,12 +34,23 @@ export default function CopilotChat() {
     {
       id: '0',
       role: 'assistant',
-      content: 'Xin chào! Tôi là Trợ lý AI Kế toán. Tôi có thể giúp bạn:\n\n• Giải thích các bút toán và định khoản\n• Tra cứu quy định kế toán\n• Tư vấn nghiệp vụ kế toán\n• Phân tích chứng từ\n\nBạn cần hỗ trợ gì?',
+      content: 'Xin chào! Tôi là Trợ lý AI Kế toán. Tôi có thể giúp bạn:\n\n• Giải thích các bút toán và định khoản\n• Tra cứu quy định kế toán\n• Tư vấn nghiệp vụ kế toán\n• Phân tích chứng từ\n• Upload chứng từ để phân tích\n\nBạn cần hỗ trợ gì?',
       created_at: new Date().toISOString(),
     },
   ]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // File upload state
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [showUploadConfirm, setShowUploadConfirm] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Allowed file types
+  const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -109,6 +126,98 @@ export default function CopilotChat() {
   const handleCopyMessage = (content: string) => {
     navigator.clipboard.writeText(content);
   };
+  
+  // File upload handlers
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    const validFiles = files.filter(file => {
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        alert(`File "${file.name}" không được hỗ trợ. Chỉ chấp nhận PDF, PNG, JPG.`);
+        return false;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`File "${file.name}" quá lớn. Giới hạn 10MB.`);
+        return false;
+      }
+      return true;
+    });
+    
+    if (validFiles.length > 0) {
+      setSelectedFiles(prev => [...prev, ...validFiles]);
+      setShowUploadConfirm(true);
+    }
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    if (selectedFiles.length <= 1) {
+      setShowUploadConfirm(false);
+    }
+  };
+  
+  const handleUploadConfirm = async () => {
+    if (selectedFiles.length === 0) return;
+    
+    setIsUploading(true);
+    const uploadedDocs: string[] = [];
+    
+    try {
+      for (const file of selectedFiles) {
+        setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
+        
+        // Simulate progress
+        const progressInterval = setInterval(() => {
+          setUploadProgress(prev => ({
+            ...prev,
+            [file.name]: Math.min((prev[file.name] || 0) + 10, 90)
+          }));
+        }, 200);
+        
+        // Upload file
+        const result = await api.uploadDocument(file);
+        
+        clearInterval(progressInterval);
+        setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+        uploadedDocs.push(result.filename || file.name);
+      }
+      
+      // Add success message to chat
+      const successMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `✅ Đã upload ${uploadedDocs.length} file thành công:\n\n${uploadedDocs.map(f => `• ${f}`).join('\n')}\n\nTôi đang phân tích chứng từ. Bạn có thể hỏi về nội dung các file này.`,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, successMessage]);
+      
+      // Reset state
+      setSelectedFiles([]);
+      setShowUploadConfirm(false);
+      setUploadProgress({});
+      
+    } catch (error) {
+      const errorMessage: ChatMessage = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `❌ Lỗi upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  const handleUploadCancel = () => {
+    setSelectedFiles([]);
+    setShowUploadConfirm(false);
+    setUploadProgress({});
+  };
 
   return (
     <div className="h-[calc(100vh-180px)] flex flex-col">
@@ -128,6 +237,91 @@ export default function CopilotChat() {
           <span className="text-sm text-green-700">Powered by LLM</span>
         </div>
       </div>
+
+      {/* Upload Confirmation Panel */}
+      {showUploadConfirm && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-blue-600" />
+              <h3 className="font-semibold text-blue-900">Xác nhận upload</h3>
+            </div>
+            <button
+              onClick={handleUploadCancel}
+              className="p-1 hover:bg-blue-100 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4 text-blue-600" />
+            </button>
+          </div>
+          
+          <div className="space-y-2 mb-4">
+            {selectedFiles.map((file, index) => (
+              <div key={index} className="flex items-center justify-between p-2 bg-white rounded-lg border">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm text-gray-700 truncate max-w-xs">{file.name}</span>
+                  <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {uploadProgress[file.name] !== undefined ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 transition-all duration-300"
+                          style={{ width: `${uploadProgress[file.name]}%` }}
+                        />
+                      </div>
+                      {uploadProgress[file.name] === 100 && (
+                        <Check className="w-4 h-4 text-green-500" />
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => removeFile(index)}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="flex-1 flex items-center gap-2 text-xs text-blue-700">
+              <AlertCircle className="w-4 h-4" />
+              <span>File sẽ được upload và phân tích bởi AI</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleUploadCancel}
+                disabled={isUploading}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleUploadConfirm}
+                disabled={isUploading || selectedFiles.length === 0}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {isUploading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Đang upload...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Upload ({selectedFiles.length} file)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat Area */}
       <div className="flex-1 bg-white rounded-xl border shadow-sm overflow-hidden flex flex-col">
@@ -249,7 +443,25 @@ export default function CopilotChat() {
         )}
         {/* Input */}
         <div className="p-4 border-t bg-gray-50">
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept=".pdf,.png,.jpg,.jpeg"
+            multiple
+            className="hidden"
+          />
           <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-3 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+              title="Upload chứng từ"
+              disabled={chatMutation.isPending || isUploading}
+            >
+              <Paperclip className="w-5 h-5" />
+            </button>
             <input
               type="text"
               value={input}

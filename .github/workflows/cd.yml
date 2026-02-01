@@ -1,0 +1,176 @@
+# =============================================================================
+# ERP-AI CD Pipeline - Deploy to Production
+# =============================================================================
+# Triggers on version tags (v*) or manual workflow dispatch
+# Includes staging deploy with auto-approval, prod deploy with manual approval
+# =============================================================================
+
+name: CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE_NAME: ${{ github.repository }}/api
+  UI_IMAGE_NAME: ${{ github.repository }}/ui
+
+jobs:
+  # ===========================================================================
+  # Job 1: Build and Push Docker Images
+  # ===========================================================================
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      api_image: ${{ steps.meta-api.outputs.tags }}
+      ui_image: ${{ steps.meta-ui.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract API metadata
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+
+      - name: Extract UI metadata
+        id: meta-ui
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+
+      - name: Build and push UI image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui
+          file: ./ui/Dockerfile
+          push: true
+          tags: ${{ steps.meta-ui.outputs.tags }}
+          labels: ${{ steps.meta-ui.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VITE_KEYCLOAK_URL=${{ secrets.KEYCLOAK_URL || 'https://auth.welliam.codes' }}
+
+  # ===========================================================================
+  # Job 2: Deploy to Staging (Auto)
+  # ===========================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: staging
+    if: github.event_name == 'push' || github.event.inputs.environment == 'staging'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "🚀 Deploying version $VERSION to staging..."
+          # Add SSH deployment commands here when staging server is configured
+          echo "✅ Staging deployment would run here"
+          echo "   Images: ${{ needs.build-and-push.outputs.api_image }}"
+
+  # ===========================================================================
+  # Job 3: Deploy to Production (Manual Approval Required)
+  # ===========================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    environment: production
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "🚀 Deploying version $VERSION to production..."
+          # Production deployment script
+          echo "✅ Production deployment would run here"
+          echo "   API Image: ${{ needs.build-and-push.outputs.api_image }}"
+          echo "   UI Image: ${{ needs.build-and-push.outputs.ui_image }}"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -13,6 +13,7 @@ import Reconciliation from './pages/Reconciliation';
 import CopilotChat from './pages/CopilotChat';
 import Reports from './pages/Reports';
 import Evidence from './pages/Evidence';
+import DataAnalyst from './pages/DataAnalyst';
 
 // Admin pages (hidden)
 import Testbench from './pages/Testbench';
@@ -52,6 +53,9 @@ export default function App() {
             
             {/* Reports */}
             <Route path="reports" element={<Reports />} />
+            
+            {/* Data Analyst (P2) */}
+            <Route path="analyst" element={<DataAnalyst />} />
             
             {/* Evidence / Audit Log */}
             <Route path="evidence" element={<Evidence />} />

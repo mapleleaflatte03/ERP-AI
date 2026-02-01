@@ -72,6 +72,15 @@ class ApiClient {
     return !!this.token;
   }
 
+  // Generic HTTP methods for direct API calls
+  async get(url: string, config?: Record<string, unknown>) {
+    return this.client.get(url, config);
+  }
+
+  async post(url: string, data?: unknown, config?: Record<string, unknown>) {
+    return this.client.post(url, data, config);
+  }
+
   // Auth
   async login(username: string, password: string): Promise<{ access_token: string }> {
     const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8180';
@@ -332,6 +341,46 @@ class ApiClient {
     if (status) params.status = status;
     // Use axios directly with absolute path (no /api prefix)
     const response = await axios.get('/v1/journal-proposals', { params });
+    return response.data;
+  }
+
+
+  // =====================================================
+  // Config API
+  // =====================================================
+
+  async getConfig() {
+    const response = await this.client.get('/v1/config');
+    return response.data;
+  }
+
+  // =====================================================
+  // Server Import API (Admin)
+  // =====================================================
+
+  async listServerDirectories(role: string = 'admin') {
+    const response = await this.client.get('/v1/import/server/list', {
+      headers: { 'X-User-Role': role }
+    });
+    return response.data;
+  }
+
+  async listServerFiles(directory: string, pattern: string = '*', role: string = 'admin') {
+    const response = await this.client.get('/v1/import/server/files', {
+      params: { directory, pattern },
+      headers: { 'X-User-Role': role }
+    });
+    return response.data;
+  }
+
+  async importFromServer(directory: string, filePattern: string = '*', recursive: boolean = false, role: string = 'admin') {
+    const response = await this.client.post('/v1/import/server', {
+      directory,
+      file_pattern: filePattern,
+      recursive
+    }, {
+      headers: { 'X-User-Role': role }
+    });
     return response.data;
   }
 }

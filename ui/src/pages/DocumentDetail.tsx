@@ -193,9 +193,43 @@ export default function DocumentDetail() {
   const canSubmit = ['proposed'].includes(doc.status) && proposal?.id;
   const canApprove = ['pending_approval'].includes(doc.status) && proposal?.approval_id;
 
-  // Extracted fields
+  // Extracted fields - now dynamic
   const extractedFields = doc.extracted_data || doc.extracted_fields || {};
-  const displayFields = [
+  
+  // Field label mapping for Vietnamese UI
+  const fieldLabels: Record<string, string> = {
+    invoice_no: 'Số hóa đơn',
+    invoice_number: 'Số hóa đơn',
+    invoice_date: 'Ngày hóa đơn',
+    vendor_name: 'Nhà cung cấp',
+    supplier_name: 'Nhà cung cấp',
+    vendor_tax_id: 'MST NCC',
+    tax_id: 'MST',
+    total_amount: 'Tổng tiền',
+    vat_amount: 'Thuế VAT',
+    tax_amount: 'Thuế',
+    currency: 'Loại tiền',
+    description: 'Mô tả',
+    payment_terms: 'Điều khoản thanh toán',
+    due_date: 'Ngày đáo hạn',
+    po_number: 'Số PO',
+    bank_account: 'Số TK ngân hàng',
+    bank_name: 'Ngân hàng',
+    cleaned_text: 'Văn bản đã làm sạch',
+  };
+  
+  // Format value based on field type
+  const formatFieldValue = (key: string, value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    if (key.includes('date')) return formatDate(value as string);
+    if (key.includes('amount') || key === 'total_amount' || key === 'vat_amount') {
+      return formatCurrency(value as number);
+    }
+    return String(value);
+  };
+  
+  // Static core fields (always shown first)
+  const coreFields = [
     { key: 'invoice_no', label: 'Số hóa đơn', value: doc.invoice_no || extractedFields.invoice_no || extractedFields.invoice_number },
     { key: 'invoice_date', label: 'Ngày hóa đơn', value: formatDate(doc.invoice_date || extractedFields.invoice_date) },
     { key: 'vendor_name', label: 'Nhà cung cấp', value: doc.vendor_name || extractedFields.vendor_name || extractedFields.supplier_name },
@@ -204,6 +238,18 @@ export default function DocumentDetail() {
     { key: 'vat_amount', label: 'Thuế VAT', value: formatCurrency(doc.vat_amount || extractedFields.tax_amount || extractedFields.vat_amount) },
     { key: 'currency', label: 'Loại tiền', value: doc.currency || extractedFields.currency || 'VND' },
   ];
+  
+  // Dynamic extra fields from extracted_data (excluding already shown)
+  const coreKeys = new Set(coreFields.map(f => f.key).concat(['invoice_number', 'supplier_name', 'tax_id', 'tax_amount']));
+  const extraFields = Object.entries(extractedFields)
+    .filter(([key]) => !coreKeys.has(key) && !key.startsWith('_'))
+    .map(([key, value]) => ({
+      key,
+      label: fieldLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      value: formatFieldValue(key, value),
+    }));
+  
+  const displayFields = [...coreFields, ...extraFields];
 
   return (
     <div className="min-h-screen bg-gray-50/50 p-6 space-y-6">
@@ -377,6 +423,24 @@ export default function DocumentDetail() {
                     ))}
                   </div>
                 </div>
+
+                {/* LLM Cleaning Results */}
+                {extractedFields.cleaned_text && (
+                  <div className="bg-green-50/50 rounded-xl p-4 border border-green-100/50">
+                    <h3 className="text-xs font-bold text-green-600 uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <CheckCircle2 className="w-3 h-3" />
+                      AI Cleaned Text
+                    </h3>
+                    <div className="max-h-40 overflow-y-auto text-xs font-mono text-gray-600 leading-relaxed bg-white p-3 rounded-lg border">
+                      {extractedFields.cleaned_text}
+                    </div>
+                    {extractedFields.confidence && (
+                      <div className="mt-2 text-xs text-green-600">
+                        Confidence: {(Number(extractedFields.confidence) * 100).toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {doc.raw_text && (
                   <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">

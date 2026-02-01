@@ -39,6 +39,6 @@ describe('CopilotChat', () => {
 
   it('renders chat input placeholder', () => {
     renderWithProviders(<CopilotChat />);
-    expect(screen.getByPlaceholderText(/Hỏi về nghiệp vụ kế toán/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Nhập câu hỏi hoặc yêu cầu/i)).toBeInTheDocument();
   });
 });
