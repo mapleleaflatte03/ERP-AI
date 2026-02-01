@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -38,7 +38,9 @@ export default function ServerImportModal({ isOpen, onClose }: ServerImportModal
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [filePattern, setFilePattern] = useState('*');
   const [recursive, setRecursive] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  // selectedFiles state reserved for future multi-select feature
+  const [, setSelectedFiles] = useState<Set<string>>(new Set());
+  void setSelectedFiles; // Suppress unused warning
 
   // Fetch directories
   const { data: dirData, isLoading: loadingDirs } = useQuery({

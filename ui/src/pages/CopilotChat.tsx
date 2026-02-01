@@ -443,7 +443,25 @@ export default function CopilotChat() {
         )}
         {/* Input */}
         <div className="p-4 border-t bg-gray-50">
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept=".pdf,.png,.jpg,.jpeg"
+            multiple
+            className="hidden"
+          />
           <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-3 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+              title="Upload chứng từ"
+              disabled={chatMutation.isPending || isUploading}
+            >
+              <Paperclip className="w-5 h-5" />
+            </button>
             <input
               type="text"
               value={input}

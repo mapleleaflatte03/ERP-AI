@@ -424,8 +424,8 @@ export default function DocumentsInbox() {
           </>
         )}
       </div>
+      </div>
 
-      
       {/* Server Import Modal */}
       <ServerImportModal 
         isOpen={showServerImport} 

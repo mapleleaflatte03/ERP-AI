@@ -27,7 +27,6 @@ import {
   ChevronDown,
   ChevronUp,
   FileSpreadsheet,
-  Trash2,
 } from 'lucide-react';
 import api from '../lib/api';
 

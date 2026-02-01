@@ -72,6 +72,15 @@ class ApiClient {
     return !!this.token;
   }
 
+  // Generic HTTP methods for direct API calls
+  async get(url: string, config?: Record<string, unknown>) {
+    return this.client.get(url, config);
+  }
+
+  async post(url: string, data?: unknown, config?: Record<string, unknown>) {
+    return this.client.post(url, data, config);
+  }
+
   // Auth
   async login(username: string, password: string): Promise<{ access_token: string }> {
     const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8180';
