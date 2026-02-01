@@ -295,24 +295,25 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${PROD_USER}@${PROD_HOST} "bash -s" << DEPLOY_SCRIPT
           set -e
-          cd /opt/erp-ai
+          cd /root/erp-ai
           
           echo "📦 Current directory: \$(pwd)"
-          echo "📦 Image tag: main"
+          echo "📦 Deploying SHA: ${IMAGE_TAG:0:7}"
           
-          # Pull latest images with 'main' tag (always up-to-date)
-          echo "📥 Pulling new images..."
-          docker compose pull api ui 2>/dev/null || docker-compose pull api ui 2>/dev/null || {
-            echo "Pull with compose failed, trying direct pull..."
-            docker pull ghcr.io/mapleleaflatte03/erp-ai/api:main
-            docker pull ghcr.io/mapleleaflatte03/erp-ai/ui:main
-          }
+          # Pull latest code from GitHub
+          echo "📥 Pulling latest code..."
+          git fetch origin main
+          git reset --hard origin/main
+          
+          # Rebuild and restart containers
+          echo "🔨 Rebuilding API and UI containers..."
+          docker compose build --no-cache api ui 2>/dev/null || docker-compose build --no-cache api ui
           
           echo "🔄 Restarting containers..."
-          docker compose up -d --remove-orphans api ui 2>/dev/null || docker-compose up -d --remove-orphans api ui
+          docker compose up -d api ui 2>/dev/null || docker-compose up -d api ui
           
-          echo "⏳ Waiting for startup (15s)..."
-          sleep 15
+          echo "⏳ Waiting for startup (20s)..."
+          sleep 20
           
           echo "🔍 Checking container status..."
           docker ps --filter "name=erp" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
