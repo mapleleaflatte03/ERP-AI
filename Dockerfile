@@ -5,6 +5,16 @@
 
 FROM python:3.10-slim
 
+# Build arguments for version tracking
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG VERSION=unknown
+
+# Set version info as environment variables
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_TIME=${BUILD_TIME}
+ENV VERSION=${VERSION}
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

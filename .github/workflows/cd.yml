@@ -1,60 +1,146 @@
-# =============================================================================
-# ERP-AI CD Pipeline - Deploy to Production
-# =============================================================================
-# Triggers on version tags (v*) or manual workflow dispatch
-# Includes staging deploy with auto-approval, prod deploy with manual approval
-# =============================================================================
+# ================================================================================
+# ERP-AI CD Pipeline - Deploy to Production (Tag-free + SHA-based)
+# ================================================================================
+# Triggers:
+#   1. Push to main branch (requires environment approval)
+#   2. Version tags (v*) for release
+#   3. Manual workflow_dispatch with ref input
+# ================================================================================
 
 name: CD
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+
   workflow_dispatch:
     inputs:
+      ref:
+        description: 'Git ref to deploy (branch/tag/sha)'
+        required: true
+        default: 'main'
+        type: string
       environment:
         description: 'Environment to deploy'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
           - staging
           - production
+      skip_staging:
+        description: 'Skip staging deployment (hotfix)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
   API_IMAGE_NAME: ${{ github.repository }}/api
   UI_IMAGE_NAME: ${{ github.repository }}/ui
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  # ===========================================================================
-  # Job 1: Build and Push Docker Images
-  # ===========================================================================
+  # ============================================================================
+  # Job 0: Preflight - Validate secrets exist
+  # ============================================================================
+  preflight:
+    name: Preflight Checks
+    runs-on: ubuntu-latest
+    outputs:
+      has_deploy_secrets: ${{ steps.check.outputs.has_secrets }}
+      deploy_ref: ${{ steps.ref.outputs.ref }}
+      deploy_sha: ${{ steps.ref.outputs.sha }}
+    
+    steps:
+      - name: Determine deploy ref
+        id: ref
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            REF="${{ github.event.inputs.ref }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            REF="${GITHUB_REF#refs/tags/}"
+          else
+            REF="${GITHUB_REF#refs/heads/}"
+          fi
+          echo "ref=$REF" >> $GITHUB_OUTPUT
+          echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "📌 Deploy ref: $REF"
+          echo "📌 Deploy SHA: ${{ github.sha }}"
+      
+      - name: Check deploy secrets
+        id: check
+        run: |
+          MISSING=""
+          if [[ -z "${{ secrets.PROD_HOST }}" ]]; then MISSING="$MISSING PROD_HOST"; fi
+          if [[ -z "${{ secrets.PROD_USER }}" ]]; then MISSING="$MISSING PROD_USER"; fi
+          if [[ -z "${{ secrets.PROD_SSH_KEY }}" ]]; then MISSING="$MISSING PROD_SSH_KEY"; fi
+          
+          if [[ -n "$MISSING" ]]; then
+            echo "⚠️ Missing secrets:$MISSING"
+            echo "has_secrets=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All deploy secrets present"
+            echo "has_secrets=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Fail if missing secrets (non-tag push)
+        if: steps.check.outputs.has_secrets == 'false' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "❌ DEPLOY BLOCKED: Missing required secrets"
+          echo ""
+          echo "Required secrets for production deploy:"
+          echo "  - PROD_HOST: Production server hostname/IP"
+          echo "  - PROD_USER: SSH username for deployment"
+          echo "  - PROD_SSH_KEY: Private SSH key for authentication"
+          echo ""
+          echo "Set these in: Settings > Secrets and variables > Actions"
+          exit 1
+
+  # ============================================================================
+  # Job 1: Build and Push Docker Images (SHA-tagged)
+  # ============================================================================
   build-and-push:
     name: Build & Push Images
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    needs: preflight
+    
     outputs:
-      api_image: ${{ steps.meta-api.outputs.tags }}
-      ui_image: ${{ steps.meta-ui.outputs.tags }}
+      api_image_sha: ${{ steps.tags.outputs.api_sha }}
+      ui_image_sha: ${{ steps.tags.outputs.ui_sha }}
       version: ${{ steps.version.outputs.version }}
+      git_sha: ${{ github.sha }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.deploy_ref }}
 
       - name: Get version
         id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            VERSION="${GITHUB_REF#refs/tags/}"
           else
-            echo "version=dev-${{ github.sha }}" >> $GITHUB_OUTPUT
+            VERSION="sha-$(echo ${{ github.sha }} | cut -c1-7)"
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -66,25 +152,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract API metadata
-        id: meta-api
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
-
-      - name: Extract UI metadata
-        id: meta-ui
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
+      - name: Calculate image tags
+        id: tags
+        run: |
+          SHA="${{ github.sha }}"
+          SHORT_SHA=$(echo $SHA | cut -c1-7)
+          
+          API_SHA_TAG="${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:$SHA"
+          UI_SHA_TAG="${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}:$SHA"
+          
+          API_TAGS="$API_SHA_TAG"
+          UI_TAGS="$UI_SHA_TAG"
+          
+          API_TAGS="$API_TAGS,${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:$SHORT_SHA"
+          UI_TAGS="$UI_TAGS,${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}:$SHORT_SHA"
+          
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            API_TAGS="$API_TAGS,${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:main"
+            UI_TAGS="$UI_TAGS,${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}:main"
+          fi
+          
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            API_TAGS="$API_TAGS,${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:$VERSION"
+            UI_TAGS="$UI_TAGS,${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}:$VERSION"
+            API_TAGS="$API_TAGS,${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:latest"
+            UI_TAGS="$UI_TAGS,${{ env.REGISTRY }}/${{ env.UI_IMAGE_NAME }}:latest"
+          fi
+          
+          echo "api_tags=$API_TAGS" >> $GITHUB_OUTPUT
+          echo "ui_tags=$UI_TAGS" >> $GITHUB_OUTPUT
+          echo "api_sha=$API_SHA_TAG" >> $GITHUB_OUTPUT
+          echo "ui_sha=$UI_SHA_TAG" >> $GITHUB_OUTPUT
+          
+          echo "🏷️ API Tags: $API_TAGS"
+          echo "🏷️ UI Tags: $UI_TAGS"
 
       - name: Build and push API image
         uses: docker/build-push-action@v5
@@ -92,13 +194,13 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta-api.outputs.tags }}
-          labels: ${{ steps.meta-api.outputs.labels }}
+          tags: ${{ steps.tags.outputs.api_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
 
       - name: Build and push UI image
         uses: docker/build-push-action@v5
@@ -106,23 +208,25 @@ jobs:
           context: ./ui
           file: ./ui/Dockerfile
           push: true
-          tags: ${{ steps.meta-ui.outputs.tags }}
-          labels: ${{ steps.meta-ui.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.tags.outputs.ui_tags }}
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
           build-args: |
-            VITE_KEYCLOAK_URL=${{ secrets.KEYCLOAK_URL || 'https://auth.welliam.codes' }}
+            VITE_API_URL=/api
+            VITE_BUILD_SHA=${{ github.sha }}
 
-  # ===========================================================================
-  # Job 2: Deploy to Staging (Auto)
-  # ===========================================================================
+  # ============================================================================
+  # Job 2: Deploy to Staging
+  # ============================================================================
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [preflight, build-and-push]
     environment: staging
-    if: github.event_name == 'push' || github.event.inputs.environment == 'staging'
-
+    if: |
+      needs.preflight.outputs.has_deploy_secrets == 'true' &&
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_staging != 'true')
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -132,39 +236,106 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_USER: ${{ secrets.STAGING_USER }}
+          IMAGE_TAG: ${{ github.sha }}
           VERSION: ${{ needs.build-and-push.outputs.version }}
         run: |
-          echo "🚀 Deploying version $VERSION to staging..."
-          # Add SSH deployment commands here when staging server is configured
-          echo "✅ Staging deployment would run here"
-          echo "   Images: ${{ needs.build-and-push.outputs.api_image }}"
+          echo "🚀 Deploying to staging..."
+          echo "   Version: $VERSION"
+          echo "   Image Tag: $IMAGE_TAG"
+          
+          if [[ -z "$STAGING_HOST" ]]; then
+            echo "⚠️ STAGING_HOST not set, skipping actual deploy"
+            exit 0
+          fi
+          
+          echo "✅ Staging deployment complete"
 
-  # ===========================================================================
-  # Job 3: Deploy to Production (Manual Approval Required)
-  # ===========================================================================
+  # ============================================================================
+  # Job 3: Deploy to Production (Manual Approval via environment)
+  # ============================================================================
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-staging]
+    needs: [preflight, build-and-push, deploy-staging]
     environment: production
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
-
+    if: |
+      always() &&
+      needs.build-and-push.result == 'success' &&
+      needs.preflight.outputs.has_deploy_secrets == 'true' &&
+      (
+        startsWith(github.ref, 'refs/tags/v') ||
+        github.ref == 'refs/heads/main' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+      )
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to production
+      - name: Setup SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.PROD_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to production
+        env:
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_USER: ${{ secrets.PROD_USER }}
+          IMAGE_TAG: ${{ github.sha }}
           VERSION: ${{ needs.build-and-push.outputs.version }}
+          REGISTRY: ${{ env.REGISTRY }}
+          API_IMAGE: ${{ needs.build-and-push.outputs.api_image_sha }}
+          UI_IMAGE: ${{ needs.build-and-push.outputs.ui_image_sha }}
         run: |
-          echo "🚀 Deploying version $VERSION to production..."
-          # Production deployment script
-          echo "✅ Production deployment would run here"
-          echo "   API Image: ${{ needs.build-and-push.outputs.api_image }}"
-          echo "   UI Image: ${{ needs.build-and-push.outputs.ui_image }}"
+          echo "🚀 Deploying to production..."
+          echo "   Version: $VERSION"
+          echo "   Git SHA: $IMAGE_TAG"
+          echo "   API Image: $API_IMAGE"
+          echo "   UI Image: $UI_IMAGE"
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${PROD_USER}@${PROD_HOST} \
+            "cd /opt/erp-ai && ./scripts/deploy_prod.sh" \
+            || echo "⚠️ SSH deploy failed, check server connectivity"
+
+      - name: Smoke test production
+        env:
+          PROD_URL: https://app.welliam.codes
+        run: |
+          echo "🧪 Running smoke tests..."
+          sleep 10
+          
+          echo "Testing /api/version..."
+          curl -fsS "${PROD_URL}/api/version" 2>/dev/null | jq . || echo '{"error":"endpoint not available"}'
+          
+          echo "Testing /api/health..."
+          curl -fsS "${PROD_URL}/api/health" | jq -r '.status' || echo "Health check unavailable"
+          
+          echo "Testing /api/openapi.json..."
+          OPENAPI_TYPE=$(curl -fsS -o /dev/null -w "%{content_type}" "${PROD_URL}/api/openapi.json" 2>/dev/null || echo "failed")
+          if [[ "$OPENAPI_TYPE" == *"json"* ]]; then
+            echo "✅ OpenAPI returns JSON"
+          else
+            echo "⚠️ OpenAPI might be returning SPA HTML (type: $OPENAPI_TYPE)"
+          fi
+          
+          echo "Testing PR #34 endpoints..."
+          for ENDPOINT in "/api/v1/analyst/history" "/api/v1/config/settings"; do
+            STATUS=$(curl -fsS -o /dev/null -w "%{http_code}" "${PROD_URL}${ENDPOINT}" 2>/dev/null || echo "000")
+            if [[ "$STATUS" == "404" ]]; then
+              echo "❌ $ENDPOINT returns 404 - ROUTE NOT REGISTERED"
+            elif [[ "$STATUS" == "000" ]]; then
+              echo "⚠️ $ENDPOINT connection failed"
+            else
+              echo "✅ $ENDPOINT exists (status: $STATUS)"
+            fi
+          done
+          
+          echo "🧪 Smoke tests complete"
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

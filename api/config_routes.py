@@ -19,14 +19,14 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Config"])
+router = APIRouter(prefix="/config", tags=["Config"])
 
 
 # =============================================================================
 # Public Config
 # =============================================================================
 
-@router.get("/config")
+@router.get("/settings")
 async def get_public_config() -> dict:
     """
     Get public configuration settings for the UI.

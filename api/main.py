@@ -12,6 +12,10 @@ import os
 import sys
 from datetime import datetime
 
+# Build info from environment (set by Docker build or CD)
+GIT_SHA = os.getenv("GIT_SHA", "unknown")
+BUILD_TIME = os.getenv("BUILD_TIME", "unknown")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -32,6 +36,15 @@ from core.exceptions import ERPXBaseException, QuotaExceeded, TenantNotFound, Va
 from core.schemas import (
     HealthResponse,
 )
+
+from pydantic import BaseModel
+
+class VersionResponse(BaseModel):
+    """Version info response"""
+    git_sha: str
+    build_time: str
+    api_version: str
+    service: str = "ERPX AI Accounting"
 from src.db import get_pool
 from src.rag import get_qdrant_client
 from src.storage import get_minio_client
@@ -204,6 +217,17 @@ def create_app() -> FastAPI:
                 "vector_db": vector_db_status,
                 "storage": storage_status,
             },
+        )
+
+
+    # Version endpoint (for deployment verification)
+    @app.get("/version", response_model=VersionResponse, tags=["Health"])
+    async def get_version():
+        """Get build version info for deployment verification"""
+        return VersionResponse(
+            git_sha=GIT_SHA,
+            build_time=BUILD_TIME,
+            api_version=API_VERSION,
         )
 
     # Root endpoint
