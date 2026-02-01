@@ -20,6 +20,8 @@ from fastapi.responses import JSONResponse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.document_routes import router as document_router
+from api.approval_routes import router as approval_router
+from api.config_routes import router as config_router
 from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantMiddleware
 from api.routes import router
 from core.config import settings
@@ -82,6 +84,10 @@ def create_app() -> FastAPI:
 
     # Document routes (UI-facing)
     app.include_router(document_router, prefix=API_PREFIX)
+    # Approval routes (UI-facing)
+    app.include_router(approval_router, prefix=API_PREFIX)
+    # Config and Import routes
+    app.include_router(config_router, prefix=API_PREFIX)
 
     # Exception handlers
     @app.exception_handler(ERPXBaseException)

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import ServerImportModal from '../components/ServerImportModal';
 import { Link } from 'react-router-dom';
 import {
   Upload,
@@ -69,6 +70,7 @@ export default function DocumentsInbox() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showServerImport, setShowServerImport] = useState(false);
 
   // Pagination State
   const [page, setPage] = useState(1);
@@ -166,7 +168,8 @@ export default function DocumentsInbox() {
   };
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -231,6 +234,14 @@ export default function DocumentsInbox() {
               </p>
             </div>
             <p className="text-xs text-gray-400">Hỗ trợ: PDF, PNG, JPG, XLSX (tối đa 10MB)</p>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); setShowServerImport(true); }}
+              className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+            >
+              <FolderOpen className="w-4 h-4" />
+              Import từ Server
+            </button>
           </div>
         </label>
       </div>
@@ -413,6 +424,13 @@ export default function DocumentsInbox() {
           </>
         )}
       </div>
-    </div>
+
+      
+      {/* Server Import Modal */}
+      <ServerImportModal 
+        isOpen={showServerImport} 
+        onClose={() => setShowServerImport(false)} 
+      />
+    </>
   );
 }

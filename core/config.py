@@ -130,6 +130,8 @@ class Settings:
     MIN_CONFIDENCE: float = field(default_factory=lambda: _get_float("MIN_CONFIDENCE", 0.6))
     HUMAN_REVIEW_THRESHOLD: float = field(default_factory=lambda: _get_float("HUMAN_REVIEW_THRESHOLD", 0.8))
     MAX_FILE_SIZE_MB: int = field(default_factory=lambda: _get_int("MAX_FILE_SIZE_MB", 50))
+    MAX_UPLOAD_COUNT: int = field(default_factory=lambda: _get_int("MAX_UPLOAD_COUNT", 100))
+    ALLOWED_SERVER_PATHS: str = field(default_factory=lambda: os.getenv("ALLOWED_SERVER_PATHS", "/data/imports"))
     MAX_TEXT_LENGTH: int = field(default_factory=lambda: _get_int("MAX_TEXT_LENGTH", 50000))
     MAX_JOURNAL_ENTRIES: int = field(default_factory=lambda: _get_int("MAX_JOURNAL_ENTRIES", 20))
     MAX_AMOUNT: float = field(default_factory=lambda: _get_float("MAX_AMOUNT", 1_000_000_000))

@@ -433,3 +433,96 @@ async def get_document_ledger(document_id: str) -> dict:
                 for line in lines
             ],
         }
+
+
+# =============================================================================
+# Document Preview (File Download)
+# =============================================================================
+
+@router.get("/{document_id}/preview")
+async def get_document_preview(document_id: str, preview: bool = False):
+    """
+    Get document file for preview.
+    Returns the raw file content from MinIO storage.
+    
+    If preview=true and the file is Excel, returns HTML table representation.
+    """
+    from fastapi.responses import StreamingResponse, HTMLResponse
+    from src.storage import download_document, stream_document
+    import io
+    
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        # Get document info
+        row = await conn.fetchrow(
+            """
+            SELECT id, filename, content_type, minio_bucket, minio_key
+            FROM jobs WHERE id = $1
+            """,
+            document_id
+        )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        bucket = row.get("minio_bucket")
+        key = row.get("minio_key")
+        
+        if not bucket or not key:
+            raise HTTPException(status_code=404, detail="File not found in storage")
+
+        filename = row.get("filename", "document")
+        content_type = row.get("content_type", "application/octet-stream")
+
+        try:
+            # Special handling for Excel preview
+            if preview and (content_type.endswith("sheet") or filename.endswith(('.xlsx', '.xls'))):
+                try:
+                    import pandas as pd
+                    
+                    file_data = download_document(bucket, key)
+                    df = pd.read_excel(io.BytesIO(file_data), sheet_name=0)
+                    
+                    # Convert to HTML table
+                    html_table = df.to_html(
+                        classes='min-w-full divide-y divide-gray-200 text-sm',
+                        index=False,
+                        border=0,
+                        escape=True
+                    )
+                    
+                    # Wrap with Tailwind styling
+                    styled_html = f"""
+                    <style>
+                        table {{ border-collapse: collapse; width: 100%; }}
+                        th {{ background-color: #f3f4f6; padding: 8px 12px; text-align: left; font-weight: 600; }}
+                        td {{ padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }}
+                        tr:hover {{ background-color: #f9fafb; }}
+                    </style>
+                    {html_table}
+                    """
+                    return HTMLResponse(content=styled_html, status_code=200)
+                except Exception as e:
+                    # Fallback to raw download if Excel parsing fails
+                    pass
+
+            # Stream file from MinIO
+            response, detected_content_type, size = stream_document(bucket, key)
+            
+            # Use detected content type or fallback
+            final_content_type = detected_content_type or content_type
+
+            return StreamingResponse(
+                io.BytesIO(response.read()),
+                media_type=final_content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"',
+                    "Cache-Control": "private, max-age=3600",
+                }
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
