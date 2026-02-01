@@ -90,8 +90,8 @@ def create_app() -> FastAPI:
     app.include_router(approval_router, prefix=API_PREFIX)
     # Config and Import routes
     app.include_router(config_router, prefix=API_PREFIX)
-app.include_router(analyst_router, prefix=API_PREFIX)
-app.include_router(reconciliation_router, prefix=API_PREFIX)
+    app.include_router(analyst_router, prefix=API_PREFIX)
+    app.include_router(reconciliation_router, prefix=API_PREFIX)
 
     # Exception handlers
     @app.exception_handler(ERPXBaseException)
