@@ -27,6 +27,15 @@ from pypdf import PdfReader
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("OCR-Pipeline")
 
+# Import LLM cleaner for post-processing
+try:
+    from services.ocr.llm_cleaner import clean_ocr_output
+    LLM_CLEANER_AVAILABLE = True
+    logger.info("LLM Cleaner module loaded")
+except ImportError:
+    LLM_CLEANER_AVAILABLE = False
+    logger.warning("LLM Cleaner not available - OCR output will not be cleaned")
+
 # Lazy load PaddleOCR to avoid slow startup
 _ocr_engine = None
 
@@ -52,8 +61,9 @@ def get_ocr_engine():
 class OCRPipeline:
     """Main OCR Pipeline class"""
 
-    def __init__(self, upload_dir: str = None, output_dir: str = None):
+    def __init__(self, upload_dir: str = None, output_dir: str = None, enable_llm_cleaning: bool = True):
         self.base_dir = Path(os.environ.get("ERP_AI_DIR", "/root/erp-ai"))
+        self.enable_llm_cleaning = enable_llm_cleaning and LLM_CLEANER_AVAILABLE
         self.upload_dir = Path(upload_dir) if upload_dir else self.base_dir / "data" / "uploads"
         self.output_dir = Path(output_dir) if output_dir else self.base_dir / "data" / "processed"
 
@@ -98,6 +108,10 @@ class OCRPipeline:
                 logger.error(error_msg)
                 return self._create_error_result(str(file_path), error_msg)
 
+            # Apply LLM cleaning to OCR output
+            if self.enable_llm_cleaning and result.get("text"):
+                result = self._apply_llm_cleaning(result)
+            
             # Save result to JSON
             output_path = self._save_result(result, file_path.stem)
             result["output_file"] = str(output_path)
@@ -284,6 +298,51 @@ class OCRPipeline:
             result["errors"].append(f"Image processing failed: {str(e)}")
 
         return result
+
+    def _apply_llm_cleaning(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Apply LLM cleaning to OCR output"""
+        if not LLM_CLEANER_AVAILABLE:
+            return result
+        
+        try:
+            raw_text = result.get("text", "")
+            if not raw_text.strip():
+                return result
+            
+            logger.info("Applying LLM cleaning to OCR output...")
+            
+            # Prepare context for cleaning
+            context = {
+                "doc_type": result.get("file_type", "unknown"),
+                "expected_fields": ["invoice_number", "invoice_date", "vendor_name", "total_amount"],
+            }
+            
+            # Clean OCR output
+            cleaning_result = clean_ocr_output(raw_text, context)
+            
+            # Add cleaning results to OCR result
+            result["llm_cleaning"] = {
+                "cleaned_text": cleaning_result.get("cleaned_text", raw_text),
+                "extracted_fields": cleaning_result.get("extracted_fields", {}),
+                "confidence": cleaning_result.get("confidence", 0.0),
+                "method": cleaning_result.get("method", "none"),
+                "corrections": cleaning_result.get("corrections", []),
+            }
+            
+            # Optionally update main text with cleaned version if confidence is high
+            if cleaning_result.get("confidence", 0) >= 0.7:
+                result["text_original"] = result["text"]
+                result["text"] = cleaning_result.get("cleaned_text", result["text"])
+                logger.info(f"LLM cleaning applied (method: {cleaning_result.get('method')}, confidence: {cleaning_result.get('confidence'):.2f})")
+            else:
+                logger.info(f"LLM cleaning skipped due to low confidence: {cleaning_result.get('confidence'):.2f}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"LLM cleaning failed: {e}")
+            result["llm_cleaning"] = {"error": str(e)}
+            return result
 
     def _create_error_result(self, file_path: str, error: str) -> dict[str, Any]:
         """Create an error result"""
