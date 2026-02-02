@@ -526,3 +526,163 @@ async def get_document_preview(document_id: str, preview: bool = False):
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+
+# =============================================================================
+# OCR Bounding Boxes (for Preview Overlay)
+# =============================================================================
+
+@router.get("/{document_id}/ocr-boxes")
+async def get_document_ocr_boxes(document_id: str) -> dict:
+    """
+    Get OCR bounding boxes for a document.
+    
+    Returns:
+        - boxes: List of bounding boxes with text and confidence
+        - page_dimensions: Page width/height for scaling
+        - extracted_fields: Mapping of field names to their boxes
+    
+    This data is used by the frontend to overlay boxes on the document preview.
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        # Get document with OCR data
+        row = await conn.fetchrow(
+            """
+            SELECT 
+                d.id, d.ocr_boxes, d.page_dimensions, d.extracted_data,
+                ei.vendor_name, ei.invoice_number, ei.total_amount, ei.invoice_date,
+                ei.raw_text
+            FROM documents d
+            LEFT JOIN extracted_invoices ei ON ei.document_id = d.id
+            WHERE d.id = $1 OR d.job_id = $1
+            LIMIT 1
+            """,
+            document_id
+        )
+
+        if not row:
+            # Try jobs table fallback
+            job_row = await conn.fetchrow(
+                "SELECT id, extracted_data FROM jobs WHERE id = $1",
+                document_id
+            )
+            if job_row:
+                extracted = job_row.get("extracted_data") or {}
+                return {
+                    "document_id": document_id,
+                    "boxes": extracted.get("blocks") or [],
+                    "page_dimensions": extracted.get("metadata") or {},
+                    "extracted_fields": {}
+                }
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Parse boxes
+        boxes = row.get("ocr_boxes") or []
+        page_dims = row.get("page_dimensions") or {}
+        extracted = row.get("extracted_data") or {}
+        
+        # If no dedicated boxes column, try extracted_data.blocks
+        if not boxes and extracted:
+            boxes = extracted.get("blocks") or []
+            if not page_dims:
+                page_dims = extracted.get("metadata") or {}
+
+        # Build field → box mapping for highlighting specific fields
+        extracted_fields = {}
+        if row.get("vendor_name"):
+            extracted_fields["vendor_name"] = {
+                "value": row.get("vendor_name"),
+                "boxes": _find_boxes_for_text(boxes, row.get("vendor_name"))
+            }
+        if row.get("invoice_number"):
+            extracted_fields["invoice_number"] = {
+                "value": row.get("invoice_number"),
+                "boxes": _find_boxes_for_text(boxes, row.get("invoice_number"))
+            }
+        if row.get("total_amount"):
+            extracted_fields["total_amount"] = {
+                "value": str(row.get("total_amount")),
+                "boxes": _find_boxes_for_text(boxes, str(row.get("total_amount")))
+            }
+
+        return {
+            "document_id": document_id,
+            "boxes": boxes,
+            "page_dimensions": page_dims,
+            "extracted_fields": extracted_fields,
+            "raw_text": row.get("raw_text")
+        }
+
+
+def _find_boxes_for_text(boxes: list, search_text: str) -> list:
+    """Find bounding boxes that contain the given text"""
+    if not search_text or not boxes:
+        return []
+    
+    search_lower = search_text.lower().strip()
+    matches = []
+    
+    for box in boxes:
+        box_text = (box.get("text") or "").lower()
+        if search_lower in box_text or box_text in search_lower:
+            matches.append(box)
+    
+    return matches
+
+
+@router.get("/{document_id}/raw-vs-cleaned")
+async def get_raw_vs_cleaned(document_id: str) -> dict:
+    """
+    Get comparison of raw OCR text vs cleaned/extracted fields.
+    
+    This helps users verify the AI's extraction quality.
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        # Get document and extraction
+        doc = await conn.fetchrow(
+            """
+            SELECT d.id, d.raw_text as doc_raw_text, d.extracted_data,
+                   ei.raw_text as invoice_raw_text, ei.vendor_name, ei.vendor_tax_id,
+                   ei.invoice_number, ei.invoice_date, ei.total_amount, ei.tax_amount,
+                   ei.currency, ei.line_items, ei.ocr_confidence, ei.ai_confidence
+            FROM documents d
+            LEFT JOIN extracted_invoices ei ON ei.document_id = d.id
+            WHERE d.id = $1 OR d.job_id = $1
+            LIMIT 1
+            """,
+            document_id
+        )
+
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        raw_text = doc.get("invoice_raw_text") or doc.get("doc_raw_text") or ""
+        
+        cleaned_fields = {
+            "vendor_name": doc.get("vendor_name"),
+            "vendor_tax_id": doc.get("vendor_tax_id"),
+            "invoice_number": doc.get("invoice_number"),
+            "invoice_date": str(doc.get("invoice_date")) if doc.get("invoice_date") else None,
+            "total_amount": float(doc.get("total_amount") or 0),
+            "tax_amount": float(doc.get("tax_amount") or 0),
+            "currency": doc.get("currency") or "VND",
+        }
+
+        return {
+            "document_id": document_id,
+            "raw_text": raw_text,
+            "cleaned_fields": cleaned_fields,
+            "line_items": doc.get("line_items") or [],
+            "confidence": {
+                "ocr": float(doc.get("ocr_confidence") or 0),
+                "ai": float(doc.get("ai_confidence") or 0)
+            }
+        }

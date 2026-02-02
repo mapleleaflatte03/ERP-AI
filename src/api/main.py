@@ -41,6 +41,8 @@ from api.analyst_routes import router as analyst_router
 from api.config_routes import router as config_router
 from api.reconciliation_routes import router as reconciliation_router
 from api.approval_routes import router as pr34_approval_router
+from api.agent_routes import router as agent_router
+from api.analyze_routes import router as analyze_router
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
 from src.api.middleware import RequestIdMiddleware, get_request_id
 
@@ -1683,6 +1685,8 @@ def create_app() -> FastAPI:
     app.include_router(config_router, prefix="/v1")
     app.include_router(reconciliation_router, prefix="/v1")
     app.include_router(pr34_approval_router, prefix="/v1")
+    app.include_router(agent_router, prefix="/v1")
+    app.include_router(analyze_router, prefix="/v1")
     return app
 
 
