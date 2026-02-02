@@ -1453,27 +1453,87 @@ async def extract_pdf(file_path: str) -> str:
         return await extract_image(file_path)
 
 
-async def extract_image(file_path: str) -> tuple[str, list]:
-    """Extract text from image using PaddleOCR (primary) or pytesseract (fallback)
-    Returns: (text, boxes) where boxes = [{"bbox": [x,y,w,h], "text": str, "confidence": float}, ...]
-    """
-    from PIL import Image
+# ==============================================================================
+# OCR Functions - Improved with Multi-pass VI+EN and Image Preprocessing
+# ==============================================================================
 
-    # Try PaddleOCR first (has bounding boxes)
+# Minimum confidence threshold for OCR
+MIN_OCR_CONFIDENCE = 0.5
+
+
+def preprocess_image_for_ocr(file_path: str) -> str:
+    """Preprocess image to improve OCR accuracy.
+    
+    Steps:
+    1. Convert to grayscale
+    2. Denoise using fastNlMeansDenoising
+    3. Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    
+    Returns: path to processed image (or original if preprocessing fails)
+    """
+    try:
+        import cv2
+        img = cv2.imread(file_path)
+        if img is None:
+            return file_path
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Denoise - reduces noise while preserving edges
+        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+        
+        # Increase contrast using CLAHE - improves text visibility
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
+        
+        # Save to temp file
+        processed_path = file_path.rsplit('.', 1)[0] + '_processed.png'
+        cv2.imwrite(processed_path, enhanced)
+        return processed_path
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}")
+        return file_path
+
+
+def run_paddleocr_single(file_path: str, lang: str = "vi") -> tuple[list[str], list[dict]]:
+    """Run PaddleOCR with specified language model.
+    
+    Args:
+        file_path: Path to the image file
+        lang: Language model to use ('vi' for Vietnamese, 'en' for English)
+    
+    Returns:
+        Tuple of (lines, boxes) where:
+        - lines: List of extracted text strings
+        - boxes: List of dicts with bbox, text, confidence, lang
+    """
     try:
         from paddleocr import PaddleOCR
-
-        ocr = PaddleOCR(use_angle_cls=True, lang="vi", show_log=False)
+        
+        ocr = PaddleOCR(
+            use_angle_cls=True,
+            lang=lang,
+            show_log=False,
+            use_gpu=False,  # CPU for stability
+            det_db_thresh=0.3,  # Lower detection threshold for more boxes
+            det_db_box_thresh=0.5,
+        )
         result = ocr.ocr(file_path, cls=True)
-
+        
         lines = []
         boxes = []
+        
         if result and result[0]:
             for line in result[0]:
                 if line and len(line) > 1:
-                    coords = line[0]  # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+                    coords = line[0]
                     text_val = line[1][0]
-                    conf = line[1][1]
+                    conf = float(line[1][1])
+                    
+                    # Skip low confidence results
+                    if conf < MIN_OCR_CONFIDENCE:
+                        continue
                     
                     lines.append(text_val)
                     
@@ -1484,18 +1544,110 @@ async def extract_image(file_path: str) -> tuple[str, list]:
                     y = min(ys)
                     w = max(xs) - x
                     h = max(ys) - y
+                    
                     boxes.append({
                         "bbox": [float(x), float(y), float(w), float(h)],
                         "text": text_val,
-                        "confidence": float(conf)
+                        "confidence": conf,
+                        "lang": lang
                     })
-
-        text = "\n".join(lines)
-        if text:
-            logger.info(f"PaddleOCR extracted {len(text)} chars, {len(boxes)} boxes")
-            return text, boxes
+        
+        return lines, boxes
     except Exception as e:
-        logger.warning(f"PaddleOCR failed: {e}")
+        logger.warning(f"PaddleOCR ({lang}) failed: {e}")
+        return [], []
+
+
+def merge_multi_lang_ocr_results(
+    results_vi: tuple[list, list],
+    results_en: tuple[list, list]
+) -> tuple[str, list[dict]]:
+    """Merge OCR results from VI and EN models.
+    
+    Strategy:
+    - Group boxes by approximate position (rounded to 10px)
+    - Keep the result with higher confidence for overlapping boxes
+    - Sort final boxes by reading order (top-to-bottom, left-to-right)
+    
+    Returns:
+        Tuple of (text, boxes) where text is joined by newlines
+    """
+    lines_vi, boxes_vi = results_vi
+    lines_en, boxes_en = results_en
+    
+    # Create a map of boxes by approximate position
+    merged_boxes = {}
+    
+    for box in boxes_vi + boxes_en:
+        # Create a position key (rounded to 10px)
+        x, y = int(box["bbox"][0] / 10) * 10, int(box["bbox"][1] / 10) * 10
+        key = (x, y)
+        
+        # Keep higher confidence result
+        if key not in merged_boxes or box["confidence"] > merged_boxes[key]["confidence"]:
+            merged_boxes[key] = box
+    
+    # Sort by position (top to bottom, left to right)
+    sorted_boxes = sorted(merged_boxes.values(), key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    
+    # Extract text in reading order
+    text = "\n".join([b["text"] for b in sorted_boxes])
+    
+    return text, sorted_boxes
+
+
+async def extract_image(file_path: str) -> tuple[str, list]:
+    """Extract text from image using improved PaddleOCR (multi-pass VI+EN).
+    
+    Features:
+    1. Image preprocessing (grayscale, denoise, contrast enhancement)
+    2. Multi-pass OCR with both Vietnamese (vi) and English (en) models
+    3. Confidence-based filtering (MIN_OCR_CONFIDENCE=0.5)
+    4. Intelligent result merging (higher confidence wins)
+    5. Fallback to pytesseract if PaddleOCR fails
+    
+    Returns:
+        Tuple of (text, boxes) where:
+        - text: Full extracted text (lines joined by newlines)
+        - boxes: List of dicts with bbox [x,y,w,h], text, confidence, lang
+    """
+    import time
+    from PIL import Image
+    start = time.time()
+    
+    # Step 1: Preprocess image for better OCR accuracy
+    processed_path = preprocess_image_for_ocr(file_path)
+    ocr_path = processed_path if processed_path != file_path else file_path
+    
+    # Step 2: Multi-pass OCR with VI and EN models
+    try:
+        # Run VI model (primary for Vietnamese invoices)
+        logger.info(f"Running PaddleOCR (vi) on {ocr_path}")
+        results_vi = run_paddleocr_single(ocr_path, lang="vi")
+        
+        # Run EN model (better for numbers, dates, English text)
+        logger.info(f"Running PaddleOCR (en) on {ocr_path}")
+        results_en = run_paddleocr_single(ocr_path, lang="en")
+        
+        # Step 3: Merge results from both models
+        text, boxes = merge_multi_lang_ocr_results(results_vi, results_en)
+        
+        elapsed = int((time.time() - start) * 1000)
+        logger.info(f"Improved OCR extracted {len(text)} chars, {len(boxes)} boxes in {elapsed}ms")
+        
+        # Cleanup processed file
+        if processed_path != file_path:
+            import os
+            try:
+                os.remove(processed_path)
+            except:
+                pass
+        
+        if text:
+            return text, boxes
+            
+    except Exception as e:
+        logger.warning(f"PaddleOCR multi-pass failed: {e}")
 
     # Fallback to pytesseract (no boxes)
     try:
