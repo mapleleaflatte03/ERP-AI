@@ -383,6 +383,80 @@ class ApiClient {
     });
     return response.data;
   }
+
+  // =====================================================
+  // Agent Actions API (for Copilot confirmation flow)
+  // =====================================================
+
+  async getAgentPendingActions() {
+    const response = await this.client.get('/v1/agent/actions/pending');
+    return response.data;
+  }
+
+  async getAgentActionHistory(limit: number = 20) {
+    const response = await this.client.get('/v1/agent/actions/history', { params: { limit } });
+    return response.data;
+  }
+
+  async confirmAgentAction(actionId: string) {
+    const response = await this.client.post(`/v1/agent/actions/${actionId}/confirm`);
+    return response.data;
+  }
+
+  async cancelAgentAction(actionId: string) {
+    const response = await this.client.post(`/v1/agent/actions/${actionId}/cancel`);
+    return response.data;
+  }
+
+  // =====================================================
+  // Analyze API (unified reports + datasets)
+  // =====================================================
+
+  async getAnalyzeReports() {
+    const response = await this.client.get('/v1/analyze/reports');
+    return response.data;
+  }
+
+  async runAnalyzeReport(reportId: string, params?: Record<string, unknown>) {
+    const response = await this.client.post(`/v1/analyze/reports/${reportId}/run`, params || {});
+    return response.data;
+  }
+
+  async getDatasets(limit: number = 50, offset: number = 0) {
+    const response = await this.client.get('/v1/analyze/datasets', { params: { limit, offset } });
+    return response.data;
+  }
+
+  async uploadDataset(file: File, name?: string, description?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (name) formData.append('name', name);
+    if (description) formData.append('description', description);
+    const response = await this.client.post('/v1/analyze/datasets/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async runAnalyzeQuery(question: string, datasetId?: string) {
+    const response = await this.client.post('/v1/analyze/query', { question, dataset_id: datasetId });
+    return response.data;
+  }
+
+  // =====================================================
+  // Document OCR Boxes API
+  // =====================================================
+
+  async getDocumentOcrBoxes(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/ocr-boxes`);
+    return response.data;
+  }
+
+  async getDocumentRawVsCleaned(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/raw-vs-cleaned`);
+    return response.data;
+  }
+
 }
 
 export const api = new ApiClient();

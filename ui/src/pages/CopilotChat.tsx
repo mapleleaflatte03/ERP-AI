@@ -19,7 +19,20 @@ import {
   Check,
 } from 'lucide-react';
 import api from '../lib/api';
-import type { ChatMessage } from '../types';
+import ActionProposalCard from '../components/ActionProposalCard';
+import ActionProposalCard from '../components/ActionProposalCard';
+import type { ChatMessage as BaseChatMessage } from '../types';
+
+// Extended ChatMessage with action_proposals for Agent Hub
+interface ChatMessage extends BaseChatMessage {
+  action_proposals?: Array<{
+    action_id: string;
+    action_type: string;
+    description: string;
+    status: 'proposed' | 'executed' | 'cancelled' | 'failed';
+    requires_confirmation: boolean;
+  }>;
+}
 
 const SUGGESTED_QUESTIONS = [
   'Giải thích định khoản mua hàng chịu VAT 10%',
@@ -71,7 +84,17 @@ export default function CopilotChat() {
         // Backend returns 'response' field
         content: response.response || response.content || 'Xin lỗi, tôi không thể xử lý yêu cầu này.',
         citations: response.citations,
-        actions: response.actions, // Map actions
+        actions: response.actions, // Map legacy actions
+        // Parse action_proposals from response (Agent Hub feature)
+        action_proposals: response.action_proposals || (
+          response.tool_results?.filter((r: any) => r.requires_confirmation).map((r: any) => ({
+            action_id: r.action_id,
+            action_type: r.action_type,
+            description: r.description,
+            status: r.status || 'proposed',
+            requires_confirmation: true,
+          }))
+        ),
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, assistantMessage]);
@@ -351,6 +374,62 @@ export default function CopilotChat() {
                 </div>
 
                 {/* Actions */}
+                {/* Action Proposals from Agent Hub */}
+                {msg.action_proposals && msg.action_proposals.length > 0 && (
+                  <div className="mt-2">
+                    {msg.action_proposals.map((proposal) => (
+                      <ActionProposalCard
+                        key={proposal.action_id}
+                        proposal={proposal}
+                        onStatusChange={(newStatus, result) => {
+                          // Update message state when action is confirmed/cancelled
+                          setMessages(prev => prev.map(m => 
+                            m.id === msg.id 
+                              ? {
+                                  ...m,
+                                  action_proposals: m.action_proposals?.map(p =>
+                                    p.action_id === proposal.action_id
+                                      ? { ...p, status: newStatus as any }
+                                      : p
+                                  )
+                                }
+                              : m
+                          ));
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Legacy actions (old format) */}
+                {/* Action Proposals from Agent Hub */}
+                {msg.action_proposals && msg.action_proposals.length > 0 && (
+                  <div className="mt-2">
+                    {msg.action_proposals.map((proposal) => (
+                      <ActionProposalCard
+                        key={proposal.action_id}
+                        proposal={proposal}
+                        onStatusChange={(newStatus, result) => {
+                          // Update message state when action is confirmed/cancelled
+                          setMessages(prev => prev.map(m => 
+                            m.id === msg.id 
+                              ? {
+                                  ...m,
+                                  action_proposals: m.action_proposals?.map(p =>
+                                    p.action_id === proposal.action_id
+                                      ? { ...p, status: newStatus as any }
+                                      : p
+                                  )
+                                }
+                              : m
+                          ));
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Legacy actions (old format) */}
                 {msg.actions && msg.actions.length > 0 && (
                   <div className="mt-2 flex flex-col gap-2">
                     {msg.actions.map(action => (

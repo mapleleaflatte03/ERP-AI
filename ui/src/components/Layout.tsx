@@ -28,8 +28,7 @@ const navigation = [
   { name: 'Duyệt', href: '/approvals', icon: CheckSquare },
   { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight, comingSoon: true },
   { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle, beta: true },
-  { name: 'Báo cáo', href: '/reports', icon: BarChart3 },
-  { name: 'Data Analyst', href: '/analyst', icon: Database, beta: true },
+  { name: 'Analyze', href: '/analyze', icon: BarChart3 },
   { name: 'Lịch sử', href: '/evidence', icon: Clock },
 ];
 
