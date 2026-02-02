@@ -60,32 +60,47 @@ SCHEMA_CONTEXT = """
 Database schema for ERP-AI accounting system (PostgreSQL):
 
 Tables:
-1. documents - Uploaded accounting documents (main source)
+1. extracted_invoices - Parsed invoice data (PRIMARY for financial queries)
+   - id (uuid), document_id (uuid), job_id (uuid), tenant_id (uuid)
+   - vendor_name (varchar 255), vendor_tax_id (varchar 50)
+   - invoice_number (varchar 100), invoice_date (date), due_date (date)
+   - subtotal (numeric 18,2), tax_amount (numeric 18,2), total_amount (numeric 18,2)
+   - currency (varchar 10, default VND), line_items (jsonb)
+   - raw_text (text), ocr_confidence (numeric), ai_confidence (numeric)
+   - extracted_by (varchar 100), created_at, updated_at
+
+2. documents - Uploaded document files
    - id (uuid), tenant_id (uuid), job_id (varchar), filename (varchar)
-   - content_type (varchar), file_size (bigint), status (varchar)
+   - content_type (varchar), file_size (bigint), file_path (varchar)
+   - status (varchar: pending/processing/completed/failed)
    - doc_type (varchar: invoice/payment/receipt/contract/other)
-   - extracted_data (jsonb: contains invoice_no, invoice_date, vendor_name, total_amount, etc)
+   - extracted_data (jsonb), raw_text (text)
    - created_at, updated_at
 
-2. ledger_entries - Posted journal entries
+3. ledger_entries - Posted journal entries
    - id (uuid), document_id (uuid ref), tenant_id
    - entry_date, description, status (draft/posted/reversed)
    - debit_total, credit_total, created_by
    - created_at
 
-3. ledger_lines - Individual debit/credit lines
+4. ledger_lines - Individual debit/credit lines
    - id (uuid), entry_id (ref), account_code, account_name
    - debit_amount, credit_amount, description
 
-4. approvals - Approval records
+5. approvals - Approval records
    - id (uuid), document_id (uuid ref), proposal_id
    - status (pending/approved/rejected), approver, comment
    - created_at, approved_at
 
-To get invoice fields from documents, use: 
-  extracted_data->>'invoice_no' as invoice_no
-  extracted_data->>'vendor_name' as vendor_name
-  (extracted_data->>'total_amount')::numeric as total_amount
+6. journal_proposals - Proposed journal entries (pending approval)
+   - id (uuid), document_id (uuid ref), invoice_id (uuid ref)
+   - journal_type, debit_account, credit_account
+   - amount (numeric), description
+   - status (pending/approved/rejected)
+   - created_at
+
+IMPORTANT: For revenue/amount queries, use extracted_invoices table with:
+  total_amount, subtotal, tax_amount columns directly (NOT jsonb)
 
 Common Vietnamese accounting terms:
 - Doanh thu = Revenue (TK 511)
@@ -94,6 +109,8 @@ Common Vietnamese accounting terms:
 - Nhà cung cấp = Vendor/Supplier
 - Bút toán = Journal entry
 - Tài khoản = Account
+- Tổng tiền = total_amount
+- Thuế = tax_amount
 """
 
 
@@ -132,12 +149,14 @@ Convert natural language questions to PostgreSQL queries.
 {SCHEMA_CONTEXT}
 
 Rules:
-1. Return ONLY the SQL query, no explanations
+1. Return ONLY the SQL query, no explanations or markdown
 2. Use Vietnamese column aliases when appropriate
 3. Always limit results to 1000 rows max
 4. Use proper date handling for Vietnamese formats
-5. Handle NULL values gracefully
+5. Handle NULL values gracefully with COALESCE
 6. For aggregate queries, include appropriate GROUP BY
+7. For revenue/amount queries, ALWAYS use extracted_invoices table
+8. Use total_amount, subtotal, tax_amount columns directly from extracted_invoices
 """
             },
             {
@@ -167,6 +186,10 @@ Rules:
             sql = sql[3:]
     sql = sql.strip()
     
+    # Remove any trailing markdown
+    if "```" in sql:
+        sql = sql.split("```")[0].strip()
+    
     # Basic SQL injection prevention
     sql_lower = sql.lower()
     dangerous = ["drop", "delete", "truncate", "update", "insert", "alter", "create"]
@@ -180,66 +203,109 @@ def _translate_with_patterns(question: str) -> str:
     """Pattern-based NL2SQL fallback"""
     q = question.lower()
     
-    # Revenue queries
-    if "doanh thu" in q:
-        if "tháng này" in q or "thang nay" in q:
+    # Revenue queries - use extracted_invoices
+    if "doanh thu" in q or "tổng tiền" in q or "total" in q or "revenue" in q:
+        if "tháng này" in q or "thang nay" in q or "this month" in q:
             return """
-                SELECT COALESCE(SUM(total_amount), 0) as "Tổng doanh thu"
-                FROM documents
+                SELECT COALESCE(SUM(total_amount), 0) as "Tổng doanh thu",
+                       COUNT(*) as "Số hóa đơn",
+                       COALESCE(SUM(tax_amount), 0) as "Tổng thuế"
+                FROM extracted_invoices
                 WHERE invoice_date >= date_trunc('month', CURRENT_DATE)
-                  AND status = 'approved'
             """
-        if "năm nay" in q or "nam nay" in q:
+        if "năm nay" in q or "nam nay" in q or "this year" in q:
             return """
-                SELECT COALESCE(SUM(total_amount), 0) as "Tổng doanh thu"
-                FROM documents
+                SELECT COALESCE(SUM(total_amount), 0) as "Tổng doanh thu",
+                       COUNT(*) as "Số hóa đơn",
+                       COALESCE(SUM(tax_amount), 0) as "Tổng thuế"
+                FROM extracted_invoices
                 WHERE invoice_date >= date_trunc('year', CURRENT_DATE)
-                  AND status = 'approved'
             """
+        # Default revenue query
+        return """
+            SELECT COALESCE(SUM(total_amount), 0) as "Tổng doanh thu",
+                   COUNT(*) as "Số hóa đơn",
+                   COALESCE(SUM(tax_amount), 0) as "Tổng thuế"
+            FROM extracted_invoices
+        """
     
-    # Top vendors
-    if "nhà cung cấp" in q or "nha cung cap" in q:
-        if "top" in q or "cao nhất" in q:
+    # Top vendors - use extracted_invoices
+    if "nhà cung cấp" in q or "nha cung cap" in q or "vendor" in q:
+        if "top" in q or "cao nhất" in q or "lớn nhất" in q:
             return """
                 SELECT vendor_name as "Nhà cung cấp", 
                        COUNT(*) as "Số hóa đơn",
                        SUM(total_amount) as "Tổng tiền"
-                FROM documents
+                FROM extracted_invoices
                 WHERE vendor_name IS NOT NULL
                 GROUP BY vendor_name
-                ORDER BY SUM(total_amount) DESC
+                ORDER BY SUM(total_amount) DESC NULLS LAST
                 LIMIT 10
             """
     
     # Invoice counts
-    if "hóa đơn" in q or "hoa don" in q:
-        if "chưa" in q or "pending" in q:
+    if "hóa đơn" in q or "hoa don" in q or "invoice" in q:
+        if "chưa" in q or "pending" in q or "chờ" in q:
             return """
                 SELECT status as "Trạng thái", COUNT(*) as "Số lượng"
                 FROM documents
-                WHERE status NOT IN ('approved', 'rejected')
+                WHERE doc_type = 'invoice' AND status NOT IN ('completed', 'failed')
                 GROUP BY status
             """
+        # List recent invoices
+        return """
+            SELECT ei.invoice_number as "Số HĐ",
+                   ei.vendor_name as "Nhà cung cấp",
+                   ei.invoice_date as "Ngày HĐ",
+                   ei.total_amount as "Tổng tiền",
+                   ei.currency as "Tiền tệ"
+            FROM extracted_invoices ei
+            ORDER BY ei.created_at DESC
+            LIMIT 20
+        """
     
     # Journal entries
-    if "bút toán" in q or "but toan" in q:
-        if "tuần" in q or "tuan" in q:
+    if "bút toán" in q or "but toan" in q or "journal" in q:
+        if "tuần" in q or "tuan" in q or "week" in q:
             return """
-                SELECT je.entry_date as "Ngày", je.description as "Mô tả",
-                       je.debit_total as "Nợ", je.credit_total as "Có"
-                FROM journal_entries je
-                WHERE je.entry_date >= CURRENT_DATE - INTERVAL '7 days'
-                ORDER BY je.entry_date DESC
+                SELECT le.entry_date as "Ngày", le.description as "Mô tả",
+                       le.debit_total as "Nợ", le.credit_total as "Có",
+                       le.status as "Trạng thái"
+                FROM ledger_entries le
+                WHERE le.entry_date >= CURRENT_DATE - INTERVAL '7 days'
+                ORDER BY le.entry_date DESC
                 LIMIT 50
             """
+        return """
+            SELECT le.entry_date as "Ngày", le.description as "Mô tả",
+                   le.debit_total as "Nợ", le.credit_total as "Có",
+                   le.status as "Trạng thái"
+            FROM ledger_entries le
+            ORDER BY le.entry_date DESC
+            LIMIT 20
+        """
     
-    # Default: show recent documents
+    # Approval status
+    if "duyệt" in q or "duyet" in q or "approval" in q:
+        return """
+            SELECT a.status as "Trạng thái",
+                   COUNT(*) as "Số lượng"
+            FROM approvals a
+            GROUP BY a.status
+            ORDER BY COUNT(*) DESC
+        """
+    
+    # Default: show recent invoices from extracted_invoices
     return """
-        SELECT id, filename as "Tên file", doc_type as "Loại",
-               extracted_data->>'vendor_name' as "NCC",
-               status as "Trạng thái", created_at::date as "Ngày tạo"
-        FROM documents
-        ORDER BY created_at DESC
+        SELECT ei.invoice_number as "Số HĐ",
+               ei.vendor_name as "Nhà cung cấp",
+               ei.invoice_date as "Ngày HĐ",
+               ei.total_amount as "Tổng tiền",
+               d.filename as "Tên file",
+               d.status as "Trạng thái"
+        FROM extracted_invoices ei
+        LEFT JOIN documents d ON ei.document_id = d.id
+        ORDER BY ei.created_at DESC
         LIMIT 20
     """
 

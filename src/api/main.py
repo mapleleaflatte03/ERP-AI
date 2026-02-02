@@ -3829,43 +3829,53 @@ async def get_system_evidence():
 async def get_global_timeline(limit: int = 50):
     """
     Get global timeline/audit log for the system.
+    Uses audit_events table which contains processing history.
     """
     conn = await get_db_connection()
     try:
+        # Query from audit_events table which has the actual data
         query = """
             SELECT 
                 ae.id,
-                ae.document_id,
-                ae.step_name,
-                ae.action,
-                ae.outcome,
-                ae.input_summary,
-                ae.output_summary,
-                ae.started_at,
-                ae.completed_at,
-                ae.trace_id,
-                d.filename
-            FROM audit_evidence ae
-            LEFT JOIN documents d ON ae.document_id = d.id::text
-            ORDER BY ae.started_at DESC
+                ae.job_id,
+                ae.tenant_id,
+                ae.event_type,
+                ae.event_data,
+                ae.actor,
+                ae.created_at,
+                d.filename,
+                d.id as document_id
+            FROM audit_events ae
+            LEFT JOIN documents d ON d.job_id = ae.job_id::text
+            ORDER BY ae.created_at DESC
             LIMIT $1
         """
         rows = await conn.fetch(query, limit)
+
+        # Map event_type to user-friendly action names
+        action_map = {
+            'received': 'document.uploaded',
+            'extracted': 'extraction.completed',
+            'llm_proposed': 'journal.proposed',
+            'policy_evaluated': 'extraction.completed',
+            'auto_approved': 'journal.approved',
+            'manual_approved': 'journal.approved',
+            'needs_approval': 'journal.proposed',
+            'posted_to_ledger': 'document.posted',
+            'completed': 'document.posted',
+            'failed': 'document.failed',
+        }
 
         return {
             "events": [
                 {
                     "id": str(row["id"]),
-                    "document_id": row["document_id"],
+                    "document_id": str(row["document_id"]) if row["document_id"] else str(row["job_id"]),
                     "document_filename": row["filename"],
-                    "action": row["action"],
-                    "actor": row["step_name"] or "system",
-                    "timestamp": row["started_at"].isoformat() if row["started_at"] else None,
-                    "payload": {
-                        "outcome": row["outcome"],
-                        "trace_id": row["trace_id"],
-                        "summary": row["output_summary"]
-                    }
+                    "action": action_map.get(row["event_type"], row["event_type"]),
+                    "actor": f"agent:{row['actor']}" if row["actor"] else "system",
+                    "timestamp": row["created_at"].isoformat() if row["created_at"] else None,
+                    "payload": row["event_data"] if row["event_data"] else {}
                 }
                 for row in rows
             ]
