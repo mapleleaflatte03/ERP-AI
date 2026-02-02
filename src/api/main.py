@@ -1596,6 +1596,94 @@ def merge_multi_lang_ocr_results(
     return text, sorted_boxes
 
 
+
+
+async def correct_ocr_text_with_llm(
+    raw_text: str,
+    boxes: list[dict],
+    doc_type: str = "invoice"
+) -> tuple[str, list[dict]]:
+    """Use LLM to correct OCR errors and improve text quality.
+    
+    This function takes raw OCR output and uses LLM to:
+    1. Fix common OCR errors (e.g., "Ngay." -> "Ngày:", "So 001" -> "Số: 001")
+    2. Correct Vietnamese diacritics that may have been missed
+    3. Fix spacing and punctuation issues
+    4. Normalize field labels for better extraction
+    
+    Args:
+        raw_text: Raw OCR text with potential errors
+        boxes: List of OCR boxes with text and positions
+        doc_type: Type of document (invoice, receipt, etc.)
+    
+    Returns:
+        Tuple of (corrected_text, corrected_boxes)
+    """
+    if not raw_text or len(raw_text.strip()) < 20:
+        return raw_text, boxes
+    
+    try:
+        from src.llm import get_llm_client
+        
+        # Build the correction prompt
+        system_prompt = """Bạn là chuyên gia sửa lỗi OCR cho hóa đơn và chứng từ tiếng Việt.
+Nhiệm vụ: Sửa lỗi OCR trong văn bản mà KHÔNG thay đổi ý nghĩa hoặc bố cục.
+
+Các lỗi thường gặp cần sửa:
+1. Dấu câu sai: "Ngay." → "Ngày:", "So " → "Số:", "Ma so thue" → "Mã số thuế:"
+2. Thiếu dấu tiếng Việt: "HOA DON" → "HÓA ĐƠN", "GIA TRI" → "GIÁ TRỊ"
+3. Khoảng trắng thừa hoặc thiếu
+4. Các từ bị dính: "(VATINVOICE)" → "(VAT INVOICE)"
+5. Số bị nhận dạng sai: "O" → "0", "l" → "1"
+
+Quy tắc:
+- Chỉ sửa lỗi rõ ràng, KHÔNG đoán hay thêm thông tin
+- Giữ nguyên số tiền, ngày tháng, mã số nếu không chắc chắn
+- Trả về văn bản đã sửa, mỗi dòng trên một dòng riêng
+- KHÔNG thêm giải thích hay chú thích"""
+
+        correction_prompt = f"""Sửa lỗi OCR trong văn bản hóa đơn sau:
+
+---
+{raw_text[:2000]}
+---
+
+Trả về văn bản đã sửa (chỉ văn bản, không giải thích):"""
+
+        client = get_llm_client()
+        response = await client.generate(
+            prompt=correction_prompt,
+            system=system_prompt,
+            temperature=0.1,  # Low temperature for consistency
+            max_tokens=2048,
+        )
+        
+        corrected_text = response.content.strip()
+        
+        # Validate: corrected text should be similar length (±30%)
+        if corrected_text and 0.7 < len(corrected_text) / len(raw_text) < 1.3:
+            logger.info(f"LLM OCR correction: {len(raw_text)} -> {len(corrected_text)} chars")
+            
+            # Update boxes with corrected text where possible
+            corrected_lines = corrected_text.split('\n')
+            corrected_boxes = []
+            
+            for i, box in enumerate(boxes):
+                new_box = box.copy()
+                # Try to find matching corrected line
+                if i < len(corrected_lines):
+                    new_box["text_corrected"] = corrected_lines[i]
+                corrected_boxes.append(new_box)
+            
+            return corrected_text, corrected_boxes
+        else:
+            logger.warning(f"LLM correction rejected: length mismatch {len(raw_text)} vs {len(corrected_text)}")
+            return raw_text, boxes
+            
+    except Exception as e:
+        logger.warning(f"LLM OCR correction failed: {e}")
+        return raw_text, boxes
+
 async def extract_image(file_path: str) -> tuple[str, list]:
     """Extract text from image using improved PaddleOCR (multi-pass VI+EN).
     
@@ -1644,6 +1732,12 @@ async def extract_image(file_path: str) -> tuple[str, list]:
                 pass
         
         if text:
+            # Step 4: LLM post-processing to correct OCR errors
+            try:
+                text, boxes = await correct_ocr_text_with_llm(text, boxes)
+            except Exception as llm_err:
+                logger.warning(f"LLM correction skipped: {llm_err}")
+            
             return text, boxes
             
     except Exception as e:
