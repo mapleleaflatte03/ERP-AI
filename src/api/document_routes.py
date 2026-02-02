@@ -778,7 +778,6 @@ async def preview_document(
             try:
                 import pandas as pd
                 import io
-                import os
                 
                 data = download_document(bucket, key)
                 df = pd.read_excel(io.BytesIO(data))
