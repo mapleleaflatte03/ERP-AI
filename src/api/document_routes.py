@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
+from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, StreamingResponse
 from src.api.auth import get_current_user, get_optional_user, User
 
@@ -271,6 +272,9 @@ async def process_extraction_task(document_id: str):
                 if "invoice_number" in result.key_fields and result.key_fields["invoice_number"]:
                     doc_type = "invoice"
 
+                # Extract boxes for separate column
+                ocr_boxes_data = result.boxes if result.boxes else []
+                
                 await conn.execute(
                     """
                     UPDATE documents 
@@ -279,6 +283,7 @@ async def process_extraction_task(document_id: str):
                         extracted_data = $3, 
                         raw_text = $4,
                         validation_result = $5,
+                        ocr_boxes = $6,
                         updated_at = NOW() 
                     WHERE id = $1
                     """,
@@ -286,7 +291,8 @@ async def process_extraction_task(document_id: str):
                     doc_type,
                     json.dumps(extracted_payload),
                     result.document_text,
-                    json.dumps({"confidence": result.confidence})
+                    json.dumps({"confidence": result.confidence}),
+                    json.dumps(ocr_boxes_data)
                 )
                 
                 # Phase 6: Evidence
@@ -603,6 +609,117 @@ async def submit_for_approval(document_id: str, body: dict = None) -> dict:
         )
 
     return {"message": "Submitted for approval", "document_id": document_id, "approval_id": approval_id}
+
+
+# ============= EXTRA FIELDS =============
+class ExtraFieldsRequest(BaseModel):
+    """Request body for updating extra fields"""
+    fields: dict = {}
+
+
+@router.get("/{document_id}/extra-fields")
+async def get_document_extra_fields(document_id: str) -> dict:
+    """Get the extra fields for a document."""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT extracted_data FROM documents WHERE id::text = $1 OR job_id = $1",
+            document_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        extracted_data = row.get("extracted_data") or {}
+        if isinstance(extracted_data, str):
+            import json
+            extracted_data = json.loads(extracted_data)
+        
+        extra_fields = extracted_data.get("extra_fields", {})
+        return {"extra_fields": extra_fields}
+
+
+@router.patch("/{document_id}/extra-fields")
+async def update_document_extra_fields(document_id: str, request: ExtraFieldsRequest) -> dict:
+    """Update the extra fields for a document."""
+    import json
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT extracted_data FROM documents WHERE id::text = $1 OR job_id = $1",
+            document_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        extracted_data = row.get("extracted_data") or {}
+        if isinstance(extracted_data, str):
+            extracted_data = json.loads(extracted_data)
+        
+        extracted_data["extra_fields"] = request.fields
+        
+        await conn.execute(
+            """UPDATE documents SET extracted_data = $2, updated_at = NOW() WHERE id::text = $1 OR job_id = $1""",
+            document_id, json.dumps(extracted_data)
+        )
+        
+        return {"message": "Extra fields saved", "extra_fields": request.fields}
+
+
+# ============= OCR BOXES =============
+@router.get("/{document_id}/ocr-boxes")
+async def get_document_ocr_boxes(document_id: str) -> dict:
+    """Get the OCR bounding boxes for a document."""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ocr_boxes, extracted_data FROM documents WHERE id::text = $1 OR job_id = $1",
+            document_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        ocr_boxes = row.get("ocr_boxes")
+        if ocr_boxes:
+            if isinstance(ocr_boxes, str):
+                import json
+                ocr_boxes = json.loads(ocr_boxes)
+        else:
+            extracted_data = row.get("extracted_data") or {}
+            if isinstance(extracted_data, str):
+                import json
+                extracted_data = json.loads(extracted_data)
+            ocr_boxes = extracted_data.get("ocr_boxes", [])
+        
+        boxes = []
+        for box in (ocr_boxes or []):
+            if isinstance(box, dict):
+                bbox = box.get("bbox", [box.get("x", 0), box.get("y", 0), box.get("w", 0), box.get("h", 0)])
+                boxes.append({
+                    "x": bbox[0] if len(bbox) > 0 else 0,
+                    "y": bbox[1] if len(bbox) > 1 else 0,
+                    "w": bbox[2] if len(bbox) > 2 else 0,
+                    "h": bbox[3] if len(bbox) > 3 else 0,
+                    "text": box.get("text", ""),
+                    "confidence": box.get("confidence", 0)
+                })
+            elif isinstance(box, list) and len(box) >= 4:
+                boxes.append({
+                    "x": box[0], "y": box[1], "w": box[2], "h": box[3],
+                    "text": box[4] if len(box) > 4 else "",
+                    "confidence": box[5] if len(box) > 5 else 0
+                })
+        
+        return {"boxes": boxes, "page_dimensions": {"width": 1000, "height": 1400}}
+
 
 
 @router.get("/{document_id}/ledger")

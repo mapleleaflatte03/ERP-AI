@@ -15,7 +15,11 @@ import {
   CheckCircle2,
   XCircle,
   Eye,
-  Trash2
+  Trash2,
+  Plus,
+  Save,
+  X,
+  Settings
 } from 'lucide-react';
 import api from '../lib/api';
 import DocumentPreview from '../components/DocumentPreview';
@@ -30,6 +34,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   approved: { label: 'Đã duyệt', color: 'bg-green-100 text-green-700', icon: CheckCircle2 },
   rejected: { label: 'Từ chối', color: 'bg-red-100 text-red-700', icon: XCircle },
   posted: { label: 'Đã ghi sổ', color: 'bg-emerald-100 text-emerald-700', icon: BookOpen },
+  processed: { label: 'Đã xử lý', color: 'bg-teal-100 text-teal-700', icon: CheckCircle2 },
 };
 
 function formatCurrency(amount: number | undefined): string {
@@ -58,6 +63,159 @@ function formatDateTime(dateStr: string): string {
   }
 }
 
+// ExtraFields component for managing custom fields
+interface ExtraField {
+  key: string;
+  value: string;
+}
+
+function ExtraFieldsSection({ 
+  documentId, 
+  initialFields 
+}: { 
+  documentId: string; 
+  initialFields: Record<string, any>;
+}) {
+  const queryClient = useQueryClient();
+  const [fields, setFields] = useState<ExtraField[]>([]);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Load initial fields
+  useEffect(() => {
+    if (initialFields && typeof initialFields === 'object') {
+      const fieldArray = Object.entries(initialFields).map(([key, value]) => ({
+        key,
+        value: String(value || '')
+      }));
+      setFields(fieldArray);
+    }
+  }, [initialFields]);
+
+  // Save mutation
+  const saveMutation = useMutation({
+    mutationFn: async (fieldsToSave: Record<string, string>) => {
+      return api.updateExtraFields(documentId, fieldsToSave);
+    },
+    onSuccess: () => {
+      setSaveStatus('saved');
+      setErrorMessage(null);
+      queryClient.invalidateQueries({ queryKey: ['document', documentId] });
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    },
+    onError: (error: any) => {
+      setSaveStatus('error');
+      setErrorMessage(error?.response?.data?.detail || 'Không lưu được trường bổ sung');
+    }
+  });
+
+  const handleAddField = () => {
+    setFields([...fields, { key: '', value: '' }]);
+  };
+
+  const handleRemoveField = (index: number) => {
+    setFields(fields.filter((_, i) => i !== index));
+  };
+
+  const handleFieldChange = (index: number, field: 'key' | 'value', newValue: string) => {
+    const newFields = [...fields];
+    newFields[index][field] = newValue;
+    setFields(newFields);
+  };
+
+  const handleSave = () => {
+    // Convert array to object
+    const fieldsObj: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.key.trim()) {
+        fieldsObj[f.key.trim()] = f.value;
+      }
+    }
+    setSaveStatus('saving');
+    saveMutation.mutate(fieldsObj);
+  };
+
+  return (
+    <div className="bg-orange-50/50 rounded-xl p-4 border border-orange-100/50">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-2">
+          <Settings className="w-3 h-3" />
+          TRƯỜNG BỔ SUNG
+        </h3>
+        <button
+          onClick={handleAddField}
+          className="text-xs text-orange-600 hover:text-orange-700 flex items-center gap-1 font-medium"
+        >
+          <Plus className="w-3 h-3" />
+          Thêm trường
+        </button>
+      </div>
+
+      {fields.length === 0 ? (
+        <p className="text-sm text-gray-400 italic">Chưa có trường bổ sung nào</p>
+      ) : (
+        <div className="space-y-2">
+          {fields.map((field, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Tên trường"
+                value={field.key}
+                onChange={(e) => handleFieldChange(idx, 'key', e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              />
+              <input
+                type="text"
+                placeholder="Giá trị"
+                value={field.value}
+                onChange={(e) => handleFieldChange(idx, 'value', e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              />
+              <button
+                onClick={() => handleRemoveField(idx)}
+                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fields.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={handleSave}
+            disabled={saveMutation.isPending}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors font-medium"
+          >
+            {saveMutation.isPending ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            Lưu trường bổ sung
+          </button>
+        </div>
+      )}
+
+      {/* Status messages */}
+      {saveStatus === 'saved' && (
+        <p className="mt-2 text-sm text-green-600 flex items-center gap-1">
+          <CheckCircle2 className="w-4 h-4" />
+          Đã lưu trường bổ sung.
+        </p>
+      )}
+      {saveStatus === 'error' && (
+        <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+          <XCircle className="w-4 h-4" />
+          {errorMessage || 'Không lưu được trường bổ sung'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -73,6 +231,13 @@ export default function DocumentDetail() {
       const status = query.state.data?.status;
       return ['extracting', 'proposing'].includes(status) ? 1000 : false;
     }
+  });
+
+  // Fetch extra fields
+  const { data: extraFieldsData } = useQuery({
+    queryKey: ['document-extra-fields', id],
+    queryFn: () => api.getExtraFields(id!),
+    enabled: !!id,
   });
 
   // Switch to relevant tab on status change
@@ -110,7 +275,7 @@ export default function DocumentDetail() {
     mutationFn: () => api.runExtraction(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['document', id] });
-      queryClient.invalidateQueries({ queryKey: ['documents'] }); // Invalidate global list
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
       queryClient.invalidateQueries({ queryKey: ['document-evidence', id] });
       setActiveTab('extracted');
     },
@@ -159,7 +324,6 @@ export default function DocumentDetail() {
     }
   };
 
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
@@ -195,146 +359,114 @@ export default function DocumentDetail() {
 
   // Extracted fields - now dynamic
   const extractedFields = doc.extracted_data || doc.extracted_fields || {};
-  
+
   // Field label mapping for Vietnamese UI
   const fieldLabels: Record<string, string> = {
-    invoice_no: 'Số hóa đơn',
-    invoice_number: 'Số hóa đơn',
-    invoice_date: 'Ngày hóa đơn',
-    vendor_name: 'Nhà cung cấp',
-    supplier_name: 'Nhà cung cấp',
-    vendor_tax_id: 'MST NCC',
-    tax_id: 'MST',
-    total_amount: 'Tổng tiền',
-    vat_amount: 'Thuế VAT',
-    tax_amount: 'Thuế',
-    currency: 'Loại tiền',
-    description: 'Mô tả',
-    payment_terms: 'Điều khoản thanh toán',
-    due_date: 'Ngày đáo hạn',
-    po_number: 'Số PO',
-    bank_account: 'Số TK ngân hàng',
-    bank_name: 'Ngân hàng',
-    cleaned_text: 'Văn bản đã làm sạch',
+    vendor_name: 'NHÀ CUNG CẤP',
+    vendor_tax_id: 'MST',
+    invoice_no: 'SỐ HÓA ĐƠN',
+    invoice_number: 'SỐ HÓA ĐƠN',
+    invoice_date: 'NGÀY HÓA ĐƠN',
+    total_amount: 'TỔNG TIỀN',
+    vat_amount: 'THUẾ VAT',
+    currency: 'LOẠI TIỀN',
+    description: 'NỘI DUNG',
+    raw_text: 'OCR TEXT',
   };
+
+  // Core fields to always show
+  const coreFieldKeys = ['invoice_no', 'invoice_number', 'invoice_date', 'vendor_name', 'vendor_tax_id', 'total_amount', 'vat_amount', 'currency'];
   
-  // Format value based on field type
-  const formatFieldValue = (key: string, value: unknown): string => {
-    if (value === null || value === undefined) return '';
-    if (key.includes('date')) return formatDate(value as string);
-    if (key.includes('amount') || key === 'total_amount' || key === 'vat_amount') {
-      return formatCurrency(value as number);
-    }
-    return String(value);
-  };
-  
-  // Static core fields (always shown first)
-  const coreFields = [
-    { key: 'invoice_no', label: 'Số hóa đơn', value: doc.invoice_no || extractedFields.invoice_no || extractedFields.invoice_number },
-    { key: 'invoice_date', label: 'Ngày hóa đơn', value: formatDate(doc.invoice_date || extractedFields.invoice_date) },
-    { key: 'vendor_name', label: 'Nhà cung cấp', value: doc.vendor_name || extractedFields.vendor_name || extractedFields.supplier_name },
-    { key: 'vendor_tax_id', label: 'MST', value: doc.vendor_tax_id || extractedFields.vendor_tax_id || extractedFields.tax_id },
-    { key: 'total_amount', label: 'Tổng tiền', value: formatCurrency(doc.total_amount || extractedFields.total_amount) },
-    { key: 'vat_amount', label: 'Thuế VAT', value: formatCurrency(doc.vat_amount || extractedFields.tax_amount || extractedFields.vat_amount) },
-    { key: 'currency', label: 'Loại tiền', value: doc.currency || extractedFields.currency || 'VND' },
-  ];
-  
-  // Dynamic extra fields from extracted_data (excluding already shown)
-  const coreKeys = new Set(coreFields.map(f => f.key).concat(['invoice_number', 'supplier_name', 'tax_id', 'tax_amount']));
+  const coreFields = coreFieldKeys
+    .filter(key => doc[key] || extractedFields[key])
+    .map(key => ({
+      key,
+      label: fieldLabels[key] || key.toUpperCase(),
+      value: key.includes('amount') 
+        ? formatCurrency(doc[key] || extractedFields[key])
+        : key.includes('date')
+          ? formatDate(doc[key] || extractedFields[key])
+          : (doc[key] || extractedFields[key] || '-')
+    }));
+
+  // Extra fields from extracted_data (excluding core fields and extra_fields)
   const extraFields = Object.entries(extractedFields)
-    .filter(([key]) => !coreKeys.has(key) && !key.startsWith('_'))
+    .filter(([key]) => !coreFieldKeys.includes(key) && key !== 'extra_fields' && key !== 'raw_text')
     .map(([key, value]) => ({
       key,
-      label: fieldLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-      value: formatFieldValue(key, value),
+      label: fieldLabels[key] || key.replace(/_/g, ' ').toUpperCase(),
+      value: typeof value === 'object' ? JSON.stringify(value) : String(value || '-')
     }));
-  
+
   const displayFields = [...coreFields, ...extraFields];
 
-  return (
-    <div className="min-h-screen bg-gray-50/50 p-6 space-y-6">
-      {/* Dynamic Background Mesh (Subtle) */}
-      <div className="fixed inset-0 pointer-events-none z-[-1] opacity-30 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-blue-100 via-transparent to-transparent"></div>
+  // Get saved extra fields
+  const savedExtraFields = extraFieldsData?.extra_fields || extractedFields?.extra_fields || {};
 
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/30 p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/80 backdrop-blur-xl p-4 rounded-2xl border border-gray-200/50 shadow-sm sticky top-0 z-10 transition-all">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/documents')}
-            className="p-2 hover:bg-gray-100/80 rounded-xl transition-colors active:scale-95 duration-200"
+            className="p-2.5 rounded-xl hover:bg-gray-100 transition-colors text-gray-500"
           >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              {doc.filename}
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusCfg.color} bg-opacity-10 border border-current/10`}>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+              <span className="truncate max-w-md">{doc.filename}</span>
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${statusCfg.color}`}>
                 <StatusIcon className="w-3.5 h-3.5" />
                 {statusCfg.label}
               </span>
             </h1>
-            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-              <Clock className="w-3.5 h-3.5" />
-              <span>{formatDateTime(doc.created_at)}</span>
-              <span>•</span>
-              <span className="uppercase">{doc.type || 'DOCUMENT'}</span>
-            </div>
+            <p className="text-sm text-gray-500 mt-0.5">ID: {doc.id}</p>
           </div>
         </div>
 
-        {/* Actions Toolbar */}
         <div className="flex items-center gap-2">
           {canExtract && (
             <button
               onClick={() => extractMutation.mutate()}
-              disabled={extractMutation.isPending || doc.status === 'extracting'}
-              className="group relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:pointer-events-none"
+              disabled={extractMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm transition-all font-medium"
             >
-              {extractMutation.isPending || doc.status === 'extracting' ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Zap className="w-4 h-4 group-hover:fill-current" />
-              )}
-              <span className="font-medium">Trích xuất</span>
-              {doc.status === 'extracting' && <span className="absolute -bottom-1 left-0 w-full h-0.5 bg-white/30 animate-pulse"></span>}
+              {extractMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              Trích xuất
             </button>
           )}
-
           {canPropose && (
             <button
               onClick={() => proposeMutation.mutate()}
               disabled={proposeMutation.isPending}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-500 text-white rounded-xl shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all font-medium"
             >
               {proposeMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
-              <span className="font-medium">AI Đề xuất</span>
+              Đề xuất
             </button>
           )}
-
           {canSubmit && (
             <button
               onClick={() => submitMutation.mutate(proposal.id)}
               disabled={submitMutation.isPending}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-purple-500 text-white rounded-xl shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:opacity-50 shadow-sm transition-all font-medium"
             >
-              <Send className="w-4 h-4" />
-              <span className="font-medium">Gửi duyệt</span>
+              {submitMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Gửi duyệt
             </button>
           )}
-
           {canApprove && (
             <button
               onClick={() => approveMutation.mutate(proposal.approval_id)}
               disabled={approveMutation.isPending}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 shadow-sm transition-all font-medium"
             >
-              <ThumbsUp className="w-4 h-4" />
-              <span className="font-medium">Duyệt ngay</span>
+              {approveMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
+              Phê duyệt
             </button>
           )}
-
-          <div className="w-px h-8 bg-gray-200 mx-1"></div>
-
           <button
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
@@ -355,9 +487,6 @@ export default function DocumentDetail() {
               <Eye className="w-4 h-4 text-gray-500" />
               Preview
             </h2>
-            <div className="flex gap-2">
-              {/* Zoom controls placeholder */}
-            </div>
           </div>
           <div className="flex-1 bg-gray-100/50 relative overflow-hidden">
             {doc.file_url ? (
@@ -371,9 +500,6 @@ export default function DocumentDetail() {
               <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p>No preview available</p>
-                <p className="text-xs mt-2 italic px-8 text-center text-gray-300">
-                  {doc.status === 'new' ? 'Processing...' : 'Direct file preview not available for this record.'}
-                </p>
               </div>
             )}
           </div>
@@ -392,10 +518,11 @@ export default function DocumentDetail() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === tab.id
-                    ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                    }`}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    activeTab === tab.id
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
                 >
                   <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'}`} />
                   {tab.label}
@@ -407,22 +534,29 @@ export default function DocumentDetail() {
           <div className="flex-1 overflow-auto p-6 scroll-smooth">
             {activeTab === 'extracted' && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                {/* Extracted Data Section */}
                 <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100/50">
                   <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <Zap className="w-3 h-3" />
-                    Extracted Data
+                    DỮ LIỆU TRÍCH XUẤT
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     {displayFields.map(field => (
                       <div key={field.key} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm">
                         <dt className="text-xs text-gray-500 uppercase font-medium">{field.label}</dt>
                         <dd className="mt-1 text-sm font-semibold text-gray-900 truncate" title={String(field.value)}>
-                          {field.value || <span className="text-gray-300 italic">Empty</span>}
+                          {field.value || <span className="text-gray-300 italic">Trống</span>}
                         </dd>
                       </div>
                     ))}
                   </div>
                 </div>
+
+                {/* Extra Fields Section - TRƯỜNG BỔ SUNG */}
+                <ExtraFieldsSection 
+                  documentId={doc.id} 
+                  initialFields={savedExtraFields} 
+                />
 
                 {/* LLM Cleaning Results */}
                 {extractedFields.cleaned_text && (
@@ -434,14 +568,10 @@ export default function DocumentDetail() {
                     <div className="max-h-40 overflow-y-auto text-xs font-mono text-gray-600 leading-relaxed bg-white p-3 rounded-lg border">
                       {extractedFields.cleaned_text}
                     </div>
-                    {extractedFields.confidence && (
-                      <div className="mt-2 text-xs text-green-600">
-                        Confidence: {(Number(extractedFields.confidence) * 100).toFixed(1)}%
-                      </div>
-                    )}
                   </div>
                 )}
 
+                {/* Raw OCR Text */}
                 {doc.raw_text && (
                   <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                     <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Raw OCR Text</h3>
@@ -461,15 +591,8 @@ export default function DocumentDetail() {
                       <BrainCircuit className="w-16 h-16 text-indigo-500 animate-pulse" />
                       <div className="absolute inset-0 bg-indigo-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
                     </div>
-                    <h3 className="text-lg font-bold text-gray-900 mb-2">AI is analyzing...</h3>
-                    <p className="text-gray-500 max-w-xs mx-auto">Analyzing document structure, matching vendors, and predicting GL accounts.</p>
-                    <div className="mt-6 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-full border border-indigo-100">
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                      </span>
-                      <span className="text-xs font-medium text-indigo-700">Model: Qwen-2.5-Coder-32B</span>
-                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">AI đang phân tích...</h3>
+                    <p className="text-gray-500 max-w-xs mx-auto">Đang phân tích cấu trúc chứng từ, đối chiếu NCC, và dự đoán tài khoản.</p>
                   </div>
                 ) : proposal ? (
                   <>
@@ -494,15 +617,15 @@ export default function DocumentDetail() {
                     <div>
                       <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                         <BookOpen className="w-4 h-4 text-gray-500" />
-                        Proposed Entries
+                        Bút toán đề xuất
                       </h3>
                       <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50/80">
                             <tr>
-                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Account</th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Debit</th>
-                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Credit</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Tài khoản</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Nợ</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Có</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-100">
@@ -523,7 +646,7 @@ export default function DocumentDetail() {
                           </tbody>
                           <tfoot className="bg-gray-50 border-t border-gray-200">
                             <tr>
-                              <td className="px-4 py-3 text-sm font-bold text-gray-900">Total</td>
+                              <td className="px-4 py-3 text-sm font-bold text-gray-900">Tổng</td>
                               <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right text-indigo-600">
                                 {formatCurrency(proposal.total_debit)}
                               </td>
@@ -541,11 +664,11 @@ export default function DocumentDetail() {
                     <div className="bg-indigo-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                       <BrainCircuit className="w-8 h-8 text-indigo-500" />
                     </div>
-                    <h3 className="text-gray-900 font-medium mb-1">No Proposal Yet</h3>
-                    <p className="text-gray-500 text-sm mb-4">Run the "Proposal" step to let AI analyze this document.</p>
+                    <h3 className="text-gray-900 font-medium mb-1">Chưa có đề xuất</h3>
+                    <p className="text-gray-500 text-sm mb-4">Chạy bước "Đề xuất" để AI phân tích chứng từ này.</p>
                     {canPropose && (
                       <button onClick={() => proposeMutation.mutate()} className="text-indigo-600 font-medium hover:underline text-sm">
-                        Trigger Analysis Now →
+                        Chạy phân tích ngay →
                       </button>
                     )}
                   </div>
@@ -562,24 +685,23 @@ export default function DocumentDetail() {
                         <CheckCircle2 className="w-6 h-6" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-emerald-900">Successfully Posted</h3>
+                        <h3 className="font-bold text-emerald-900">Đã ghi sổ thành công</h3>
                         <p className="text-sm text-emerald-700">
-                          Entry <span className="font-mono font-medium">{ledger.entry_number}</span> confirmed in General Ledger.
+                          Bút toán <span className="font-mono font-medium">{ledger.entry_number}</span> đã được ghi nhận vào Sổ cái.
                         </p>
                       </div>
                     </div>
 
                     <div className="bg-white rounded-xl border overflow-hidden">
                       <div className="bg-gray-50 px-4 py-3 border-b flex justify-between">
-                        <span className="font-medium text-gray-700">Ledger Entry Details</span>
+                        <span className="font-medium text-gray-700">Chi tiết bút toán</span>
                         <span className="text-xs text-gray-500 font-mono">{formatDate(ledger.entry_date)}</span>
                       </div>
                       <div className="p-4 bg-gray-50 font-mono text-xs overflow-auto">
-                        {/* Use a real table here if we had detailed lines structure, for now dumping JSON or lines if available */}
                         {ledger.lines ? (
                           <table className="w-full">
                             <thead className="text-left text-gray-500">
-                              <tr><th>Account</th><th className="text-right">Debit</th><th className="text-right">Credit</th></tr>
+                              <tr><th>Tài khoản</th><th className="text-right">Nợ</th><th className="text-right">Có</th></tr>
                             </thead>
                             <tbody>
                               {ledger.lines.map((line: any, idx: number) => (
@@ -600,7 +722,7 @@ export default function DocumentDetail() {
                 ) : (
                   <div className="text-center py-12 text-gray-500">
                     <BookOpen className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                    <p>Not posted to ledger yet.</p>
+                    <p>Chưa ghi sổ.</p>
                   </div>
                 )}
               </div>
@@ -611,8 +733,9 @@ export default function DocumentDetail() {
                 <div className="relative pl-6 border-l-2 border-gray-100 space-y-8 my-4">
                   {evidence.map((ev: any, idx: number) => (
                     <div key={idx} className="relative">
-                      <span className={`absolute -left-[31px] top-0 flex h-6 w-6 items-center justify-center rounded-full ring-4 ring-white ${ev.severity === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'
-                        }`}>
+                      <span className={`absolute -left-[31px] top-0 flex h-6 w-6 items-center justify-center rounded-full ring-4 ring-white ${
+                        ev.severity === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'
+                      }`}>
                         <div className={`w-2 h-2 rounded-full ${ev.severity === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} />
                       </span>
                       <div>
@@ -626,7 +749,7 @@ export default function DocumentDetail() {
                       </div>
                     </div>
                   ))}
-                  {evidence.length === 0 && <p className="text-gray-400 italic text-sm">No activity recorded.</p>}
+                  {evidence.length === 0 && <p className="text-gray-400 italic text-sm">Chưa có hoạt động nào được ghi nhận.</p>}
                 </div>
               </div>
             )}

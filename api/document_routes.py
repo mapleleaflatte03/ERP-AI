@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 """
 ERPX AI Accounting - Document Routes (UI-Facing)
 ================================================
@@ -685,4 +686,123 @@ async def get_raw_vs_cleaned(document_id: str) -> dict:
                 "ocr": float(doc.get("ocr_confidence") or 0),
                 "ai": float(doc.get("ai_confidence") or 0)
             }
+        }
+
+
+# ================================================================
+# Extra Fields (Custom Fields) API
+# ================================================================
+
+class ExtraFieldsRequest(BaseModel):
+    """Request body for updating extra fields"""
+    fields: dict = {}
+
+@router.patch("/{document_id}/extra-fields")
+async def update_extra_fields(document_id: str, request: ExtraFieldsRequest) -> dict:
+    """
+    Update custom/extra fields for a document.
+    
+    These fields are stored in the documents.extracted_data JSONB column,
+    merged with existing extracted data.
+    
+    Args:
+        document_id: Document ID (can be job_id)
+        request: JSON body with { fields: { key: value, ... } }
+    
+    Returns:
+        { success: true, extra_fields: {...} }
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    # Validate fields
+    if not isinstance(request.fields, dict):
+        raise HTTPException(status_code=400, detail="fields must be an object")
+    
+    # Validate each field
+    for key, value in request.fields.items():
+        if not isinstance(key, str) or len(key) > 64:
+            raise HTTPException(status_code=400, detail=f"Invalid field key: {key}")
+        if value is not None and not isinstance(value, (str, int, float, bool)):
+            raise HTTPException(status_code=400, detail=f"Invalid field value for {key}")
+        if isinstance(value, str) and len(value) > 512:
+            raise HTTPException(status_code=400, detail=f"Field value too long for {key}")
+    
+    async with pool.acquire() as conn:
+        # First, get the document's current extracted_data from documents table
+        doc_row = await conn.fetchrow(
+            """
+            SELECT id, extracted_data 
+            FROM documents 
+            WHERE id = $1 OR job_id = $1
+            LIMIT 1
+            """,
+            document_id
+        )
+        
+        if not doc_row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        doc_id = doc_row["id"]
+        current_data = doc_row.get("extracted_data") or {}
+        
+        # Get or create extra_fields section
+        extra_fields = current_data.get("extra_fields", {})
+        
+        # Merge new fields (update existing, add new, remove if value is None)
+        for key, value in request.fields.items():
+            if value is None:
+                extra_fields.pop(key, None)  # Remove field
+            else:
+                extra_fields[key] = value
+        
+        # Update extracted_data with new extra_fields
+        current_data["extra_fields"] = extra_fields
+        
+        # Save to database
+        await conn.execute(
+            """
+            UPDATE documents 
+            SET extracted_data = $1, updated_at = NOW()
+            WHERE id = $2
+            """,
+            json.dumps(current_data),
+            doc_id
+        )
+        
+        return {
+            "success": True,
+            "extra_fields": extra_fields
+        }
+
+
+@router.get("/{document_id}/extra-fields")
+async def get_extra_fields(document_id: str) -> dict:
+    """
+    Get custom/extra fields for a document.
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT extracted_data 
+            FROM documents 
+            WHERE id = $1 OR job_id = $1
+            LIMIT 1
+            """,
+            document_id
+        )
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        extracted_data = row.get("extracted_data") or {}
+        extra_fields = extracted_data.get("extra_fields", {})
+        
+        return {
+            "extra_fields": extra_fields
         }

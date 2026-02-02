@@ -109,14 +109,18 @@ def process_image_ocr(image_data: Union[bytes, Any]) -> ProcessingResult:
                     text_lines.append(text)
                     confidences.append(conf)
                     
-                    # Convert 4 points to [x, y, w, h]
+                    # Convert 4 points to [x, y, w, h] with text and confidence
                     xs = [p[0] for p in coords]
                     ys = [p[1] for p in coords]
                     x = min(xs)
                     y = min(ys)
                     w = max(xs) - x
                     h = max(ys) - y
-                    boxes.append([float(x), float(y), float(w), float(h)])
+                    boxes.append({
+                        "bbox": [float(x), float(y), float(w), float(h)],
+                        "text": text,
+                        "confidence": float(conf)
+                    })
                     
             full_text = "\n".join(text_lines)
             avg_conf = float(sum(confidences) / len(confidences)) if confidences else 0.0
