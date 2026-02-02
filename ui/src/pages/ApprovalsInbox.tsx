@@ -10,14 +10,11 @@ import {
   Clock,
   AlertCircle,
   Eye,
-  AlertTriangle,
-  CheckSquare,
-  Square,
   Loader2,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Approval } from '../types';
-import toast from 'react-hot-toast';
+
 import { Link } from 'react-router-dom';
 
 function RiskBadge({ level }: { level?: string }) {
@@ -70,10 +67,10 @@ export default function ApprovalsInbox() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['approvals'] });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
-      toast.success('Đã duyệt thành công');
+      alert('Đã duyệt thành công');
     },
     onError: () => {
-      toast.error('Lỗi khi duyệt');
+      alert('Lỗi khi duyệt');
     },
   });
 
@@ -84,10 +81,10 @@ export default function ApprovalsInbox() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['approvals'] });
       queryClient.invalidateQueries({ queryKey: ['documents'] });
-      toast.success('Đã từ chối');
+      alert('Đã từ chối');
     },
     onError: () => {
-      toast.error('Lỗi khi từ chối');
+      alert('Lỗi khi từ chối');
     },
   });
 

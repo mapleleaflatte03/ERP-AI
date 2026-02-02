@@ -78,12 +78,23 @@ export interface Approval {
   reviewer_note?: string;
   created_at: string;
   resolved_at?: string;
-  // For backward compatibility with old Approvals.tsx
+  // Extended fields from approvals API
   job_id?: string;
   filename?: string;
   vendor_name?: string;
   total_amount?: number;
   reason?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  currency?: string;
+  ai_confidence?: number;
+  risk_level?: string;
+  tenant_id?: string;
+  approver_name?: string;
+  comment?: string;
+  updated_at?: string;
+  file_path?: string;
+  job_status?: string;
 }
 
 export interface EvidenceEvent {
