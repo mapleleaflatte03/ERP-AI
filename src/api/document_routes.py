@@ -13,7 +13,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
-from src.api.auth import get_current_user, User
+from src.api.auth import get_current_user, get_optional_user, User
 
 sys.path.insert(0, "/root/erp-ai")
 
@@ -736,7 +736,7 @@ async def delete_document(
 async def preview_document(
     document_id: str,
     preview: bool = Query(True, description="Render XLSX as HTML if true"),
-    user: User = Depends(get_current_user)
+    user: User | None = Depends(get_optional_user)
 ):
     """
     Get document content for preview using document ID.

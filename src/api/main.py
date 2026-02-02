@@ -33,7 +33,7 @@ sys.path.insert(0, "/root/erp-ai")
 
 # Import config and storage for health check
 # Import middleware and logging config
-from src.api.auth import get_current_user, User
+from src.api.auth import get_current_user, get_optional_user, User
 from src.api.document_routes import get_db_pool
 from src.api.document_routes import router as document_router
 # PR #34 New Routers
@@ -4629,7 +4629,7 @@ async def get_file(
     bucket: str, 
     key: str,
     preview: bool = Query(False, description="Render XLSX as HTML if true"),
-    user: User = Depends(get_current_user)  # Phase 2.1: Auth Safe
+    user: User | None = Depends(get_optional_user)  # Phase 2.1: Optional Auth for files
 ):
     """Stream file from MinIO storage (Auth Required)."""
     try:
