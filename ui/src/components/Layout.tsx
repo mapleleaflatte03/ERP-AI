@@ -8,7 +8,6 @@ import {
   ArrowLeftRight,
   MessageCircle,
   BarChart3,
-  Database,
   Clock,
   Menu,
   X,

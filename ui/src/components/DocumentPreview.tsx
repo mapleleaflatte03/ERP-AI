@@ -158,7 +158,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         const scaleX = img.clientWidth / (pageDimensions.width || img.naturalWidth);
         const scaleY = img.clientHeight / (pageDimensions.height || img.naturalHeight);
 
-        boxes.forEach((box, idx) => {
+        boxes.forEach((box, _idx) => {
             const rx = box.x * scaleX;
             const ry = box.y * scaleY;
             const rw = box.w * scaleX;

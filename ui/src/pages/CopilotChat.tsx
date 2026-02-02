@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import api from '../lib/api';
 import ActionProposalCard from '../components/ActionProposalCard';
-import ActionProposalCard from '../components/ActionProposalCard';
 import type { ChatMessage as BaseChatMessage } from '../types';
 
 // Extended ChatMessage with action_proposals for Agent Hub
@@ -381,7 +380,7 @@ export default function CopilotChat() {
                       <ActionProposalCard
                         key={proposal.action_id}
                         proposal={proposal}
-                        onStatusChange={(newStatus, result) => {
+                        onStatusChange={(newStatus, _result) => {
                           // Update message state when action is confirmed/cancelled
                           setMessages(prev => prev.map(m => 
                             m.id === msg.id 
@@ -409,7 +408,7 @@ export default function CopilotChat() {
                       <ActionProposalCard
                         key={proposal.action_id}
                         proposal={proposal}
-                        onStatusChange={(newStatus, result) => {
+                        onStatusChange={(newStatus, _result) => {
                           // Update message state when action is confirmed/cancelled
                           setMessages(prev => prev.map(m => 
                             m.id === msg.id 
