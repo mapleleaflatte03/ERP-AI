@@ -621,10 +621,11 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         text = ""
         ocr_start = time.time()
 
+        ocr_boxes = []  # Initialize for all types
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
         elif "image" in content_type:
-            text = await extract_image(file_path)
+            text, ocr_boxes = await extract_image(file_path)
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
@@ -636,7 +637,16 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         if not text:
             raise ValueError("Failed to extract text from document")
 
-        logger.info(f"[{request_id}] Extracted {len(text)} chars in {ocr_latency_ms}ms")
+        logger.info(f"[{request_id}] Extracted {len(text)} chars, {len(ocr_boxes)} boxes in {ocr_latency_ms}ms")
+
+        # Save raw_text and ocr_boxes to documents
+        import json
+        await conn.execute(
+            """UPDATE documents SET raw_text = $1, ocr_boxes = $2, updated_at = NOW() WHERE id = $3""",
+            text[:65000] if text else "",  # Limit raw_text
+            json.dumps(ocr_boxes),
+            doc_uuid
+        )
 
         # 1.4 Evidence: EXTRACT
         from src.api.evidence import write_evidence
@@ -1443,63 +1453,63 @@ async def extract_pdf(file_path: str) -> str:
         return await extract_image(file_path)
 
 
-async def extract_image(file_path: str) -> str:
-    """Extract text from image or scanned PDF using pytesseract"""
-    import pytesseract
+async def extract_image(file_path: str) -> tuple[str, list]:
+    """Extract text from image using PaddleOCR (primary) or pytesseract (fallback)
+    Returns: (text, boxes) where boxes = [{"bbox": [x,y,w,h], "text": str, "confidence": float}, ...]
+    """
     from PIL import Image
 
-    all_text = []
-
-    # If input is a PDF, convert to images first
-    if file_path.lower().endswith(".pdf"):
-        try:
-            from pdf2image import convert_from_path
-
-            logger.info(f"Converting PDF to images for OCR: {file_path}")
-            images = convert_from_path(file_path, dpi=200)
-            for i, img in enumerate(images):
-                text = pytesseract.image_to_string(img, lang="eng")
-                if text and text.strip():
-                    all_text.append(text)
-                    logger.info(f"Page {i + 1} OCR: {len(text)} chars")
-            if all_text:
-                return "\n".join(all_text)
-        except Exception as e:
-            logger.warning(f"pdf2image/tesseract failed: {e}")
-            return ""
-
-    # Direct image file
-    try:
-        img = Image.open(file_path)
-        text = pytesseract.image_to_string(img, lang="eng")
-        if text and len(text.strip()) > 10:
-            logger.info(f"pytesseract extracted {len(text)} chars")
-            return text
-    except Exception as e:
-        logger.warning(f"pytesseract failed: {e}")
-
-    # Fallback to PaddleOCR
+    # Try PaddleOCR first (has bounding boxes)
     try:
         from paddleocr import PaddleOCR
 
-        ocr = PaddleOCR(use_angle_cls=True, lang="vi")
+        ocr = PaddleOCR(use_angle_cls=True, lang="vi", show_log=False)
         result = ocr.ocr(file_path, cls=True)
 
         lines = []
+        boxes = []
         if result and result[0]:
             for line in result[0]:
                 if line and len(line) > 1:
-                    lines.append(line[1][0])
+                    coords = line[0]  # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+                    text_val = line[1][0]
+                    conf = line[1][1]
+                    
+                    lines.append(text_val)
+                    
+                    # Convert 4 points to [x, y, w, h]
+                    xs = [p[0] for p in coords]
+                    ys = [p[1] for p in coords]
+                    x = min(xs)
+                    y = min(ys)
+                    w = max(xs) - x
+                    h = max(ys) - y
+                    boxes.append({
+                        "bbox": [float(x), float(y), float(w), float(h)],
+                        "text": text_val,
+                        "confidence": float(conf)
+                    })
 
         text = "\n".join(lines)
         if text:
-            logger.info(f"PaddleOCR extracted {len(text)} chars")
-            return text
+            logger.info(f"PaddleOCR extracted {len(text)} chars, {len(boxes)} boxes")
+            return text, boxes
     except Exception as e:
         logger.warning(f"PaddleOCR failed: {e}")
 
+    # Fallback to pytesseract (no boxes)
+    try:
+        import pytesseract
+        img = Image.open(file_path)
+        text = pytesseract.image_to_string(img, lang="vie+eng")
+        if text and len(text.strip()) > 10:
+            logger.info(f"pytesseract extracted {len(text)} chars (no boxes)")
+            return text, []
+    except Exception as e:
+        logger.warning(f"pytesseract failed: {e}")
+
     logger.error(f"All OCR methods failed for {file_path}")
-    return ""
+    return "", []
 
 
 async def extract_excel(file_path: str) -> str:

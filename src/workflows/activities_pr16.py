@@ -190,12 +190,13 @@ async def run_document_pipeline(job_id: str, file_path: str, file_info: dict[str
 
         content_type = file_info.get("content_type", "")
         text = ""
+        ocr_boxes = []  # Initialize for all types
         ocr_start = time.time()
 
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
         elif "image" in content_type:
-            text = await extract_image(file_path)
+            text, ocr_boxes = await extract_image(file_path)
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
@@ -207,7 +208,16 @@ async def run_document_pipeline(job_id: str, file_path: str, file_info: dict[str
         if not text:
             raise ValueError("Failed to extract text from document")
 
-        logger.info(f"[{request_id}] Extracted {len(text)} chars in {ocr_latency_ms}ms")
+        logger.info(f"[{request_id}] Extracted {len(text)} chars, {len(ocr_boxes)} boxes in {ocr_latency_ms}ms")
+
+        # Save raw_text and ocr_boxes to documents
+        import json
+        await conn.execute(
+            """UPDATE documents SET raw_text = $1, ocr_boxes = $2, updated_at = NOW() WHERE id = $3""",
+            text[:65000] if text else "",
+            json.dumps(ocr_boxes),
+            doc_uuid
+        )
 
         # Record metrics
         await record_counter(conn, "ocr_calls_total", 1.0, {"tenant": tenant_id})

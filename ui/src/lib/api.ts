@@ -452,6 +452,17 @@ class ApiClient {
     return response.data;
   }
 
+  // Extra Fields (Custom Fields) API
+  async getExtraFields(documentId: string) {
+    const response = await this.client.get(`/v1/documents/${documentId}/extra-fields`);
+    return response.data;
+  }
+
+  async updateExtraFields(documentId: string, fields: Record<string, string | number | boolean | null>) {
+    const response = await this.client.patch(`/v1/documents/${documentId}/extra-fields`, { fields });
+    return response.data;
+  }
+
   async getDocumentRawVsCleaned(documentId: string) {
     const response = await this.client.get(`/v1/documents/${documentId}/raw-vs-cleaned`);
     return response.data;
