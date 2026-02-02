@@ -36,6 +36,11 @@ sys.path.insert(0, "/root/erp-ai")
 from src.api.auth import get_current_user, User
 from src.api.document_routes import get_db_pool
 from src.api.document_routes import router as document_router
+# PR #34 New Routers
+from api.analyst_routes import router as analyst_router
+from api.config_routes import router as config_router
+from api.reconciliation_routes import router as reconciliation_router
+from api.approval_routes import router as pr34_approval_router
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
 from src.api.middleware import RequestIdMiddleware, get_request_id
 
@@ -1673,6 +1678,11 @@ def create_app() -> FastAPI:
     # Document routes (UI-facing)
     app.include_router(document_router, prefix="/v1")
 
+    # PR #34 New Routes
+    app.include_router(analyst_router, prefix="/v1")
+    app.include_router(config_router, prefix="/v1")
+    app.include_router(reconciliation_router, prefix="/v1")
+    app.include_router(pr34_approval_router, prefix="/v1")
     return app
 
 
