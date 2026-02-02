@@ -196,7 +196,7 @@ async def run_document_pipeline(job_id: str, file_path: str, file_info: dict[str
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
         elif "image" in content_type:
-            text, ocr_boxes = await extract_image(file_path)
+            text, ocr_boxes, page_dims = await extract_image(file_path)
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
@@ -212,10 +212,15 @@ async def run_document_pipeline(job_id: str, file_path: str, file_info: dict[str
 
         # Save raw_text and ocr_boxes to documents
         import json
+        # Include page_dimensions in ocr_boxes for frontend rendering
+        ocr_data = {
+            "boxes": ocr_boxes,
+            "page_dimensions": page_dims if 'page_dims' in dir() else {"width": 1000, "height": 1400}
+        }
         await conn.execute(
             """UPDATE documents SET raw_text = $1, ocr_boxes = $2, updated_at = NOW() WHERE id = $3""",
             text[:65000] if text else "",
-            json.dumps(ocr_boxes),
+            json.dumps(ocr_data),
             doc_uuid
         )
 

@@ -625,7 +625,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
         elif "image" in content_type:
-            text, ocr_boxes = await extract_image(file_path)
+            text, ocr_boxes, page_dims = await extract_image(file_path)
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
@@ -641,10 +641,15 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         # Save raw_text and ocr_boxes to documents
         import json
+        # Save page_dimensions along with ocr_boxes
+        ocr_data = {
+            "boxes": ocr_boxes,
+            "page_dimensions": page_dims if 'page_dims' in dir() else {"width": 1000, "height": 1400}
+        }
         await conn.execute(
             """UPDATE documents SET raw_text = $1, ocr_boxes = $2, updated_at = NOW() WHERE id = $3""",
             text[:65000] if text else "",  # Limit raw_text
-            json.dumps(ocr_boxes),
+            json.dumps(ocr_data),
             doc_uuid
         )
 
@@ -1444,13 +1449,15 @@ async def extract_pdf(file_path: str) -> str:
         # If pdfplumber returns empty (scanned PDF), try OCR fallback
         if not full_text or len(full_text) < 20:
             logger.info("pdfplumber returned empty/short text, trying OCR fallback")
-            return await extract_image(file_path)
+            text, _, _ = await extract_image(file_path)
+            return text
 
         return full_text
     except Exception as e:
         logger.warning(f"pdfplumber failed: {e}, trying fallback")
         # Fallback to OCR
-        return await extract_image(file_path)
+        text, _, _ = await extract_image(file_path)
+        return text
 
 
 # ==============================================================================
@@ -1684,7 +1691,7 @@ Trả về văn bản đã sửa (chỉ văn bản, không giải thích):"""
         logger.warning(f"LLM OCR correction failed: {e}")
         return raw_text, boxes
 
-async def extract_image(file_path: str) -> tuple[str, list]:
+async def extract_image(file_path: str) -> tuple[str, list, dict]:
     """Extract text from image using improved PaddleOCR (multi-pass VI+EN).
     
     Features:
@@ -1695,13 +1702,21 @@ async def extract_image(file_path: str) -> tuple[str, list]:
     5. Fallback to pytesseract if PaddleOCR fails
     
     Returns:
-        Tuple of (text, boxes) where:
+        Tuple of (text, boxes, page_dimensions) where:
         - text: Full extracted text (lines joined by newlines)
         - boxes: List of dicts with bbox [x,y,w,h], text, confidence, lang
+        - page_dimensions: Dict with width and height of the original image
     """
     import time
     from PIL import Image
     start = time.time()
+    
+    # Get original image dimensions for proper bbox scaling
+    try:
+        with Image.open(file_path) as img:
+            page_dimensions = {"width": img.width, "height": img.height}
+    except Exception:
+        page_dimensions = {"width": 1000, "height": 1400}  # Default fallback
     
     # Step 1: Preprocess image for better OCR accuracy
     processed_path = preprocess_image_for_ocr(file_path)
@@ -1738,7 +1753,7 @@ async def extract_image(file_path: str) -> tuple[str, list]:
             except Exception as llm_err:
                 logger.warning(f"LLM correction skipped: {llm_err}")
             
-            return text, boxes
+            return text, boxes, page_dimensions
             
     except Exception as e:
         logger.warning(f"PaddleOCR multi-pass failed: {e}")
@@ -1750,12 +1765,12 @@ async def extract_image(file_path: str) -> tuple[str, list]:
         text = pytesseract.image_to_string(img, lang="vie+eng")
         if text and len(text.strip()) > 10:
             logger.info(f"pytesseract extracted {len(text)} chars (no boxes)")
-            return text, []
+            return text, [], page_dimensions
     except Exception as e:
         logger.warning(f"pytesseract failed: {e}")
 
     logger.error(f"All OCR methods failed for {file_path}")
-    return "", []
+    return "", [], {"width": 1000, "height": 1400}
 
 
 async def extract_excel(file_path: str) -> str:
