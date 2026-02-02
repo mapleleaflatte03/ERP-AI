@@ -1,6 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import ServerImportModal from '../components/ServerImportModal';
 import { Link } from 'react-router-dom';
 import {
   Upload,
@@ -15,6 +14,8 @@ import {
   CreditCard,
   Wallet,
   FolderOpen,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Document, DocumentStatus, DocumentType } from '../types';
@@ -29,6 +30,7 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   approved: 'Đã duyệt',
   rejected: 'Từ chối',
   posted: 'Đã ghi sổ',
+  processed: 'Đã xử lý',
 };
 
 const STATUS_COLORS: Record<DocumentStatus, string> = {
@@ -41,10 +43,13 @@ const STATUS_COLORS: Record<DocumentStatus, string> = {
   approved: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
   posted: 'bg-teal-100 text-teal-700',
+  processed: 'bg-teal-100 text-teal-700',
 };
 
 const TYPE_LABELS: Record<DocumentType, string> = {
   invoice: 'Hóa đơn',
+  sales_invoice: 'Hóa đơn bán',
+  purchase_invoice: 'Hóa đơn mua',
   receipt: 'Phiếu thu',
   bank_statement: 'Sổ phụ NH',
   payment_voucher: 'Phiếu chi',
@@ -61,8 +66,6 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('vi-VN');
 }
 
-
-
 export default function DocumentsInbox() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,7 +73,7 @@ export default function DocumentsInbox() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [showServerImport, setShowServerImport] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Pagination State
   const [page, setPage] = useState(1);
@@ -97,7 +100,7 @@ export default function DocumentsInbox() {
         // Normalize doc_type -> type
         const docs = rawDocs.map((d: any) => ({
           ...d,
-          type: d.type || d.doc_type || 'other'
+          type: d.type || d.doc_type || d.document_type || 'other'
         }));
 
         return { docs, total };
@@ -109,22 +112,36 @@ export default function DocumentsInbox() {
     placeholderData: (prev) => prev // Keep previous data while fetching new page
   });
 
+  // Fetch pending approvals count separately
+  const { data: approvalsData } = useQuery({
+    queryKey: ['approvals-stats'],
+    queryFn: async () => {
+      try {
+        const response = await api.getApprovals();
+        return {
+          pending: response?.data?.pending || 0,
+          total: response?.data?.total || 0
+        };
+      } catch (err) {
+        console.error("Failed to fetch approval stats:", err);
+        return { pending: 0, total: 0 };
+      }
+    }
+  });
+
   const documents = data?.docs || [];
   const totalCount = data?.total || 0;
   const totalPages = Math.ceil(totalCount / limit);
-
-  // Calculate stats in one pass (note: this only reflects fetched documents, ideally should come from API stats endpoint)
-  // const stats = ... (removed to fix unused variable error)
+  const pendingApprovals = approvalsData?.pending || 0;
 
   // Filter documents client-side ONLY for search (since API search might not be implemented fully yet)
-  // Ideally search should be passed to API
   const filteredDocuments = useMemo(() => {
     return (documents || []).filter(doc => {
       // Status and Type are already filtered on server
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         return (
-          doc.filename.toLowerCase().includes(query) ||
+          doc.filename?.toLowerCase().includes(query) ||
           doc.vendor_name?.toLowerCase().includes(query) ||
           doc.invoice_no?.toLowerCase().includes(query)
         );
@@ -136,9 +153,25 @@ export default function DocumentsInbox() {
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    setUploadError(null);
 
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
+
+    // Validate file types
+    const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
+    const invalidFiles = files.filter(f => !validTypes.includes(f.type) && !f.name.match(/\.(pdf|png|jpg|jpeg|xlsx|xls)$/i));
+    if (invalidFiles.length > 0) {
+      setUploadError(`File không hợp lệ: ${invalidFiles.map(f => f.name).join(', ')}. Chỉ hỗ trợ PDF, PNG, JPG, XLSX.`);
+      return;
+    }
+
+    // Validate file size (10MB max)
+    const oversizedFiles = files.filter(f => f.size > 10 * 1024 * 1024);
+    if (oversizedFiles.length > 0) {
+      setUploadError(`File quá lớn: ${oversizedFiles.map(f => f.name).join(', ')}. Tối đa 10MB.`);
+      return;
+    }
 
     setUploading(true);
     try {
@@ -146,8 +179,9 @@ export default function DocumentsInbox() {
       // Invalidate queries to refresh list immediately
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       setPage(1); // Reset to first page
-    } catch (err) {
+    } catch (err: any) {
       console.error('Upload failed:', err);
+      setUploadError(err?.response?.data?.detail || 'Upload thất bại. Vui lòng thử lại.');
     }
     setUploading(false);
   };
@@ -156,20 +190,32 @@ export default function DocumentsInbox() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
+    setUploadError(null);
     setUploading(true);
     try {
       await Promise.all(files.map(file => api.uploadDocument(file)));
       queryClient.invalidateQueries({ queryKey: ['documents'] });
       setPage(1); // Reset to first page
-    } catch (err) {
+    } catch (err: any) {
       console.error('Upload failed:', err);
+      setUploadError(err?.response?.data?.detail || 'Upload thất bại. Vui lòng thử lại.');
     }
     setUploading(false);
+    
+    // Reset input
+    e.target.value = '';
   };
 
+  // Clear upload error after 5 seconds
+  useEffect(() => {
+    if (uploadError) {
+      const timer = setTimeout(() => setUploadError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [uploadError]);
+
   return (
-    <>
-      <div className="space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -191,10 +237,11 @@ export default function DocumentsInbox() {
           <button
             key={tab.value}
             onClick={() => { setTypeFilter(tab.value as DocumentType | ''); setPage(1); }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${typeFilter === tab.value
-              ? 'bg-blue-600 text-white'
-              : 'bg-white border hover:bg-gray-50 text-gray-700'
-              }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              typeFilter === tab.value
+                ? 'bg-blue-600 text-white'
+                : 'bg-white border hover:bg-gray-50 text-gray-700'
+            }`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -207,8 +254,9 @@ export default function DocumentsInbox() {
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-          }`}
+        className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+          isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+        }`}
       >
         <input
           type="file"
@@ -234,16 +282,16 @@ export default function DocumentsInbox() {
               </p>
             </div>
             <p className="text-xs text-gray-400">Hỗ trợ: PDF, PNG, JPG, XLSX (tối đa 10MB)</p>
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); setShowServerImport(true); }}
-              className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Import từ Server
-            </button>
           </div>
         </label>
+
+        {/* Upload Error */}
+        {uploadError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {uploadError}
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -298,13 +346,37 @@ export default function DocumentsInbox() {
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
             <div>
-              {/* Note: Pending stats here are only for current page. Ideal solution needs endpoint for aggregated stats */}
-              <div className="text-xl font-bold text-gray-400">--</div>
+              <div className="text-2xl font-bold text-amber-600">{pendingApprovals}</div>
               <div className="text-sm text-gray-500">Chờ duyệt</div>
             </div>
           </div>
         </div>
-        {/* ... (Other stats placeholders since we don't have aggregated stats API yet) ... */}
+        <div className="bg-white p-4 rounded-xl border">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-green-600">
+                {documents.filter(d => d.status === 'approved' || d.status === 'posted').length}
+              </div>
+              <div className="text-sm text-gray-500">Đã duyệt</div>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-red-600" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-red-600">
+                {documents.filter(d => d.status === 'rejected').length}
+              </div>
+              <div className="text-sm text-gray-500">Từ chối</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Documents List */}
@@ -349,7 +421,7 @@ export default function DocumentsInbox() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {TYPE_LABELS[doc.type] || doc.type}
+                      {TYPE_LABELS[doc.type as DocumentType] || doc.type || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 truncate max-w-[200px]">
                       {doc.vendor_name || '-'}
@@ -358,8 +430,8 @@ export default function DocumentsInbox() {
                       {formatCurrency(doc.total_amount)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[doc.status]}`}>
-                        {STATUS_LABELS[doc.status]}
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[doc.status as DocumentStatus] || 'bg-gray-100 text-gray-700'}`}>
+                        {STATUS_LABELS[doc.status as DocumentStatus] || doc.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">
@@ -424,13 +496,6 @@ export default function DocumentsInbox() {
           </>
         )}
       </div>
-      </div>
-
-      {/* Server Import Modal */}
-      <ServerImportModal 
-        isOpen={showServerImport} 
-        onClose={() => setShowServerImport(false)} 
-      />
-    </>
+    </div>
   );
 }
