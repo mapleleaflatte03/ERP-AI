@@ -60,29 +60,32 @@ SCHEMA_CONTEXT = """
 Database schema for ERP-AI accounting system (PostgreSQL):
 
 Tables:
-1. documents - Uploaded accounting documents
-   - id (uuid), filename, type, status, created_at, updated_at
-   - invoice_no, invoice_date, vendor_name, vendor_tax_id
-   - total_amount, vat_amount, currency
+1. documents - Uploaded accounting documents (main source)
+   - id (uuid), tenant_id (uuid), job_id (varchar), filename (varchar)
+   - content_type (varchar), file_size (bigint), status (varchar)
+   - doc_type (varchar: invoice/payment/receipt/contract/other)
+   - extracted_data (jsonb: contains invoice_no, invoice_date, vendor_name, total_amount, etc)
+   - created_at, updated_at
 
-2. journal_proposals - AI-proposed journal entries
-   - id (uuid), document_id (ref), status, ai_reasoning, ai_confidence
-   - created_at, approved_at, approved_by
-
-3. journal_entries - Finalized journal entries
-   - id (uuid), proposal_id (ref), entry_date, description, status
+2. ledger_entries - Posted journal entries
+   - id (uuid), document_id (uuid ref), tenant_id
+   - entry_date, description, status (draft/posted/reversed)
    - debit_total, credit_total, created_by
+   - created_at
 
-4. journal_lines - Individual debit/credit lines
+3. ledger_lines - Individual debit/credit lines
    - id (uuid), entry_id (ref), account_code, account_name
    - debit_amount, credit_amount, description
 
-5. vendors - Vendor master data
-   - id (uuid), name, tax_id, address, contact_info
+4. approvals - Approval records
+   - id (uuid), document_id (uuid ref), proposal_id
+   - status (pending/approved/rejected), approver, comment
+   - created_at, approved_at
 
-6. gl_accounts - Chart of accounts
-   - code (varchar), name, type (asset/liability/equity/revenue/expense)
-   - parent_code, is_active
+To get invoice fields from documents, use: 
+  extracted_data->>'invoice_no' as invoice_no
+  extracted_data->>'vendor_name' as vendor_name
+  (extracted_data->>'total_amount')::numeric as total_amount
 
 Common Vietnamese accounting terms:
 - Doanh thu = Revenue (TK 511)
@@ -232,9 +235,9 @@ def _translate_with_patterns(question: str) -> str:
     
     # Default: show recent documents
     return """
-        SELECT id, filename as "Tên file", invoice_no as "Số HĐ",
-               invoice_date as "Ngày", vendor_name as "NCC",
-               total_amount as "Số tiền", status as "Trạng thái"
+        SELECT id, filename as "Tên file", doc_type as "Loại",
+               extracted_data->>'vendor_name' as "NCC",
+               status as "Trạng thái", created_at::date as "Ngày tạo"
         FROM documents
         ORDER BY created_at DESC
         LIMIT 20
