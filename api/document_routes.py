@@ -581,10 +581,19 @@ async def get_document_ocr_boxes(document_id: str) -> dict:
                 }
             raise HTTPException(status_code=404, detail="Document not found")
 
-        # Parse boxes
-        boxes = row.get("ocr_boxes") or []
+        # Parse boxes - handle both old (list) and new (dict with boxes + page_dimensions) formats
+        ocr_data = row.get("ocr_boxes") or []
         page_dims = row.get("page_dimensions") or {}
         extracted = row.get("extracted_data") or {}
+        
+        # New format: {"boxes": [...], "page_dimensions": {...}}
+        if isinstance(ocr_data, dict):
+            boxes = ocr_data.get("boxes") or []
+            if not page_dims:
+                page_dims = ocr_data.get("page_dimensions") or {}
+        else:
+            # Old format: direct list of boxes
+            boxes = ocr_data
         
         # If no dedicated boxes column, try extracted_data.blocks
         if not boxes and extracted:
