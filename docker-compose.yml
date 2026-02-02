@@ -89,6 +89,7 @@ services:
     volumes:
       - ./data/uploads:/root/erp-ai/data/uploads
       - ./data/kb:/root/erp-ai/data/kb
+      - ./data/imports:/data/imports
       - ./configs:/root/erp-ai/configs:ro
       - ./src:/root/erp-ai/src:ro
       - ./core:/root/erp-ai/core:ro

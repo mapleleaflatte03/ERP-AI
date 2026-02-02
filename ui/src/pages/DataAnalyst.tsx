@@ -69,7 +69,7 @@ export default function DataAnalyst() {
     queryKey: ['query-history'],
     queryFn: async () => {
       try {
-        const res = await api.get('/analyst/history');
+        const res = await api.get('/v1/analyst/history');
         return res.data as QueryHistoryItem[];
       } catch {
         return [];
@@ -81,7 +81,7 @@ export default function DataAnalyst() {
   // NL2SQL mutation
   const queryMutation = useMutation({
     mutationFn: async (nlQuestion: string) => {
-      const response = await api.post('/analyst/query', { question: nlQuestion });
+      const response = await api.post('/v1/analyst/query', { question: nlQuestion });
       return response.data as QueryResult;
     },
     onSuccess: (data) => {
