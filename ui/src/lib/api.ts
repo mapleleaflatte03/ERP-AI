@@ -129,6 +129,11 @@ class ApiClient {
     return response.data;
   }
 
+  async updateDocument(documentId: string, data: any) {
+    const response = await this.client.patch(`/v1/documents/${documentId}`, data);
+    return response.data;
+  }
+
   async deleteDocument(documentId: string) {
     const response = await this.client.delete(`/v1/documents/${documentId}`);
     return response.data;

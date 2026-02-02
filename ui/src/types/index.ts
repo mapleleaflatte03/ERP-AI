@@ -8,10 +8,13 @@ export type DocumentStatus =
   | 'pending_approval'
   | 'approved'
   | 'rejected'
-  | 'posted';
+  | 'posted'
+  | 'processed';
 
 export type DocumentType =
   | 'invoice'
+  | 'sales_invoice'
+  | 'purchase_invoice'
   | 'receipt'
   | 'bank_statement'
   | 'contract'
@@ -31,6 +34,7 @@ export interface Document {
   vat_amount?: number;
   currency?: string;
   extracted_fields?: Record<string, unknown>;
+  extracted_data?: Record<string, unknown>;  // Alias for custom fields
   extracted_text?: string;
   file_url?: string;
   created_at: string;
