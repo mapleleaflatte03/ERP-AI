@@ -365,7 +365,6 @@ async def approve_document(approval_id: str, body: ApproveRequest) -> dict:
                 """
                 UPDATE jobs 
                 SET status = 'approved', 
-                    approval_state = 'approved',
                     updated_at = NOW()
                 WHERE id = $1
                 """,
@@ -438,7 +437,6 @@ async def reject_document(approval_id: str, body: RejectRequest) -> dict:
                 """
                 UPDATE jobs 
                 SET status = 'rejected', 
-                    approval_state = 'rejected',
                     updated_at = NOW()
                 WHERE id = $1
                 """,
