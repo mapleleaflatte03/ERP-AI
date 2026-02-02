@@ -169,6 +169,72 @@ async def list_approvals(
             }
         }
 
+# ==============================================================================
+# Pending Approvals (must be before /{approval_id} to avoid route conflict)
+# ==============================================================================
+
+@router.get("/pending")
+async def list_pending_approvals(
+    limit: int = Query(50, ge=1, le=100),
+) -> dict:
+    """
+    List pending approvals only.
+    This route must be BEFORE /{approval_id} to avoid route conflict.
+    """
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        query = """
+            SELECT 
+                a.id,
+                a.job_id,
+                a.proposal_id,
+                a.tenant_id,
+                COALESCE(a.status, a.action) as status,
+                a.approver_name,
+                a.created_at,
+                j.filename,
+                jp.ai_confidence,
+                ei.vendor_name,
+                ei.invoice_number,
+                ei.total_amount,
+                ei.currency
+            FROM approvals a
+            LEFT JOIN jobs j ON a.job_id = j.id
+            LEFT JOIN journal_proposals jp ON a.proposal_id = jp.id
+            LEFT JOIN extracted_invoices ei ON jp.invoice_id = ei.id
+            WHERE COALESCE(a.status, a.action) = 'pending'
+            ORDER BY a.created_at DESC
+            LIMIT $1
+        """
+        rows = await conn.fetch(query, limit)
+        
+        approvals = []
+        for row in rows:
+            approvals.append({
+                "id": str(row["id"]),
+                "job_id": str(row["job_id"]) if row["job_id"] else None,
+                "proposal_id": str(row["proposal_id"]) if row["proposal_id"] else None,
+                "tenant_id": row.get("tenant_id"),
+                "status": row["status"],
+                "filename": row.get("filename"),
+                "vendor_name": row.get("vendor_name"),
+                "invoice_number": row.get("invoice_number"),
+                "total_amount": float(row["total_amount"]) if row.get("total_amount") else None,
+                "currency": row.get("currency"),
+                "ai_confidence": float(row["ai_confidence"]) if row.get("ai_confidence") else None,
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            })
+        
+        return {
+            "success": True,
+            "data": approvals,
+            "count": len(approvals)
+        }
+
+
 
 # =============================================================================
 # Get Single Approval

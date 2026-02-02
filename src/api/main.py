@@ -12,6 +12,7 @@ Endpoints:
 """
 
 import asyncio
+import json
 import hashlib
 import logging
 import os
@@ -3879,7 +3880,7 @@ async def get_global_timeline(limit: int = 50):
                     "action": action_map.get(row["event_type"], row["event_type"]),
                     "actor": f"agent:{row['actor']}" if row["actor"] else "system",
                     "timestamp": row["created_at"].isoformat() if row["created_at"] else None,
-                    "payload": row["event_data"] if row["event_data"] else {}
+                    "payload": (json.loads(row["event_data"]) if isinstance(row["event_data"], str) else row["event_data"]) if row["event_data"] else {}
                 }
                 for row in rows
             ]
@@ -4886,16 +4887,78 @@ async def chat_copilot(request: ChatRequest):
             logger.info(f"Executing confirmed action: {tool_name} with {params}")
             
             if tool_name == "approve_proposal":
-                res = await tools.approve_proposal(params["id"])
-                if "error" in res:
-                    return ChatResponse(response=f"⚠️ Lỗi nội bộ: {res['error']}")
-                return ChatResponse(response=f"✅ Đã duyệt đề xuất {params['id']} và ghi sổ cái thành công.")
-                
+                # Execute actual approval via DB
+                try:
+                    approval_id = params["id"]
+                    pool = await get_db_pool()
+                    async with pool.acquire() as conn:
+                        # Update approval status
+                        await conn.execute(
+                            """
+                            UPDATE approvals 
+                            SET status = 'approved', 
+                                approver_name = 'Copilot',
+                                comment = 'Approved via AI Copilot',
+                                updated_at = NOW()
+                            WHERE id = $1
+                            """,
+                            uuid.UUID(approval_id)
+                        )
+                        # Update journal proposal status
+                        await conn.execute(
+                            """
+                            UPDATE journal_proposals 
+                            SET status = 'approved', updated_at = NOW()
+                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
+                            """,
+                            uuid.UUID(approval_id)
+                        )
+                        # Log to audit (uses correct schema)
+                        audit_approval_id = uuid.UUID(approval_id)
+                        await conn.execute(
+                            """
+                            INSERT INTO audit_events (job_id, tenant_id, event_type, event_data, actor, created_at)
+                            SELECT a.job_id, COALESCE(a.tenant_id::text, 'system'), 'approval_confirmed', 
+                                   jsonb_build_object('approval_id', $1::text, 'action', 'approved', 'source', 'copilot_chat'),
+                                   'Copilot', NOW()
+                            FROM approvals a WHERE a.id = $2
+                            """,
+                            approval_id, audit_approval_id
+                        )
+                    return ChatResponse(response=f"✅ Đã duyệt chứng từ {approval_id[:8]}... và ghi sổ cái thành công.")
+                except Exception as e:
+                    logger.error(f"Approval error: {e}")
+                    return ChatResponse(response=f"⚠️ Lỗi khi duyệt: {str(e)}")
+                    
             elif tool_name == "reject_proposal":
-                res = await tools.reject_proposal(params["id"])
-                if "error" in res:
-                    return ChatResponse(response=f"⚠️ Lỗi nội bộ: {res['error']}")
-                return ChatResponse(response=f"❌ Đã từ chối đề xuất {params['id']}.")
+                # Execute actual rejection via DB
+                try:
+                    approval_id = params["id"]
+                    pool = await get_db_pool()
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE approvals 
+                            SET status = 'rejected', 
+                                approver_name = 'Copilot',
+                                comment = 'Rejected via AI Copilot',
+                                updated_at = NOW()
+                            WHERE id = $1
+                            """,
+                            uuid.UUID(approval_id)
+                        )
+                        await conn.execute(
+                            """
+                            UPDATE journal_proposals 
+                            SET status = 'rejected', updated_at = NOW()
+                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
+                            """,
+                            uuid.UUID(approval_id)
+                        )
+                    return ChatResponse(response=f"❌ Đã từ chối chứng từ {approval_id[:8]}...")
+                except Exception as e:
+                    logger.error(f"Rejection error: {e}")
+                    return ChatResponse(response=f"⚠️ Lỗi khi từ chối: {str(e)}")
 
         client = LLMClient()
 
