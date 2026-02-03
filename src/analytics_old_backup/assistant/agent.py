@@ -227,9 +227,7 @@ ASSISTANT:"""
             datasets = result["datasets"]
             parts.append(f"Có {len(datasets)} datasets:")
             for ds in datasets[:5]:
-                # Support both "rows" and "row_count" keys
-                row_count = ds.get('rows') or ds.get('row_count', 0)
-                parts.append(f"  - {ds.get('name')}: {row_count} rows")
+                parts.append(f"  - {ds.get('name')}: {ds.get('row_count', 0)} rows")
         
         if "data" in result:
             data = result["data"]
