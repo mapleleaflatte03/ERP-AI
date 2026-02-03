@@ -225,7 +225,19 @@ function ChatTab() {
                         <div className="font-medium text-violet-600 mb-1">
                           📊 {tr.tool}
                         </div>
-                        {tr.result?.rows && (
+                        {/* List Datasets Result */}
+                        {tr.result?.datasets && (
+                          <div className="space-y-1 text-sm">
+                            {tr.result.datasets.map((ds: any, di: number) => (
+                              <div key={di} className="flex justify-between py-1 border-b border-gray-100 last:border-0">
+                                <span className="text-gray-800">{ds.name}</span>
+                                <span className="text-violet-600 font-medium">{ds.rows?.toLocaleString() || 0} rows</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Table Data Result */}
+                        {tr.result?.rows && !tr.result?.datasets && (
                           <div className="overflow-x-auto">
                             <table className="min-w-full text-xs">
                               <thead>
@@ -254,6 +266,17 @@ function ChatTab() {
                                 + {tr.result.row_count - 5} dòng khác
                               </div>
                             )}
+                          </div>
+                        )}
+                        {/* Stats/Describe Result */}
+                        {tr.result?.stats && (
+                          <div className="text-sm space-y-1">
+                            {Object.entries(tr.result.stats).slice(0, 5).map(([k, v]: [string, any]) => (
+                              <div key={k} className="flex justify-between">
+                                <span className="text-gray-600">{k}</span>
+                                <span className="font-medium">{typeof v === 'number' ? v.toLocaleString() : String(v)}</span>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>

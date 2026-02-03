@@ -40,6 +40,9 @@ ANALYTICS_SYSTEM_PROMPT = """Bạn là trợ lý phân tích dữ liệu tài ch
 - Thực hiện các phép tính thống kê
 - Tạo biểu đồ và báo cáo
 
+QUAN TRỌNG: Khi nhận kết quả từ tool, BẠN PHẢI ĐỌC KỸ VÀ BÁO CÁO CHÍNH XÁC số liệu từ tool_results. 
+Ví dụ: nếu tool trả về {"rows": 1000}, bạn PHẢI nói "1000 rows", KHÔNG ĐƯỢC nói "0 rows".
+
 KHI CẦN DỮ LIỆU, HÃY SỬ DỤNG TOOL THEO FORMAT SAU:
 
 ```tool
