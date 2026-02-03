@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 // import ServerImportModal from '../components/ServerImportModal'; // Removed - feature disabled
 import { Link } from 'react-router-dom';
@@ -14,10 +14,14 @@ import {
   Receipt,
   CreditCard,
   Wallet,
+  MessageSquare,
   // FolderOpen, // Removed - Import from Server feature disabled
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Document, DocumentStatus, DocumentType } from '../types';
+
+// Lazy load chat component
+const ModuleChatDock = lazy(() => import('../components/moduleChat/ModuleChatDock'));
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   new: 'Mới',
@@ -70,6 +74,7 @@ export default function DocumentsInbox() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   // const [showServerImport, setShowServerImport] = useState(false); // Removed - feature disabled
 
   // Pagination State
@@ -434,6 +439,28 @@ export default function DocumentsInbox() {
       </div>
 
       {/* Server Import Modal - disabled */}
+
+      {/* Module Chat Dock */}
+      {showChat && (
+        <Suspense fallback={null}>
+          <ModuleChatDock 
+            module="documents" 
+            onClose={() => setShowChat(false)} 
+          />
+        </Suspense>
+      )}
+      
+      {/* Chat Toggle Button */}
+      {!showChat && (
+        <button
+          onClick={() => setShowChat(true)}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all hover:scale-105"
+          title="Mở AI Chat cho Tài liệu"
+        >
+          <span>📄</span>
+          <MessageSquare className="w-5 h-5" />
+        </button>
+      )}
     </>
   );
 }

@@ -5167,93 +5167,27 @@ class ChatResponse(BaseModel):
 async def chat_copilot(request: ChatRequest):
     """
     Chat with the ERPX Copilot with Agentic Capabilities.
+    
+    IMPORTANT: This endpoint NO LONGER supports direct writes via confirmed_action.
+    All write operations MUST go through the ActionProposalService:
+    1. Chat returns proposed_actions with proposal IDs
+    2. UI shows ActionProposalCard for user confirmation
+    3. User confirms via POST /v1/agent/actions/{id}/confirm
     """
     try:
         from src.llm.client import LLMClient
         from src.copilot import tools
+        from src.services.action_proposals import ActionProposalService, ModuleScope
         import json
 
-        # 1. Handle Confirmed Actions from UI
+        # DEPRECATED: confirmed_action direct write - BLOCKED
+        # All writes must go through proposal → confirm → apply flow
         if request.context and request.context.get("confirmed_action"):
-            action = request.context["confirmed_action"]
-            tool_name = action.get("tool")
-            params = action.get("params", {})
-            
-            logger.info(f"Executing confirmed action: {tool_name} with {params}")
-            
-            if tool_name == "approve_proposal":
-                # Execute actual approval via DB
-                try:
-                    approval_id = params["id"]
-                    pool = await get_db_pool()
-                    async with pool.acquire() as conn:
-                        # Update approval status
-                        await conn.execute(
-                            """
-                            UPDATE approvals 
-                            SET status = 'approved', 
-                                approver_name = 'Copilot',
-                                comment = 'Approved via AI Copilot',
-                                updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        # Update journal proposal status
-                        await conn.execute(
-                            """
-                            UPDATE journal_proposals 
-                            SET status = 'approved', updated_at = NOW()
-                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        # Log to audit (uses correct schema)
-                        audit_approval_id = uuid.UUID(approval_id)
-                        await conn.execute(
-                            """
-                            INSERT INTO audit_events (job_id, tenant_id, event_type, event_data, actor, created_at)
-                            SELECT a.job_id, COALESCE(a.tenant_id::text, 'system'), 'approval_confirmed', 
-                                   jsonb_build_object('approval_id', $1::text, 'action', 'approved', 'source', 'copilot_chat'),
-                                   'Copilot', NOW()
-                            FROM approvals a WHERE a.id = $2
-                            """,
-                            approval_id, audit_approval_id
-                        )
-                    return ChatResponse(response=f"✅ Đã duyệt chứng từ {approval_id[:8]}... và ghi sổ cái thành công.")
-                except Exception as e:
-                    logger.error(f"Approval error: {e}")
-                    return ChatResponse(response=f"⚠️ Lỗi khi duyệt: {str(e)}")
-                    
-            elif tool_name == "reject_proposal":
-                # Execute actual rejection via DB
-                try:
-                    approval_id = params["id"]
-                    pool = await get_db_pool()
-                    async with pool.acquire() as conn:
-                        await conn.execute(
-                            """
-                            UPDATE approvals 
-                            SET status = 'rejected', 
-                                approver_name = 'Copilot',
-                                comment = 'Rejected via AI Copilot',
-                                updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        await conn.execute(
-                            """
-                            UPDATE journal_proposals 
-                            SET status = 'rejected', updated_at = NOW()
-                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                    return ChatResponse(response=f"❌ Đã từ chối chứng từ {approval_id[:8]}...")
-                except Exception as e:
-                    logger.error(f"Rejection error: {e}")
-                    return ChatResponse(response=f"⚠️ Lỗi khi từ chối: {str(e)}")
+            logger.warning("BLOCKED: confirmed_action direct write attempted. Use /v1/agent/actions/{id}/confirm instead.")
+            return ChatResponse(
+                response="⚠️ Hành động trực tiếp không được hỗ trợ nữa. Vui lòng sử dụng nút xác nhận trong giao diện.",
+                context={"error": "direct_write_blocked", "use_confirm_endpoint": True}
+            )
 
         client = LLMClient()
 
@@ -5338,28 +5272,54 @@ async def chat_copilot(request: ChatRequest):
             
             return ChatResponse(response=summary)
 
-        # Write Tools (Safe Mode - Require Confirmation)
+        # Write Tools - CREATE PROPOSAL (do NOT execute directly)
         elif tool in ["approve_proposal", "reject_proposal"]:
-            proposal_id = params.get("id")
-            if not proposal_id:
-                return ChatResponse(response="Tôi cần Proposal ID để thực hiện.")
-                
-            # Return Action Request
-            label = "Duyệt chứng từ" if tool == "approve_proposal" else "Từ chối chứng từ"
-            style = "primary" if tool == "approve_proposal" else "danger"
-            confirm_msg = "Tôi tìm thấy yêu cầu duyệt. Vui lòng xác nhận:" if tool == "approve_proposal" else "Xác nhận từ chối chứng từ này:"
+            approval_id = params.get("id")
+            if not approval_id:
+                return ChatResponse(response="Tôi cần Approval ID để thực hiện.")
             
-            return ChatResponse(
-                response=confirm_msg,
-                actions=[
-                    ChatAction(
-                        label=f"{label} {proposal_id[:8]}...",
-                        tool=tool,
-                        params={"id": proposal_id},
-                        style=style
-                    )
-                ]
-            )
+            # Create a proper proposal via ActionProposalService
+            pool = await get_db_pool()
+            service = ActionProposalService(pool)
+            
+            action_type = tool  # approve_proposal or reject_proposal
+            label = "Duyệt chứng từ" if tool == "approve_proposal" else "Từ chối chứng từ"
+            description = f"{label} ID: {approval_id[:8]}..."
+            
+            try:
+                proposal = await service.create_proposal(
+                    module=ModuleScope.APPROVALS,
+                    action_type=action_type,
+                    payload={"approval_id": approval_id},
+                    description=description,
+                    scope_id=approval_id,
+                    target_entity="approval",
+                    target_id=approval_id,
+                    reasoning=f"User requested {action_type} via chat",
+                    risk_level="medium" if tool == "approve_proposal" else "low",
+                    session_id=request.context.get("session_id") if request.context else None,
+                )
+                
+                confirm_msg = "Tôi đã tạo đề xuất. Vui lòng xác nhận:" if tool == "approve_proposal" else "Xác nhận từ chối chứng từ này:"
+                
+                return ChatResponse(
+                    response=confirm_msg,
+                    actions=[
+                        ChatAction(
+                            label=f"{label} {approval_id[:8]}...",
+                            tool=tool,
+                            params={"id": approval_id, "proposal_id": proposal["id"]},
+                            style="primary" if tool == "approve_proposal" else "danger"
+                        )
+                    ],
+                    context={
+                        "proposed_actions": [proposal],
+                        "confirm_via": f"/v1/agent/actions/{proposal['id']}/confirm"
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Failed to create proposal: {e}")
+                return ChatResponse(response=f"⚠️ Lỗi khi tạo đề xuất: {str(e)}")
 
         # Default / Conversational
         return ChatResponse(response=decision.get("response") or thought)

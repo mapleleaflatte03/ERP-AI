@@ -30,6 +30,7 @@ from api.analyst_routes import router as analyst_router
 from api.reconciliation_routes import router as reconciliation_router
 from api.agent_routes import router as agent_router
 from api.analyze_routes import router as analyze_router
+from api.module_chat_routes import router as module_chat_router
 from src.api.analytics_routes import router as analytics_router
 from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantMiddleware
 from api.routes import router
@@ -110,6 +111,8 @@ def create_app() -> FastAPI:
     app.include_router(reconciliation_router, prefix=API_PREFIX)
     # Agent routes (Copilot action proposals)
     app.include_router(agent_router, prefix=API_PREFIX)
+    # Module Chat routes (per-module AI chat with scope enforcement)
+    app.include_router(module_chat_router, prefix=API_PREFIX)
     # Analyze module (unified Reports + Data Analyst + Datasets)
     app.include_router(analyze_router, prefix=API_PREFIX)
     # Analytics module v2 (AI Assistant + NL2SQL + Forecast)

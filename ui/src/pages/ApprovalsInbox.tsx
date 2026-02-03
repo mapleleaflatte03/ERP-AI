@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
@@ -11,11 +11,15 @@ import {
   AlertCircle,
   Eye,
   Loader2,
+  MessageSquare,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Approval } from '../types';
 
 import { Link } from 'react-router-dom';
+
+// Lazy load chat component
+const ModuleChatDock = lazy(() => import('../components/moduleChat/ModuleChatDock'));
 
 function RiskBadge({ level }: { level?: string }) {
   if (!level) return null;
@@ -35,6 +39,7 @@ export default function ApprovalsInbox() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [page, setPage] = useState(1);
+  const [showChat, setShowChat] = useState(false);
   const limit = 10;
 
   // Fetch approvals
@@ -326,6 +331,28 @@ export default function ApprovalsInbox() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Module Chat Dock */}
+      {showChat && (
+        <Suspense fallback={null}>
+          <ModuleChatDock 
+            module="approvals" 
+            onClose={() => setShowChat(false)} 
+          />
+        </Suspense>
+      )}
+      
+      {/* Chat Toggle Button */}
+      {!showChat && (
+        <button
+          onClick={() => setShowChat(true)}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 transition-all hover:scale-105"
+          title="Mở AI Chat cho Duyệt chứng từ"
+        >
+          <span>✅</span>
+          <MessageSquare className="w-5 h-5" />
+        </button>
       )}
     </div>
   );
