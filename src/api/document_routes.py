@@ -60,7 +60,7 @@ def format_document(row: dict) -> dict:
         "vendor_name": extracted_data.get("vendor_name") or extracted_data.get("seller_name"),
         "vendor_tax_id": extracted_data.get("vendor_tax_id") or extracted_data.get("seller_tax_code"),
         "total_amount": extracted_data.get("total_amount"),
-        "vat_amount": extracted_data.get("vat_amount"),
+        "tax_amount": extracted_data.get("tax_amount"),
         "currency": extracted_data.get("currency", "VND"),
         "extracted_text": row.get("raw_text"),
         # OCR Boxes
@@ -101,7 +101,7 @@ def format_proposal(row: dict) -> dict:
         "vendor_name": row.get("vendor_name"),
         "invoice_number": row.get("invoice_number"),
         "total_amount": float(row.get("total_amount") or 0),
-        "vat_amount": float(row.get("vat_amount") or 0),
+        "tax_amount": float(row.get("tax_amount") or 0),
         "entries": entries,
         "total_debit": total_debit,
         "total_credit": total_credit,
@@ -209,7 +209,7 @@ async def get_document(document_id: str) -> dict:
             doc["vendor_name"] = extracted.get("vendor_name") or doc.get("vendor_name")
             doc["vendor_tax_id"] = extracted.get("vendor_tax_id") or doc.get("vendor_tax_id")
             doc["total_amount"] = float(extracted.get("total_amount") or 0) or doc.get("total_amount")
-            doc["vat_amount"] = float(extracted.get("vat_amount") or 0) or doc.get("vat_amount")
+            doc["tax_amount"] = float(extracted.get("tax_amount") or 0) or doc.get("tax_amount")
             if extracted.get("line_items"):
                 doc["extracted_fields"]["line_items"] = extracted["line_items"]
 
@@ -741,6 +741,80 @@ async def get_document_ocr_boxes(document_id: str) -> dict:
 
 
 
+@router.get("/{document_id}/raw-vs-cleaned")
+async def get_document_raw_vs_cleaned(document_id: str) -> dict:
+    """Get the raw OCR text and cleaned/extracted fields for a document."""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        # Get document with extracted_text
+        doc = await conn.fetchrow(
+            """
+            SELECT d.id, d.raw_text, d.extracted_data
+            FROM documents d 
+            WHERE d.id::text = $1 OR d.job_id = $1
+            """,
+            document_id
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Get extracted invoice data
+        invoice = await conn.fetchrow(
+            """
+            SELECT vendor_name, vendor_tax_id, invoice_number, invoice_date,
+                   total_amount, tax_amount, subtotal, currency
+            FROM extracted_invoices
+            WHERE document_id::text = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            document_id
+        )
+        
+        # Build cleaned fields from extracted invoice or document
+        cleaned_fields = {}
+        confidence = {}
+        
+        if invoice:
+            field_mappings = [
+                ("vendor_name", "vendor_name"),
+                ("vendor_tax_id", "vendor_tax_id"),
+                ("invoice_number", "invoice_number"),
+                ("invoice_date", "invoice_date"),
+                ("total_amount", "total_amount"),
+                ("tax_amount", "vat_amount"),  # Map to UI field name
+                ("subtotal", "pre_tax_amount"),  # Map to UI field name
+                ("currency", "currency"),
+            ]
+            for db_field, output_field in field_mappings:
+                value = invoice.get(db_field)
+                if value is not None:
+                    cleaned_fields[output_field] = value
+                    confidence[output_field] = 0.85  # Default confidence for extracted fields
+        else:
+            # Fallback to extracted_data from document
+            extracted_data = doc.get("extracted_data") or {}
+            if isinstance(extracted_data, str):
+                import json
+                extracted_data = json.loads(extracted_data)
+            
+            for key in ["vendor_name", "vendor_tax_id", "invoice_number", "invoice_date", 
+                        "total_amount", "tax_amount", "currency", "description"]:
+                if extracted_data.get(key):
+                    cleaned_fields[key] = extracted_data[key]
+        
+        return {
+            "raw_text": doc.get("raw_text") or "",
+            "cleaned_fields": cleaned_fields,
+            "confidence": confidence
+        }
+
+
+
+
 @router.get("/{document_id}/ledger")
 async def get_document_ledger(document_id: str) -> dict:
     """Get the ledger entry for an approved document."""
@@ -1018,7 +1092,7 @@ async def list_journal_proposals(
                 ei.invoice_number,
                 ei.invoice_date,
                 ei.total_amount,
-                ei.tax_amount as vat_amount,
+                ei.tax_amount as tax_amount,
                 ei.currency
             FROM journal_proposals jp
             LEFT JOIN documents d ON jp.document_id = d.id
@@ -1089,7 +1163,7 @@ async def list_journal_proposals(
                     "invoice_number": row.get("invoice_number"),
                     "invoice_date": row["invoice_date"].isoformat() if row.get("invoice_date") else None,
                     "total_amount": float(row.get("total_amount") or 0),
-                    "vat_amount": float(row.get("vat_amount") or 0),
+                    "tax_amount": float(row.get("tax_amount") or 0),
                     "currency": row.get("currency", "VND"),
                     "status": row.get("status", "pending"),
                     "ai_confidence": float(row.get("ai_confidence") or 0),

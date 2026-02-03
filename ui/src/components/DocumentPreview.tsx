@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Layers, Maximize2, Loader2, AlertCircle, Eye, EyeOff, FileText, ChevronRight } from 'lucide-react';
+import { Layers, Maximize2, Loader2, AlertCircle, Eye, EyeOff, FileText, Download } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../lib/api';
 
@@ -26,7 +26,27 @@ interface DocumentPreviewProps {
     ocrBoxes?: any[];
 }
 
+// Field labels mapping - SHARED across all preview types
+const fieldLabels: Record<string, string> = {
+    vendor_name: 'Nhà cung cấp',
+    vendor_tax_id: 'MST NCC',
+    invoice_number: 'Số hóa đơn',
+    invoice_date: 'Ngày hóa đơn',
+    total_amount: 'Tổng tiền',
+    vat_amount: 'Tiền VAT',
+    pre_tax_amount: 'Tiền trước thuế',
+    currency: 'Loại tiền',
+    description: 'Mô tả',
+    buyer_name: 'Người mua',
+    buyer_tax_id: 'MST người mua',
+    payment_method: 'Phương thức TT',
+    bank_account: 'Tài khoản NH',
+    serial: 'Ký hiệu',
+    document_type: 'Loại chứng từ',
+};
+
 export default function DocumentPreview({ fileUrl, documentId, filename, contentType, ocrBoxes: initialBoxes = [] }: DocumentPreviewProps) {
+    // === SHARED STATE ===
     const [showOverlay, setShowOverlay] = useState(true);
     const [showFieldPanel, setShowFieldPanel] = useState(true);
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -34,32 +54,36 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
     const [error, setError] = useState<string | null>(null);
     const [hoveredField, setHoveredField] = useState<string | null>(null);
 
-    const scale = 1;
+    // === FILE TYPE DETECTION ===
     const isImage = contentType.startsWith('image/');
     const isPDF = contentType === 'application/pdf';
     const isExcel = contentType.includes('spreadsheet') || contentType.includes('excel') || filename.endsWith('.xlsx') || filename.endsWith('.xls');
-    
+    const fileType = isImage ? 'image' : isPDF ? 'pdf' : isExcel ? 'excel' : 'other';
+
+    // === REFS (for image) ===
+    const scale = 1;
     const containerRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Fetch OCR boxes from API if documentId provided (for images and PDFs)
-    const { data: ocrData } = useQuery({
+    // === DATA FETCHING - UNIFIED FOR ALL TYPES ===
+    // OCR data: available for images and PDFs
+    const { data: ocrData, isLoading: ocrLoading } = useQuery({
         queryKey: ['ocr-boxes', documentId],
         queryFn: () => documentId ? api.getDocumentOcrBoxes(documentId) : null,
         enabled: !!documentId && (isImage || isPDF),
         staleTime: 60000,
     });
 
-    // Fetch raw vs cleaned data
-    const { data: fieldData } = useQuery({
+    // Extracted fields: available for ALL document types
+    const { data: fieldData, isLoading: fieldLoading } = useQuery({
         queryKey: ['raw-vs-cleaned', documentId],
         queryFn: () => documentId ? api.getDocumentRawVsCleaned(documentId) : null,
         enabled: !!documentId,
         staleTime: 60000,
     });
 
-    // Merge boxes from props and API
+    // === COMPUTED DATA ===
     const boxes: OCRBox[] = ocrData?.boxes || initialBoxes.map((box: any) => {
         if (Array.isArray(box) && box.length >= 4) {
             return { x: box[0], y: box[1], w: box[2], h: box[3] };
@@ -67,7 +91,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         return box as OCRBox;
     });
 
-    const extractedFields: ExtractedField[] = fieldData?.cleaned_fields 
+    const extractedFields: ExtractedField[] = fieldData?.cleaned_fields
         ? Object.entries(fieldData.cleaned_fields).map(([key, value]) => ({
             key,
             value,
@@ -75,10 +99,9 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         }))
         : [];
 
-    // Page dimensions for scaling
     const pageDimensions = ocrData?.page_dimensions || { width: 1000, height: 1400 };
 
-    // Fetch the file securely
+    // === FILE LOADING ===
     useEffect(() => {
         let active = true;
         setLoading(true);
@@ -103,6 +126,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                     return;
                 }
 
+                // Excel: get HTML preview
                 if (isExcel) {
                     const previewUrl = effectiveUrl.includes('?') ? `${effectiveUrl}&preview=true` : `${effectiveUrl}?preview=true`;
                     const response = await api.client.get(previewUrl);
@@ -113,6 +137,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                     return;
                 }
 
+                // PDF/Image: get blob
                 const blob = await api.getFileBlob(effectiveUrl);
                 const objectUrl = URL.createObjectURL(blob);
 
@@ -139,7 +164,7 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         };
     }, [fileUrl, documentId, isExcel]);
 
-    // Draw boxes on canvas
+    // === IMAGE: Draw OCR boxes on canvas ===
     const drawBoxes = () => {
         const canvas = canvasRef.current;
         const img = imgRef.current;
@@ -148,329 +173,172 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        canvas.width = img.clientWidth;
-        canvas.height = img.clientHeight;
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (!showOverlay || boxes.length === 0) return;
 
-        const scaleX = img.clientWidth / (pageDimensions.width || img.naturalWidth);
-        const scaleY = img.clientHeight / (pageDimensions.height || img.naturalHeight);
+        const scaleX = img.naturalWidth / pageDimensions.width;
+        const scaleY = img.naturalHeight / pageDimensions.height;
 
-        boxes.forEach((box, _idx) => {
-            const rx = box.x * scaleX;
-            const ry = box.y * scaleY;
-            const rw = box.w * scaleX;
-            const rh = box.h * scaleY;
+        boxes.forEach((box) => {
+            const x = box.x * scaleX;
+            const y = box.y * scaleY;
+            const w = box.w * scaleX;
+            const h = box.h * scaleY;
 
-            // Different color for hovered field's boxes
-            const isHighlighted = hoveredField && box.text?.toLowerCase().includes(String(fieldData?.cleaned_fields?.[hoveredField]).toLowerCase());
-            
-            if (isHighlighted) {
-                ctx.strokeStyle = '#f59e0b';
-                ctx.lineWidth = 2;
-                ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
-            } else {
-                ctx.strokeStyle = '#3b82f6';
-                ctx.lineWidth = 1;
-                ctx.fillStyle = 'rgba(59, 130, 246, 0.05)';
-            }
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.15)';
+            ctx.fillRect(x, y, w, h);
 
-            ctx.beginPath();
-            ctx.rect(rx, ry, rw, rh);
-            ctx.stroke();
-            ctx.fill();
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, w, h);
         });
     };
-
-    useEffect(() => {
-        if (isImage && !loading && blobUrl) {
-            window.addEventListener('resize', drawBoxes);
-            drawBoxes();
-            return () => window.removeEventListener('resize', drawBoxes);
-        }
-    }, [isImage, showOverlay, boxes, loading, blobUrl, hoveredField]);
 
     const handleImageLoad = () => {
         if (isImage) drawBoxes();
     };
 
-    // Format field value for display
-    const formatFieldValue = (value: any): string => {
-        if (value === null || value === undefined) return '-';
-        if (typeof value === 'number') {
-            return value.toLocaleString('vi-VN');
-        }
-        if (value instanceof Date || (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
-            try {
-                return new Date(value).toLocaleDateString('vi-VN');
-            } catch {
-                return String(value);
-            }
-        }
-        return String(value);
-    };
+    useEffect(() => {
+        if (isImage) drawBoxes();
+    }, [boxes, showOverlay, scale, pageDimensions]);
 
-    // Field label mapping
-    const fieldLabels: Record<string, string> = {
-        vendor_name: 'Nhà cung cấp',
-        vendor_tax_id: 'Mã số thuế',
-        invoice_number: 'Số hóa đơn',
-        invoice_date: 'Ngày hóa đơn',
-        total_amount: 'Tổng tiền',
-        tax_amount: 'Thuế',
-        currency: 'Tiền tệ',
-        description: 'Mô tả',
-    };
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full p-12">
-                <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-2" />
-                <p className="text-sm text-gray-500">Đang tải tài liệu...</p>
+    // === SHARED COMPONENTS ===
+    
+    // Header with controls - SAME for all file types
+    const renderHeader = () => (
+        <div className="flex items-center justify-between px-4 py-2 bg-white border-b flex-shrink-0">
+            <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
+                    {filename}
+                </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                    fileType === 'image' ? 'bg-purple-100 text-purple-700' :
+                    fileType === 'pdf' ? 'bg-red-100 text-red-700' :
+                    fileType === 'excel' ? 'bg-green-100 text-green-700' :
+                    'bg-gray-100 text-gray-700'
+                }`}>
+                    {fileType.toUpperCase()}
+                </span>
             </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full p-12 text-center">
-                <AlertCircle className="w-10 h-10 text-red-400 mb-2" />
-                <p className="text-gray-900 font-medium">Lỗi tải file</p>
-                <p className="text-sm text-gray-500 mt-1">{error}</p>
+            <div className="flex gap-2 items-center">
+                {/* OCR Toggle - for Image and PDF */}
+                {(isImage || isPDF) && (
+                    <button
+                        onClick={() => setShowOverlay(!showOverlay)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
+                            showOverlay ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : 'bg-gray-100 text-gray-500'
+                        }`}
+                        title="Hiển thị văn bản OCR"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                        OCR: {showOverlay ? 'BẬT' : 'TẮT'}
+                    </button>
+                )}
+                
+                {/* Fields Toggle - for ALL types */}
+                <button
+                    onClick={() => setShowFieldPanel(!showFieldPanel)}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
+                        showFieldPanel ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-500'
+                    }`}
+                    title="Hiển thị thông tin trích xuất"
+                >
+                    {showFieldPanel ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    Fields
+                </button>
+                
+                <div className="w-px h-4 bg-gray-200"></div>
+                
+                {/* View original */}
+                <a 
+                    href={isExcel ? fileUrl : blobUrl || ''} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="p-1 hover:bg-gray-100 rounded" 
+                    title="Xem file gốc"
+                >
+                    <Maximize2 className="w-4 h-4 text-gray-400" />
+                </a>
             </div>
-        );
-    }
+        </div>
+    );
 
-    if (!blobUrl) return null;
-
-    // Excel preview
-    if (isExcel && !loading && blobUrl) {
-        return (
-            <div className="w-full h-full flex flex-col bg-white">
-                <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
-                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
-                        {filename}
-                    </span>
-                    <a href={fileUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">
-                        Tải file gốc
-                    </a>
-                </div>
-                <div
-                    className="flex-1 overflow-auto bg-gray-50 p-4"
-                    dangerouslySetInnerHTML={{ __html: blobUrl }}
-                />
-            </div>
-        );
-    }
-
-    // PDF preview with OCR data panel
-    if (isPDF) {
+    // OCR Text Panel - for PDF only (image shows overlay on canvas)
+    const renderOcrPanel = () => {
+        if (!isPDF || !showOverlay) return null;
         
         return (
-            <div className="w-full h-full flex bg-white">
-                <div className="flex-1 flex flex-col">
-                    {/* Header with controls */}
-                    <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
-                            {filename}
-                        </span>
-                        <div className="flex gap-3">
-                            {/* OCR Toggle for PDF */}
-                            <button
-                                onClick={() => setShowOverlay(!showOverlay)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
-                                    showOverlay ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : 'bg-gray-100 text-gray-500'
-                                }`}
-                                title="Hiển thị văn bản OCR trích xuất từ PDF"
-                            >
-                                <Layers className="w-3.5 h-3.5" />
-                                OCR: {showOverlay ? 'BẬT' : 'TẮT'}
-                            </button>
-                            {/* Fields Toggle */}
-                            <button
-                                onClick={() => setShowFieldPanel(!showFieldPanel)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
-                                    showFieldPanel ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-500'
-                                }`}
-                                title="Hiển thị các trường đã trích xuất (OCR mapping)"
-                            >
-                                {showFieldPanel ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                                Fields
-                            </button>
-                            <div className="w-px h-4 bg-gray-200 my-auto"></div>
-                            <a href={blobUrl} target="_blank" rel="noreferrer" className="p-1 hover:bg-gray-100 rounded" title="Xem gốc">
-                                <Maximize2 className="w-4 h-4 text-gray-400" />
-                            </a>
-                        </div>
-                    </div>
-                    
-                    {/* PDF iframe */}
-                    <div className="flex-1 relative">
-                        <iframe
-                            src={`${blobUrl}#toolbar=0`}
-                            className="w-full h-full border-none absolute inset-0"
-                            title={filename}
-                        />
-                    </div>
+            <div className="border-b">
+                <div className="px-4 py-3 bg-white sticky top-0 border-b">
+                    <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-blue-500" />
+                        Văn bản OCR
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Nội dung đã nhận dạng từ tài liệu
+                    </p>
                 </div>
-                
-                {/* Side Panel: OCR Text or Fields */}
-                {(showOverlay || showFieldPanel) && (
-                    <div className="w-80 border-l bg-gray-50 overflow-auto flex flex-col">
-                        {/* OCR Text Section */}
-                        {showOverlay && (
-                            <div className="border-b">
-                                <div className="px-4 py-3 bg-white sticky top-0 border-b">
-                                    <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-                                        <Layers className="w-4 h-4 text-blue-500" />
-                                        Văn bản OCR
-                                    </h3>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Nội dung đã nhận dạng từ tài liệu PDF
-                                    </p>
-                                </div>
-                                <div className="p-3">
-                                    {ocrData?.raw_text ? (
-                                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
-                                            {ocrData.raw_text}
-                                        </div>
-                                    ) : boxes.length > 0 ? (
-                                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
-                                            {boxes.map((box: any) => box.text).filter(Boolean).join('\n')}
-                                        </div>
-                                    ) : (
-                                        <div className="text-center py-4 text-gray-400 text-sm">
-                                            Chưa có dữ liệu OCR
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Fields Section */}
-                        {showFieldPanel && (
-                            <div className="flex-1">
-                                <div className="px-4 py-3 bg-white sticky top-0 border-b">
-                                    <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-                                        <FileText className="w-4 h-4 text-emerald-500" />
-                                        Thông tin trích xuất
-                                    </h3>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Các trường được AI nhận diện từ OCR
-                                    </p>
-                                </div>
-                                <div className="p-3 space-y-2">
-                                    {extractedFields.length > 0 ? (
-                                        extractedFields.map((field) => (
-                                            <div 
-                                                key={field.key} 
-                                                className="p-3 bg-white rounded-lg border hover:border-blue-200 transition-colors cursor-pointer"
-                                                onMouseEnter={() => setHoveredField(field.key)}
-                                                onMouseLeave={() => setHoveredField(null)}
-                                            >
-                                                <div className="text-xs text-gray-500 mb-1">{fieldLabels[field.key] || field.key}</div>
-                                                <div className="font-medium text-gray-900">{formatFieldValue(field.value)}</div>
-                                                {field.confidence && (
-                                                    <div className="text-xs text-gray-400 mt-1">
-                                                        Độ tin cậy: {(field.confidence * 100).toFixed(0)}%
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="text-center py-8 text-gray-400">
-                                            <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                                            <p className="text-sm">Chưa có dữ liệu trích xuất</p>
-                                            <p className="text-xs mt-1">Hệ thống sẽ tự động trích xuất sau khi xử lý OCR</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
+                <div className="p-3">
+                    {ocrLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                            <span className="ml-2 text-sm text-gray-500">Đang tải OCR...</span>
+                        </div>
+                    ) : ocrData?.raw_text ? (
+                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
+                            {ocrData.raw_text}
+                        </div>
+                    ) : boxes.length > 0 ? (
+                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
+                            {boxes.map((box: any) => box.text).filter(Boolean).join('\n')}
+                        </div>
+                    ) : (
+                        <div className="text-center py-4 text-gray-400 text-sm">
+                            <Layers className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                            Chưa có dữ liệu OCR
+                        </div>
+                    )}
+                </div>
             </div>
         );
-    }
+    };
 
-    // Image preview with OCR overlay
-    if (isImage) {
+    // Fields Panel - SAME for ALL file types
+    const renderFieldsPanel = () => {
+        if (!showFieldPanel) return null;
+
         return (
-            <div className="w-full h-full flex bg-gray-100">
-                {/* Image with overlay */}
-                <div className="flex-1 flex flex-col overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2 bg-white border-b z-10 flex-shrink-0">
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
-                            {filename}
-                        </span>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowOverlay(!showOverlay)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
-                                    showOverlay ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : 'bg-gray-100 text-gray-500'
-                                }`}
-                            >
-                                <Layers className="w-3.5 h-3.5" />
-                                OCR: {showOverlay ? 'BẬT' : 'TẮT'}
-                            </button>
-                            <button
-                                onClick={() => setShowFieldPanel(!showFieldPanel)}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
-                                    showFieldPanel ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-500'
-                                }`}
-                            >
-                                {showFieldPanel ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                                Fields
-                            </button>
-                            <div className="w-px h-4 bg-gray-200 my-auto"></div>
-                            <a href={blobUrl} target="_blank" rel="noreferrer" className="p-1 hover:bg-gray-100 rounded" title="Xem gốc">
-                                <Maximize2 className="w-4 h-4 text-gray-400" />
-                            </a>
-                        </div>
+            <div className="w-80 border-l bg-white overflow-auto flex-shrink-0 flex flex-col">
+                {/* For PDF: show both OCR and Fields in side panel */}
+                {isPDF && renderOcrPanel()}
+                
+                {/* Fields section */}
+                <div className="flex-1 flex flex-col">
+                    <div className="px-4 py-3 bg-gray-50 border-b sticky top-0 z-10">
+                        <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-emerald-500" />
+                            Thông tin trích xuất
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Các trường đã nhận dạng từ tài liệu
+                        </p>
                     </div>
-
-                    <div ref={containerRef} className="flex-1 overflow-auto p-8 flex items-center justify-center relative bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]">
-                        <div className="relative shadow-2xl border border-gray-200 bg-white">
-                            <img
-                                ref={imgRef}
-                                src={blobUrl}
-                                alt={filename}
-                                onLoad={handleImageLoad}
-                                className="max-w-full h-auto block"
-                                style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
-                            />
-                            {showOverlay && (
-                                <canvas
-                                    ref={canvasRef}
-                                    className="absolute top-0 left-0 pointer-events-none"
-                                    style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
-                                />
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Fields Panel */}
-                {showFieldPanel && (
-                    <div className="w-80 border-l bg-white overflow-auto flex-shrink-0">
-                        <div className="px-4 py-3 border-b bg-gray-50 sticky top-0 z-10">
-                            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-                                <FileText className="w-4 h-4" />
-                                Thông tin trích xuất
-                            </h3>
-                            {fieldData?.confidence && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Độ tin cậy tổng: {(fieldData.confidence * 100).toFixed(0)}%
-                                </p>
-                            )}
-                        </div>
-                        
-                        {extractedFields.length === 0 ? (
+                    
+                    <div className="flex-1 overflow-auto">
+                        {fieldLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
+                                <span className="ml-2 text-sm text-gray-500">Đang tải...</span>
+                            </div>
+                        ) : extractedFields.length === 0 ? (
                             <div className="p-8 text-center text-gray-500">
                                 <FileText className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                                <p className="text-sm">Chưa có dữ liệu trích xuất</p>
+                                <p className="text-sm font-medium">Chưa có dữ liệu</p>
+                                <p className="text-xs mt-1">Tài liệu chưa được xử lý hoặc không trích xuất được thông tin</p>
                             </div>
                         ) : (
                             <div className="p-3 space-y-2">
@@ -498,62 +366,130 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                                             )}
                                         </div>
                                         <div className="font-medium text-gray-900 mt-1">
-                                            {formatFieldValue(field.value)}
+                                            {field.value !== null && field.value !== undefined && field.value !== ''
+                                                ? String(field.value)
+                                                : <span className="text-gray-400 italic">Không có</span>
+                                            }
                                         </div>
                                     </div>
                                 ))}
-                                
-                                {/* Line Items if available */}
-                                {fieldData?.line_items && fieldData.line_items.length > 0 && (
-                                    <div className="mt-4 pt-4 border-t">
-                                        <h4 className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                                            <ChevronRight className="w-3 h-3" />
-                                            Chi tiết ({fieldData.line_items.length} dòng)
-                                        </h4>
-                                        <div className="space-y-2">
-                                            {fieldData.line_items.slice(0, 5).map((item: any, idx: number) => (
-                                                <div key={idx} className="p-2 bg-gray-50 rounded text-xs">
-                                                    <div className="font-medium text-gray-800 truncate">{item.description || item.name || `Dòng ${idx + 1}`}</div>
-                                                    <div className="flex justify-between mt-1 text-gray-500">
-                                                        <span>SL: {item.quantity || '-'}</span>
-                                                        <span>{formatFieldValue(item.amount || item.total)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {fieldData.line_items.length > 5 && (
-                                                <p className="text-xs text-gray-400 text-center">
-                                                    +{fieldData.line_items.length - 5} dòng khác
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         )}
                     </div>
-                )}
+                </div>
+            </div>
+        );
+    };
+
+    // === LOADING STATE ===
+    if (loading) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
+                    <p className="mt-2 text-sm text-gray-500">Đang tải {fileType}...</p>
+                </div>
             </div>
         );
     }
 
-    // Fallback for other types
+    // === ERROR STATE ===
+    if (error) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+                    <p className="mt-2 text-sm text-red-600">{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    // === EXCEL PREVIEW ===
+    if (isExcel && blobUrl) {
+        return (
+            <div className="w-full h-full flex bg-white">
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {renderHeader()}
+                    <div
+                        className="flex-1 overflow-auto bg-gray-50 p-4"
+                        dangerouslySetInnerHTML={{ __html: blobUrl }}
+                    />
+                </div>
+                {renderFieldsPanel()}
+            </div>
+        );
+    }
+
+    // === PDF PREVIEW ===
+    if (isPDF && blobUrl) {
+        return (
+            <div className="w-full h-full flex bg-white">
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {renderHeader()}
+                    <div className="flex-1 relative">
+                        <iframe
+                            src={`${blobUrl}#toolbar=0`}
+                            className="w-full h-full border-none absolute inset-0"
+                            title={filename}
+                        />
+                    </div>
+                </div>
+                {renderFieldsPanel()}
+            </div>
+        );
+    }
+
+    // === IMAGE PREVIEW ===
+    if (isImage && blobUrl) {
+        return (
+            <div className="w-full h-full flex bg-gray-100">
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {renderHeader()}
+                    <div ref={containerRef} className="flex-1 overflow-auto p-8 flex items-center justify-center relative bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:20px_20px]">
+                        <div className="relative shadow-2xl border border-gray-200 bg-white">
+                            <img
+                                ref={imgRef}
+                                src={blobUrl}
+                                alt={filename}
+                                onLoad={handleImageLoad}
+                                className="max-w-full h-auto block"
+                                style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
+                            />
+                            {showOverlay && (
+                                <canvas
+                                    ref={canvasRef}
+                                    className="absolute top-0 left-0 pointer-events-none"
+                                    style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+                {renderFieldsPanel()}
+            </div>
+        );
+    }
+
+    // === UNSUPPORTED FILE TYPE ===
     return (
-        <div className="flex flex-col items-center justify-center h-full p-12 text-center bg-gray-50">
-            <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 transition-all hover:scale-[1.02]">
-                <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-blue-100/50">
-                    <Layers className="w-10 h-10 text-blue-500" />
-                </div>
-                <h3 className="font-bold text-gray-900 text-lg mb-1">{filename}</h3>
-                <p className="text-sm text-gray-500 mb-6 uppercase tracking-widest">{contentType || 'Unknown File'}</p>
-                <div className="flex flex-col gap-2">
-                    <a
-                        href={blobUrl}
-                        download={filename}
-                        className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 transition-all flex items-center justify-center gap-2"
+        <div className="w-full h-full flex items-center justify-center bg-gray-50">
+            <div className="text-center">
+                <FileText className="w-12 h-12 text-gray-300 mx-auto" />
+                <p className="mt-3 text-gray-600 font-medium">{filename}</p>
+                <p className="text-sm text-gray-500 mt-1">Không hỗ trợ xem trước định dạng này</p>
+                <p className="text-xs text-gray-400 mt-2">Content-Type: {contentType}</p>
+                {fileUrl && (
+                    <a 
+                        href={fileUrl} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 mt-4 px-3 py-1.5 bg-blue-50 text-blue-600 rounded text-sm hover:bg-blue-100"
                     >
-                        Tải xuống để xem
+                        <Download className="w-4 h-4" />
+                        Tải xuống
                     </a>
-                </div>
+                )}
             </div>
         </div>
     );
