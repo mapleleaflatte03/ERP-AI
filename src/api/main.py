@@ -45,6 +45,7 @@ from api.approval_routes import router as pr34_approval_router
 from api.agent_routes import router as agent_router
 from api.analyze_routes import router as analyze_router
 from src.api.logging_config import RequestIdFilter, SafeFormatter, setup_logging
+from src.api.analytics_routes import router as analytics_router
 from src.api.middleware import RequestIdMiddleware, get_request_id
 
 # Import approval inbox module
@@ -1981,8 +1982,9 @@ def create_app() -> FastAPI:
     app.include_router(pr34_approval_router, prefix="/v1")
     app.include_router(agent_router, prefix="/v1")
     app.include_router(analyze_router, prefix="/v1")
+    # Analytics module v2 (AI Assistant + NL2SQL + Forecast)
+    app.include_router(analytics_router, prefix="/v1")
     return app
-
 
 app = create_app()
 
