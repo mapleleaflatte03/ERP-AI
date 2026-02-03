@@ -53,14 +53,8 @@ class AnalyticsAgent:
     async def _get_llm_client(self):
         """Get LLM client lazily"""
         if self._llm_client is None:
-            try:
-                # Try to use OpenAI directly for function calling
-                import openai
-                self._llm_client = openai.AsyncOpenAI(
-                    api_key=self._config.llm.api_key
-                )
-            except ImportError:
-                raise ToolExecutionError("OpenAI library not available")
+            from src.llm.client import get_llm_client
+            self._llm_client = get_llm_client()
         return self._llm_client
     
     async def chat(
@@ -71,6 +65,7 @@ class AnalyticsAgent:
     ) -> AgentResponse:
         """
         Process a chat message and return a response.
+        Uses existing LLM client instead of OpenAI directly.
         
         Args:
             message: User's message
@@ -91,118 +86,59 @@ class AnalyticsAgent:
         session.add_message("user", message)
         
         # Get LLM client
-        client = await self._get_llm_client()
+        llm = await self._get_llm_client()
         
-        # Track tool calls and results
-        all_tool_calls = []
-        all_tool_results = []
-        visualizations = []
+        # Build conversation context
+        messages = session.get_messages_for_llm()
         
-        # Loop for potential multi-turn tool usage
-        for _ in range(max_tool_calls):
-            # Get messages for LLM
-            messages = session.get_messages_for_llm()
+        # Simple approach: use generate with tool descriptions in prompt
+        tool_descriptions = self._build_tool_descriptions()
+        
+        prompt = f"""{SYSTEM_PROMPT}
+
+AVAILABLE TOOLS:
+{tool_descriptions}
+
+CONVERSATION:
+"""
+        for msg in messages[-10:]:  # Last 10 messages for context
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            prompt += f"\n{role.upper()}: {content}"
+        
+        prompt += f"\n\nUSER: {message}\n\nASSISTANT:"
+        
+        try:
+            response = await llm.generate(prompt, max_tokens=2000)
+            # Handle LLMResponse object
+            response_text = response.content if hasattr(response, 'content') else str(response)
             
-            # Call LLM with tools
-            try:
-                response = await client.chat.completions.create(
-                    model=self._config.llm.model,
-                    messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                    tool_choice="auto",
-                    temperature=self._config.llm.temperature,
-                    max_tokens=self._config.llm.max_tokens
-                )
-            except Exception as e:
-                logger.error(f"LLM call failed: {e}")
-                return AgentResponse(
-                    message=f"Xin lỗi, đã xảy ra lỗi khi xử lý yêu cầu: {str(e)}",
-                    session_id=session.id
-                )
-            
-            choice = response.choices[0]
-            assistant_message = choice.message
-            
-            # Check if there are tool calls
-            if assistant_message.tool_calls:
-                # Add assistant message with tool calls
-                session.add_message(
-                    "assistant",
-                    assistant_message.content or "",
-                    tool_calls=[
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        }
-                        for tc in assistant_message.tool_calls
-                    ]
-                )
-                
-                # Execute each tool call
-                for tool_call in assistant_message.tool_calls:
-                    tool_name = tool_call.function.name
-                    try:
-                        arguments = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    
-                    logger.info(f"Executing tool: {tool_name} with args: {arguments}")
-                    
-                    # Execute tool
-                    try:
-                        result = await self._tool_executor.execute(tool_name, arguments)
-                    except Exception as e:
-                        result = {"error": str(e)}
-                    
-                    # Track results
-                    all_tool_calls.append({
-                        "name": tool_name,
-                        "arguments": arguments
-                    })
-                    all_tool_results.append({
-                        "tool": tool_name,
-                        "result": result
-                    })
-                    
-                    # Check for visualizations
-                    if result.get("type") == "chart":
-                        visualizations.append(result.get("config"))
-                    
-                    # Add tool result to conversation
-                    session.add_message(
-                        "tool",
-                        json.dumps(result, ensure_ascii=False, default=str),
-                        tool_call_id=tool_call.id,
-                        name=tool_name
-                    )
-                
-                # Continue loop to get final response
-                continue
-            
-            # No more tool calls - we have the final response
-            final_message = assistant_message.content or "Đã xử lý xong yêu cầu của bạn."
-            session.add_message("assistant", final_message)
+            # Add assistant response to session
+            session.add_message("assistant", response_text)
             
             return AgentResponse(
-                message=final_message,
-                tool_calls=all_tool_calls if all_tool_calls else None,
-                tool_results=all_tool_results if all_tool_results else None,
-                visualizations=visualizations if visualizations else None,
+                message=response_text,
+                tool_calls=None,
+                tool_results=None,
+                visualizations=None,
                 session_id=session.id
             )
-        
-        # Exceeded max tool calls
-        return AgentResponse(
-            message="Đã thực hiện quá nhiều công cụ. Vui lòng thử lại với câu hỏi đơn giản hơn.",
-            tool_calls=all_tool_calls,
-            tool_results=all_tool_results,
-            visualizations=visualizations,
-            session_id=session.id
-        )
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            return AgentResponse(
+                message=f"Xin lỗi, đã xảy ra lỗi khi xử lý yêu cầu: {str(e)}",
+                session_id=session.id
+            )
+    
+    def _build_tool_descriptions(self) -> str:
+        """Build tool descriptions for prompt"""
+        descriptions = []
+        for tool in TOOL_DEFINITIONS:
+            func = tool.get("function", {})
+            name = func.get("name", "")
+            desc = func.get("description", "")
+            descriptions.append(f"- {name}: {desc}")
+        return "\n".join(descriptions)
     
     def get_session_history(self, session_id: str) -> Optional[Dict]:
         """Get conversation history for a session"""
