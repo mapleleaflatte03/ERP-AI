@@ -625,7 +625,7 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         if "pdf" in content_type:
             text = await extract_pdf(file_path)
         elif "image" in content_type:
-            text, ocr_boxes = await extract_image(file_path)
+            text, ocr_boxes, page_dims = await extract_image(file_path)
         elif "spreadsheet" in content_type or "excel" in content_type:
             text = await extract_excel(file_path)
         else:
@@ -641,10 +641,15 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
 
         # Save raw_text and ocr_boxes to documents
         import json
+        # Save page_dimensions along with ocr_boxes
+        ocr_data = {
+            "boxes": ocr_boxes,
+            "page_dimensions": page_dims if 'page_dims' in dir() else {"width": 1000, "height": 1400}
+        }
         await conn.execute(
             """UPDATE documents SET raw_text = $1, ocr_boxes = $2, updated_at = NOW() WHERE id = $3""",
             text[:65000] if text else "",  # Limit raw_text
-            json.dumps(ocr_boxes),
+            json.dumps(ocr_data),
             doc_uuid
         )
 
@@ -1444,36 +1449,98 @@ async def extract_pdf(file_path: str) -> str:
         # If pdfplumber returns empty (scanned PDF), try OCR fallback
         if not full_text or len(full_text) < 20:
             logger.info("pdfplumber returned empty/short text, trying OCR fallback")
-            return await extract_image(file_path)
+            text, _, _ = await extract_image(file_path)
+            return text
 
         return full_text
     except Exception as e:
         logger.warning(f"pdfplumber failed: {e}, trying fallback")
         # Fallback to OCR
-        return await extract_image(file_path)
+        text, _, _ = await extract_image(file_path)
+        return text
 
 
-async def extract_image(file_path: str) -> tuple[str, list]:
-    """Extract text from image using PaddleOCR (primary) or pytesseract (fallback)
-    Returns: (text, boxes) where boxes = [{"bbox": [x,y,w,h], "text": str, "confidence": float}, ...]
+# ==============================================================================
+# OCR Functions - Improved with Multi-pass VI+EN and Image Preprocessing
+# ==============================================================================
+
+# Minimum confidence threshold for OCR
+MIN_OCR_CONFIDENCE = 0.5
+
+
+def preprocess_image_for_ocr(file_path: str) -> str:
+    """Preprocess image to improve OCR accuracy.
+    
+    Steps:
+    1. Convert to grayscale
+    2. Denoise using fastNlMeansDenoising
+    3. Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    
+    Returns: path to processed image (or original if preprocessing fails)
     """
-    from PIL import Image
+    try:
+        import cv2
+        img = cv2.imread(file_path)
+        if img is None:
+            return file_path
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Denoise - reduces noise while preserving edges
+        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+        
+        # Increase contrast using CLAHE - improves text visibility
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
+        
+        # Save to temp file
+        processed_path = file_path.rsplit('.', 1)[0] + '_processed.png'
+        cv2.imwrite(processed_path, enhanced)
+        return processed_path
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}")
+        return file_path
 
-    # Try PaddleOCR first (has bounding boxes)
+
+def run_paddleocr_single(file_path: str, lang: str = "vi") -> tuple[list[str], list[dict]]:
+    """Run PaddleOCR with specified language model.
+    
+    Args:
+        file_path: Path to the image file
+        lang: Language model to use ('vi' for Vietnamese, 'en' for English)
+    
+    Returns:
+        Tuple of (lines, boxes) where:
+        - lines: List of extracted text strings
+        - boxes: List of dicts with bbox, text, confidence, lang
+    """
     try:
         from paddleocr import PaddleOCR
-
-        ocr = PaddleOCR(use_angle_cls=True, lang="vi", show_log=False)
+        
+        ocr = PaddleOCR(
+            use_angle_cls=True,
+            lang=lang,
+            show_log=False,
+            use_gpu=False,  # CPU for stability
+            det_db_thresh=0.3,  # Lower detection threshold for more boxes
+            det_db_box_thresh=0.5,
+        )
         result = ocr.ocr(file_path, cls=True)
-
+        
         lines = []
         boxes = []
+        
         if result and result[0]:
             for line in result[0]:
                 if line and len(line) > 1:
-                    coords = line[0]  # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+                    coords = line[0]
                     text_val = line[1][0]
-                    conf = line[1][1]
+                    conf = float(line[1][1])
+                    
+                    # Skip low confidence results
+                    if conf < MIN_OCR_CONFIDENCE:
+                        continue
                     
                     lines.append(text_val)
                     
@@ -1484,18 +1551,212 @@ async def extract_image(file_path: str) -> tuple[str, list]:
                     y = min(ys)
                     w = max(xs) - x
                     h = max(ys) - y
+                    
                     boxes.append({
                         "bbox": [float(x), float(y), float(w), float(h)],
                         "text": text_val,
-                        "confidence": float(conf)
+                        "confidence": conf,
+                        "lang": lang
                     })
-
-        text = "\n".join(lines)
-        if text:
-            logger.info(f"PaddleOCR extracted {len(text)} chars, {len(boxes)} boxes")
-            return text, boxes
+        
+        return lines, boxes
     except Exception as e:
-        logger.warning(f"PaddleOCR failed: {e}")
+        logger.warning(f"PaddleOCR ({lang}) failed: {e}")
+        return [], []
+
+
+def merge_multi_lang_ocr_results(
+    results_vi: tuple[list, list],
+    results_en: tuple[list, list]
+) -> tuple[str, list[dict]]:
+    """Merge OCR results from VI and EN models.
+    
+    Strategy:
+    - Group boxes by approximate position (rounded to 10px)
+    - Keep the result with higher confidence for overlapping boxes
+    - Sort final boxes by reading order (top-to-bottom, left-to-right)
+    
+    Returns:
+        Tuple of (text, boxes) where text is joined by newlines
+    """
+    lines_vi, boxes_vi = results_vi
+    lines_en, boxes_en = results_en
+    
+    # Create a map of boxes by approximate position
+    merged_boxes = {}
+    
+    for box in boxes_vi + boxes_en:
+        # Create a position key (rounded to 10px)
+        x, y = int(box["bbox"][0] / 10) * 10, int(box["bbox"][1] / 10) * 10
+        key = (x, y)
+        
+        # Keep higher confidence result
+        if key not in merged_boxes or box["confidence"] > merged_boxes[key]["confidence"]:
+            merged_boxes[key] = box
+    
+    # Sort by position (top to bottom, left to right)
+    sorted_boxes = sorted(merged_boxes.values(), key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    
+    # Extract text in reading order
+    text = "\n".join([b["text"] for b in sorted_boxes])
+    
+    return text, sorted_boxes
+
+
+
+
+async def correct_ocr_text_with_llm(
+    raw_text: str,
+    boxes: list[dict],
+    doc_type: str = "invoice"
+) -> tuple[str, list[dict]]:
+    """Use LLM to correct OCR errors and improve text quality.
+    
+    This function takes raw OCR output and uses LLM to:
+    1. Fix common OCR errors (e.g., "Ngay." -> "Ngày:", "So 001" -> "Số: 001")
+    2. Correct Vietnamese diacritics that may have been missed
+    3. Fix spacing and punctuation issues
+    4. Normalize field labels for better extraction
+    
+    Args:
+        raw_text: Raw OCR text with potential errors
+        boxes: List of OCR boxes with text and positions
+        doc_type: Type of document (invoice, receipt, etc.)
+    
+    Returns:
+        Tuple of (corrected_text, corrected_boxes)
+    """
+    if not raw_text or len(raw_text.strip()) < 20:
+        return raw_text, boxes
+    
+    try:
+        from src.llm import get_llm_client
+        
+        # Build the correction prompt
+        system_prompt = """Bạn là chuyên gia sửa lỗi OCR cho hóa đơn và chứng từ tiếng Việt.
+Nhiệm vụ: Sửa lỗi OCR trong văn bản mà KHÔNG thay đổi ý nghĩa hoặc bố cục.
+
+Các lỗi thường gặp cần sửa:
+1. Dấu câu sai: "Ngay." → "Ngày:", "So " → "Số:", "Ma so thue" → "Mã số thuế:"
+2. Thiếu dấu tiếng Việt: "HOA DON" → "HÓA ĐƠN", "GIA TRI" → "GIÁ TRỊ"
+3. Khoảng trắng thừa hoặc thiếu
+4. Các từ bị dính: "(VATINVOICE)" → "(VAT INVOICE)"
+5. Số bị nhận dạng sai: "O" → "0", "l" → "1"
+
+Quy tắc:
+- Chỉ sửa lỗi rõ ràng, KHÔNG đoán hay thêm thông tin
+- Giữ nguyên số tiền, ngày tháng, mã số nếu không chắc chắn
+- Trả về văn bản đã sửa, mỗi dòng trên một dòng riêng
+- KHÔNG thêm giải thích hay chú thích"""
+
+        correction_prompt = f"""Sửa lỗi OCR trong văn bản hóa đơn sau:
+
+---
+{raw_text[:2000]}
+---
+
+Trả về văn bản đã sửa (chỉ văn bản, không giải thích):"""
+
+        client = get_llm_client()
+        response = await client.generate(
+            prompt=correction_prompt,
+            system=system_prompt,
+            temperature=0.1,  # Low temperature for consistency
+            max_tokens=2048,
+        )
+        
+        corrected_text = response.content.strip()
+        
+        # Validate: corrected text should be similar length (±30%)
+        if corrected_text and 0.7 < len(corrected_text) / len(raw_text) < 1.3:
+            logger.info(f"LLM OCR correction: {len(raw_text)} -> {len(corrected_text)} chars")
+            
+            # Update boxes with corrected text where possible
+            corrected_lines = corrected_text.split('\n')
+            corrected_boxes = []
+            
+            for i, box in enumerate(boxes):
+                new_box = box.copy()
+                # Try to find matching corrected line
+                if i < len(corrected_lines):
+                    new_box["text_corrected"] = corrected_lines[i]
+                corrected_boxes.append(new_box)
+            
+            return corrected_text, corrected_boxes
+        else:
+            logger.warning(f"LLM correction rejected: length mismatch {len(raw_text)} vs {len(corrected_text)}")
+            return raw_text, boxes
+            
+    except Exception as e:
+        logger.warning(f"LLM OCR correction failed: {e}")
+        return raw_text, boxes
+
+async def extract_image(file_path: str) -> tuple[str, list, dict]:
+    """Extract text from image using improved PaddleOCR (multi-pass VI+EN).
+    
+    Features:
+    1. Image preprocessing (grayscale, denoise, contrast enhancement)
+    2. Multi-pass OCR with both Vietnamese (vi) and English (en) models
+    3. Confidence-based filtering (MIN_OCR_CONFIDENCE=0.5)
+    4. Intelligent result merging (higher confidence wins)
+    5. Fallback to pytesseract if PaddleOCR fails
+    
+    Returns:
+        Tuple of (text, boxes, page_dimensions) where:
+        - text: Full extracted text (lines joined by newlines)
+        - boxes: List of dicts with bbox [x,y,w,h], text, confidence, lang
+        - page_dimensions: Dict with width and height of the original image
+    """
+    import time
+    from PIL import Image
+    start = time.time()
+    
+    # Get original image dimensions for proper bbox scaling
+    try:
+        with Image.open(file_path) as img:
+            page_dimensions = {"width": img.width, "height": img.height}
+    except Exception:
+        page_dimensions = {"width": 1000, "height": 1400}  # Default fallback
+    
+    # Step 1: Preprocess image for better OCR accuracy
+    processed_path = preprocess_image_for_ocr(file_path)
+    ocr_path = processed_path if processed_path != file_path else file_path
+    
+    # Step 2: Multi-pass OCR with VI and EN models
+    try:
+        # Run VI model (primary for Vietnamese invoices)
+        logger.info(f"Running PaddleOCR (vi) on {ocr_path}")
+        results_vi = run_paddleocr_single(ocr_path, lang="vi")
+        
+        # Run EN model (better for numbers, dates, English text)
+        logger.info(f"Running PaddleOCR (en) on {ocr_path}")
+        results_en = run_paddleocr_single(ocr_path, lang="en")
+        
+        # Step 3: Merge results from both models
+        text, boxes = merge_multi_lang_ocr_results(results_vi, results_en)
+        
+        elapsed = int((time.time() - start) * 1000)
+        logger.info(f"Improved OCR extracted {len(text)} chars, {len(boxes)} boxes in {elapsed}ms")
+        
+        # Cleanup processed file
+        if processed_path != file_path:
+            import os
+            try:
+                os.remove(processed_path)
+            except:
+                pass
+        
+        if text:
+            # Step 4: LLM post-processing to correct OCR errors
+            try:
+                text, boxes = await correct_ocr_text_with_llm(text, boxes)
+            except Exception as llm_err:
+                logger.warning(f"LLM correction skipped: {llm_err}")
+            
+            return text, boxes, page_dimensions
+            
+    except Exception as e:
+        logger.warning(f"PaddleOCR multi-pass failed: {e}")
 
     # Fallback to pytesseract (no boxes)
     try:
@@ -1504,12 +1765,12 @@ async def extract_image(file_path: str) -> tuple[str, list]:
         text = pytesseract.image_to_string(img, lang="vie+eng")
         if text and len(text.strip()) > 10:
             logger.info(f"pytesseract extracted {len(text)} chars (no boxes)")
-            return text, []
+            return text, [], page_dimensions
     except Exception as e:
         logger.warning(f"pytesseract failed: {e}")
 
     logger.error(f"All OCR methods failed for {file_path}")
-    return "", []
+    return "", [], {"width": 1000, "height": 1400}
 
 
 async def extract_excel(file_path: str) -> str:

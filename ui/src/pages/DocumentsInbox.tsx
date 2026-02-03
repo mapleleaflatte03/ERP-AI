@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import ServerImportModal from '../components/ServerImportModal';
+// import ServerImportModal from '../components/ServerImportModal'; // Removed - feature disabled
 import { Link } from 'react-router-dom';
 import {
   Upload,
@@ -14,7 +14,7 @@ import {
   Receipt,
   CreditCard,
   Wallet,
-  FolderOpen,
+  // FolderOpen, // Removed - Import from Server feature disabled
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Document, DocumentStatus, DocumentType } from '../types';
@@ -70,7 +70,7 @@ export default function DocumentsInbox() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [showServerImport, setShowServerImport] = useState(false);
+  // const [showServerImport, setShowServerImport] = useState(false); // Removed - feature disabled
 
   // Pagination State
   const [page, setPage] = useState(1);
@@ -108,6 +108,21 @@ export default function DocumentsInbox() {
     },
     placeholderData: (prev) => prev // Keep previous data while fetching new page
   });
+
+  // Fetch pending approvals count
+  const { data: approvalsData } = useQuery({
+    queryKey: ['approvals-pending-count'],
+    queryFn: async () => {
+      try {
+        const response = await api.getApprovals('pending', 1, 0);
+        return response?.data?.pending || 0;
+      } catch {
+        return 0;
+      }
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+  const pendingCount = approvalsData ?? 0;
 
   const documents = data?.docs || [];
   const totalCount = data?.total || 0;
@@ -181,7 +196,7 @@ export default function DocumentsInbox() {
       {/* Document Type Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {[
-          { value: '', label: 'Tất cả', icon: FolderOpen },
+          { value: '', label: 'Tất cả', icon: FileText },
           { value: 'invoice', label: 'Hóa đơn', icon: Receipt },
           { value: 'receipt', label: 'Phiếu thu', icon: Wallet },
           { value: 'payment_voucher', label: 'Phiếu chi', icon: CreditCard },
@@ -234,14 +249,7 @@ export default function DocumentsInbox() {
               </p>
             </div>
             <p className="text-xs text-gray-400">Hỗ trợ: PDF, PNG, JPG, XLSX (tối đa 10MB)</p>
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); setShowServerImport(true); }}
-              className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Import từ Server
-            </button>
+            {/* Import từ Server - hidden for regular users */}
           </div>
         </label>
       </div>
@@ -298,8 +306,7 @@ export default function DocumentsInbox() {
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
             <div>
-              {/* Note: Pending stats here are only for current page. Ideal solution needs endpoint for aggregated stats */}
-              <div className="text-xl font-bold text-gray-400">--</div>
+              <div className="text-2xl font-bold">{pendingCount}</div>
               <div className="text-sm text-gray-500">Chờ duyệt</div>
             </div>
           </div>
@@ -426,11 +433,7 @@ export default function DocumentsInbox() {
       </div>
       </div>
 
-      {/* Server Import Modal */}
-      <ServerImportModal 
-        isOpen={showServerImport} 
-        onClose={() => setShowServerImport(false)} 
-      />
+      {/* Server Import Modal - disabled */}
     </>
   );
 }

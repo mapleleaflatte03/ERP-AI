@@ -718,7 +718,26 @@ async def get_document_ocr_boxes(document_id: str) -> dict:
                     "confidence": box[5] if len(box) > 5 else 0
                 })
         
-        return {"boxes": boxes, "page_dimensions": {"width": 1000, "height": 1400}}
+        # Extract page_dimensions from new format (boxes + page_dimensions in single JSON)
+        page_dims = {"width": 1000, "height": 1400}  # Default fallback
+        if isinstance(ocr_boxes, dict):
+            # New format: {"boxes": [...], "page_dimensions": {...}}
+            page_dims = ocr_boxes.get("page_dimensions", page_dims)
+            actual_boxes = ocr_boxes.get("boxes", [])
+            boxes = []
+            for box in actual_boxes:
+                if isinstance(box, dict):
+                    bbox = box.get("bbox", [box.get("x", 0), box.get("y", 0), box.get("w", 0), box.get("h", 0)])
+                    boxes.append({
+                        "x": bbox[0] if len(bbox) > 0 else 0,
+                        "y": bbox[1] if len(bbox) > 1 else 0,
+                        "w": bbox[2] if len(bbox) > 2 else 0,
+                        "h": bbox[3] if len(bbox) > 3 else 0,
+                        "text": box.get("text", ""),
+                        "confidence": box.get("confidence", 0)
+                    })
+        
+        return {"boxes": boxes, "page_dimensions": page_dims}
 
 
 
