@@ -215,25 +215,34 @@ class DatasetConnector(BaseConnector):
         
         tables = []
         for row in rows:
-            columns_data = row.get("columns") or []
+            columns_data = row["columns"] if row["columns"] is not None else []
             if isinstance(columns_data, str):
                 columns_data = json.loads(columns_data)
             
-            columns = [
-                ColumnInfo(
-                    name=col.get("name", ""),
-                    data_type=col.get("type", "text"),
-                    nullable=col.get("nullable", True),
-                    sample_values=col.get("sample_values", [])
-                )
-                for col in columns_data
-            ]
+            columns = []
+            for col in columns_data:
+                if isinstance(col, str):
+                    # Simple string column name
+                    columns.append(ColumnInfo(
+                        name=col,
+                        data_type="text",
+                        nullable=True,
+                        sample_values=[]
+                    ))
+                elif isinstance(col, dict):
+                    # Full column info dict
+                    columns.append(ColumnInfo(
+                        name=col.get("name", ""),
+                        data_type=col.get("type", "text"),
+                        nullable=col.get("nullable", True),
+                        sample_values=col.get("sample_values", [])
+                    ))
             
             tables.append(TableInfo(
                 name=row["table_name"] or row["name"],
                 schema="datasets",
                 columns=columns,
-                row_count=row.get("row_count", 0),
+                row_count=row["row_count"] if row["row_count"] is not None else 0,
                 description=f"Uploaded dataset: {row['filename']}"
             ))
         
@@ -257,25 +266,32 @@ class DatasetConnector(BaseConnector):
         if not row:
             return None
         
-        columns_data = row.get("columns") or []
+        columns_data = row["columns"] if row["columns"] is not None else []
         if isinstance(columns_data, str):
             columns_data = json.loads(columns_data)
         
-        columns = [
-            ColumnInfo(
-                name=col.get("name", ""),
-                data_type=col.get("type", "text"),
-                nullable=col.get("nullable", True),
-                sample_values=col.get("sample_values", [])
-            )
-            for col in columns_data
-        ]
+        columns = []
+        for col in columns_data:
+            if isinstance(col, str):
+                columns.append(ColumnInfo(
+                    name=col,
+                    data_type="text",
+                    nullable=True,
+                    sample_values=[]
+                ))
+            elif isinstance(col, dict):
+                columns.append(ColumnInfo(
+                    name=col.get("name", ""),
+                    data_type=col.get("type", "text"),
+                    nullable=col.get("nullable", True),
+                    sample_values=col.get("sample_values", [])
+                ))
         
         return TableInfo(
             name=row["table_name"] or row["name"],
             schema="datasets",
             columns=columns,
-            row_count=row.get("row_count", 0),
+            row_count=row["row_count"] if row["row_count"] is not None else 0,
             description=f"Uploaded dataset: {row['filename']}"
         )
     

@@ -130,10 +130,11 @@ async def list_documents(
         if status:
             rows = await conn.fetch(
                 """
-                SELECT id, filename, content_type, file_size, status, document_type,
-                       extracted_data, minio_bucket, minio_key, approval_state,
+                SELECT id, filename, content_type, file_size, status, 
+                       doc_type as document_type, extracted_data, 
+                       minio_bucket, minio_key, 'pending' as approval_state,
                        created_at, updated_at
-                FROM jobs
+                FROM documents
                 WHERE status = $1
                 ORDER BY created_at DESC
                 LIMIT $2 OFFSET $3
@@ -145,10 +146,11 @@ async def list_documents(
         else:
             rows = await conn.fetch(
                 """
-                SELECT id, filename, content_type, file_size, status, document_type,
-                       extracted_data, minio_bucket, minio_key, approval_state,
+                SELECT id, filename, content_type, file_size, status, 
+                       doc_type as document_type, extracted_data, 
+                       minio_bucket, minio_key, 'pending' as approval_state,
                        created_at, updated_at
-                FROM jobs
+                FROM documents
                 ORDER BY created_at DESC
                 LIMIT $1 OFFSET $2
                 """,
@@ -159,7 +161,7 @@ async def list_documents(
         documents = [format_document(dict(row)) for row in rows]
 
         # Get total count
-        count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM jobs")
+        count_row = await conn.fetchrow("SELECT COUNT(*) as total FROM documents")
         total = count_row["total"] if count_row else 0
 
         return {
@@ -187,7 +189,7 @@ async def get_document(document_id: str) -> dict:
                    extracted_data, journal_proposal, validation_result,
                    minio_bucket, minio_key, approval_state,
                    created_at, updated_at
-            FROM jobs
+            FROM documents
             WHERE id = $1
             """,
             document_id,
@@ -461,7 +463,7 @@ async def get_document_preview(document_id: str, preview: bool = False):
         row = await conn.fetchrow(
             """
             SELECT id, filename, content_type, minio_bucket, minio_key
-            FROM jobs WHERE id = $1
+            FROM documents WHERE id = $1
             """,
             document_id
         )
@@ -568,7 +570,7 @@ async def get_document_ocr_boxes(document_id: str) -> dict:
         if not row:
             # Try jobs table fallback
             job_row = await conn.fetchrow(
-                "SELECT id, extracted_data FROM jobs WHERE id = $1",
+                "SELECT id, extracted_data FROM documents WHERE id = $1",
                 document_id
             )
             if job_row:

@@ -1,0 +1,208 @@
+{
+  "dashboard_id": "cf06c78c-be8d-4579-98a7-81948cea6f48",
+  "name": "Phân tích cổ phiếu FPT",
+  "description": "Auto-generated from fpt",
+  "created_at": "2026-02-03T06:12:36.159714",
+  "updated_at": "2026-02-03T06:12:36.173822",
+  "dataset_name": "fpt",
+  "charts": [
+    {
+      "chart_id": "2f00c0bf-6bfc-458f-aa07-956d49eecd60",
+      "chart_type": "line",
+      "title": "Open over time",
+      "data": [
+        {
+          "Date": "2024-01-02",
+          "Open": 75000
+        },
+        {
+          "Date": "2024-01-03",
+          "Open": 76200
+        },
+        {
+          "Date": "2024-01-04",
+          "Open": 76500
+        },
+        {
+          "Date": "2024-01-05",
+          "Open": 77800
+        },
+        {
+          "Date": "2024-01-08",
+          "Open": 78000
+        },
+        {
+          "Date": "2024-01-09",
+          "Open": 79500
+        },
+        {
+          "Date": "2024-01-10",
+          "Open": 80200
+        },
+        {
+          "Date": "2024-01-11",
+          "Open": 81000
+        },
+        {
+          "Date": "2024-01-12",
+          "Open": 82200
+        },
+        {
+          "Date": "2024-01-15",
+          "Open": 82000
+        },
+        {
+          "Date": "2024-01-16",
+          "Open": 82800
+        },
+        {
+          "Date": "2024-01-17",
+          "Open": 83200
+        },
+        {
+          "Date": "2024-01-18",
+          "Open": 84000
+        },
+        {
+          "Date": "2024-01-19",
+          "Open": 85200
+        },
+        {
+          "Date": "2024-01-22",
+          "Open": 86500
+        },
+        {
+          "Date": "2024-02-01",
+          "Open": 85000
+        },
+        {
+          "Date": "2024-02-02",
+          "Open": 85500
+        },
+        {
+          "Date": "2024-02-05",
+          "Open": 86200
+        },
+        {
+          "Date": "2024-02-06",
+          "Open": 87500
+        },
+        {
+          "Date": "2024-02-07",
+          "Open": 88000
+        }
+      ],
+      "x_field": "Date",
+      "y_field": "Open",
+      "series_field": null,
+      "color_scheme": "violet",
+      "options": {}
+    },
+    {
+      "chart_id": "6741d30b-f740-49d9-86db-d737b4dbbf73",
+      "chart_type": "bar",
+      "title": "Open by Date",
+      "data": [
+        {
+          "Date": "2024-02-07",
+          "Open": 88000
+        },
+        {
+          "Date": "2024-02-06",
+          "Open": 87500
+        },
+        {
+          "Date": "2024-01-22",
+          "Open": 86500
+        },
+        {
+          "Date": "2024-02-05",
+          "Open": 86200
+        },
+        {
+          "Date": "2024-02-02",
+          "Open": 85500
+        },
+        {
+          "Date": "2024-01-19",
+          "Open": 85200
+        },
+        {
+          "Date": "2024-02-01",
+          "Open": 85000
+        },
+        {
+          "Date": "2024-01-18",
+          "Open": 84000
+        },
+        {
+          "Date": "2024-01-17",
+          "Open": 83200
+        },
+        {
+          "Date": "2024-01-16",
+          "Open": 82800
+        }
+      ],
+      "x_field": "Date",
+      "y_field": "Open",
+      "series_field": null,
+      "color_scheme": "violet",
+      "options": {}
+    }
+  ],
+  "metrics": [
+    {
+      "metric_id": "b5ead471-31f5-4df6-a127-ff2cc87d87bf",
+      "title": "Open",
+      "value": 1642300.0,
+      "formatted_value": "1.6M",
+      "change": null,
+      "change_direction": null,
+      "icon": "chart",
+      "color": "violet"
+    },
+    {
+      "metric_id": "b8354859-19b5-46fb-b6c1-e37d0e985964",
+      "title": "High",
+      "value": 1672500.0,
+      "formatted_value": "1.7M",
+      "change": null,
+      "change_direction": null,
+      "icon": "chart",
+      "color": "violet"
+    },
+    {
+      "metric_id": "bbea1157-6b03-46f0-a0d3-f462c6ba9fa9",
+      "title": "Low",
+      "value": 1633800.0,
+      "formatted_value": "1.6M",
+      "change": null,
+      "change_direction": null,
+      "icon": "chart",
+      "color": "violet"
+    },
+    {
+      "metric_id": "3bcb5b40-0fbd-4cd6-bf65-a202017459d6",
+      "title": "Close",
+      "value": 1662600.0,
+      "formatted_value": "1.7M",
+      "change": null,
+      "change_direction": null,
+      "icon": "chart",
+      "color": "violet"
+    },
+    {
+      "metric_id": "fb05dca2-3d52-4dbb-9ee3-e3eec56671d0",
+      "title": "Volume",
+      "value": 54400000.0,
+      "formatted_value": "54.4M",
+      "change": null,
+      "change_direction": null,
+      "icon": "chart",
+      "color": "violet"
+    }
+  ],
+  "layout": {},
+  "filters": []
+}
