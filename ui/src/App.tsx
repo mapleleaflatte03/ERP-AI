@@ -14,7 +14,7 @@ import CopilotChat from './pages/CopilotChat';
 import Reports from './pages/Reports';
 import Evidence from './pages/Evidence';
 import DataAnalyst from './pages/DataAnalyst';
-import Analyze from './pages/Analyze';
+import Analytics from './pages/Analytics';
 
 // Admin pages (hidden)
 import Testbench from './pages/Testbench';
@@ -56,7 +56,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             
             {/* Unified Analyze Module */}
-            <Route path="analyze" element={<Analyze />} />
+            <Route path="analyze" element={<Analytics />} />
             
             {/* Data Analyst (P2) - Legacy, redirect to Analyze */}
             <Route path="analyst" element={<DataAnalyst />} />
