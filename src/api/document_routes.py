@@ -42,6 +42,24 @@ def format_document(row: dict) -> dict:
             extracted_data = json.loads(extracted_data)
         except:
             extracted_data = {}
+    
+    # Get vendor_name and total_amount from extracted_invoices if available (from JOIN)
+    # Fall back to extracted_data if not
+    vendor_name = (
+        row.get("ei_vendor_name")  # From extracted_invoices JOIN
+        or extracted_data.get("vendor_name") 
+        or extracted_data.get("seller_name")
+    )
+    total_amount = (
+        row.get("ei_total_amount")  # From extracted_invoices JOIN
+        or extracted_data.get("total_amount")
+    )
+    invoice_no = (
+        row.get("ei_invoice_number")  # From extracted_invoices JOIN
+        or extracted_data.get("invoice_no") 
+        or extracted_data.get("invoice_number")
+    )
+    
     return {
         "id": str(row.get("id")),
         "filename": row.get("filename"),
@@ -55,11 +73,11 @@ def format_document(row: dict) -> dict:
         "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
         # Extracted fields
         "extracted_fields": extracted_data,
-        "invoice_no": extracted_data.get("invoice_no") or extracted_data.get("invoice_number"),
+        "invoice_no": invoice_no,
         "invoice_date": extracted_data.get("invoice_date"),
-        "vendor_name": extracted_data.get("vendor_name") or extracted_data.get("seller_name"),
+        "vendor_name": vendor_name,
         "vendor_tax_id": extracted_data.get("vendor_tax_id") or extracted_data.get("seller_tax_code"),
-        "total_amount": extracted_data.get("total_amount"),
+        "total_amount": float(total_amount) if total_amount else None,
         "tax_amount": extracted_data.get("tax_amount"),
         "currency": extracted_data.get("currency", "VND"),
         "extracted_text": row.get("raw_text"),
@@ -129,24 +147,28 @@ async def list_documents(
         param_idx = 1
 
         if status:
-            conditions.append(f"status = ${param_idx}")
+            conditions.append(f"d.status = ${param_idx}")
             params.append(status)
             param_idx += 1
         
         if doc_type:
-            conditions.append(f"doc_type = ${param_idx}")
+            conditions.append(f"d.doc_type = ${param_idx}")
             params.append(doc_type)
             param_idx += 1
 
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         
         query = f"""
-            SELECT id, filename, content_type, file_size, status, doc_type,
-                   extracted_data, minio_bucket, minio_key, raw_text,
-                   created_at, updated_at
-            FROM documents
+            SELECT d.id, d.filename, d.content_type, d.file_size, d.status, d.doc_type,
+                   d.extracted_data, d.minio_bucket, d.minio_key, d.raw_text,
+                   d.created_at, d.updated_at,
+                   ei.vendor_name as ei_vendor_name,
+                   ei.total_amount as ei_total_amount,
+                   ei.invoice_number as ei_invoice_number
+            FROM documents d
+            LEFT JOIN extracted_invoices ei ON d.id = ei.document_id
             {where_clause}
-            ORDER BY created_at DESC
+            ORDER BY d.created_at DESC
             LIMIT ${param_idx} OFFSET ${param_idx + 1}
         """
         
@@ -157,7 +179,7 @@ async def list_documents(
         rows = await conn.fetch(query, *params)
         
         # Get count
-        count_query = f"SELECT COUNT(*) as total FROM documents {where_clause}"
+        count_query = f"SELECT COUNT(*) as total FROM documents d {where_clause}"
         # For count we only need the filter params, not limit/offset
         count_params = params[:-2] 
         count_row = await conn.fetchrow(count_query, *count_params)
