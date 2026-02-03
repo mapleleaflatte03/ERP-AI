@@ -739,34 +739,53 @@ async def process_document_async(job_id: str, file_path: str, file_info: dict[st
         llm_client = get_llm_client()
         model_name = llm_client.config.model
 
-        system_prompt = """Bạn là chuyên gia kế toán Việt Nam. Nhiệm vụ:
-1. Phân loại hóa đơn (mua hàng/bán hàng/chi phí/khác)
-2. Trích xuất thông tin: số HĐ, ngày, nhà cung cấp, tổng tiền, thuế VAT
-3. Đề xuất bút toán kế toán theo TT200
-4. Giải thích lý do
+        system_prompt = """Bạn là chuyên gia kế toán quốc tế. Nhiệm vụ:
+1. Phân loại chứng từ (hóa đơn mua/bán/chi phí/phiếu thu/chi/sổ phụ NH/khác)
+2. Trích xuất thông tin từ hóa đơn/biên lai bất kỳ ngôn ngữ (Việt, Anh, Nhật, Trung...)
+3. Tự động nhận diện loại tiền tệ từ ký hiệu ($, £, ¥, €, đ, VND, USD, GBP, JPY, EUR...)
+4. Đề xuất bút toán kế toán theo chuẩn Việt Nam (TT200)
+
+Quy tắc phát hiện tiền tệ:
+- Tìm ký hiệu: $=USD, £=GBP, ¥=JPY, €=EUR, đ/VND=VND
+- Tìm từ khóa: "Total", "Amount Due", "Pay" thường đi kèm số tiền chính
+- Ưu tiên tiền tệ xuất hiện nhiều nhất hoặc gần số tiền chính
 
 Trả về JSON với format:
 {
-    "doc_type": "invoice|receipt|payment_voucher|bank_statement|other",
-    "vendor": "tên nhà cung cấp",
-    "invoice_no": "số hóa đơn",
+    "doc_type": "purchase_invoice|sales_invoice|expense|receipt|payment_voucher|bank_statement|other",
+    "vendor": "tên nhà cung cấp/công ty",
+    "invoice_no": "số hóa đơn/mã tham chiếu",
     "invoice_date": "YYYY-MM-DD",
-    "total_amount": số tiền,
-    "vat_amount": tiền thuế,
+    "total_amount": số tiền (chỉ số, không có ký hiệu tiền),
+    "currency": "VND|USD|GBP|EUR|JPY|...",
+    "vat_amount": tiền thuế (nếu có),
+    "vat_rate": "% VAT (nếu có)",
     "entries": [
         {"account_code": "xxx", "account_name": "tên TK", "debit": số, "credit": số, "description": "mô tả"}
     ],
-    "explanation": "giải thích bút toán",
+    "explanation": "giải thích bút toán (tiếng Việt)",
     "confidence": 0.0-1.0,
     "needs_human_review": true/false,
-    "risks": ["danh sách rủi ro nếu có"]
-}"""
+    "risks": ["danh sách rủi ro nếu có"],
+    "detected_language": "vi|en|ja|zh|..."
+}
 
-        user_prompt = f"""Phân tích hóa đơn sau và đề xuất bút toán:
+Lưu ý:
+- Nếu không chắc chắn, để trống trường đó thay vì đoán
+- Số tiền luôn là số thuần (92.62 thay vì £92.62)
+- Ngày luôn format YYYY-MM-DD
+- Với hóa đơn nước ngoài, vẫn đề xuất bút toán theo TK Việt Nam"""
+
+        user_prompt = f"""Phân tích chứng từ/hóa đơn sau và đề xuất bút toán:
 
 ---
 {text[:4000]}
 ---
+
+Lưu ý:
+1. Nhận diện ngôn ngữ và tiền tệ từ nội dung
+2. Trích xuất đầy đủ các trường: số HĐ, ngày, nhà cung cấp, tổng tiền, thuế
+3. Phát hiện currency từ ký hiệu tiền ($, £, ¥, €, đ)
 
 Trả về JSON theo format đã định."""
 
@@ -1003,7 +1022,7 @@ Trả về JSON theo format đã định."""
                 "invoice_no": proposal.get("invoice_no"),
                 "vendor": proposal.get("vendor"),
                 "total_amount": proposal.get("total_amount"),
-                "currency": "VND",
+                "currency": proposal.get("currency", "VND"),
             },
             tenant_id=str(tenant_uuid),
             request_id=request_id,
@@ -1632,24 +1651,27 @@ async def correct_ocr_text_with_llm(
     try:
         from src.llm import get_llm_client
         
-        # Build the correction prompt
-        system_prompt = """Bạn là chuyên gia sửa lỗi OCR cho hóa đơn và chứng từ tiếng Việt.
+        # Build the correction prompt - supports multiple languages
+        system_prompt = """Bạn là chuyên gia sửa lỗi OCR cho hóa đơn và chứng từ đa ngôn ngữ (Việt, Anh, Nhật, Trung...).
 Nhiệm vụ: Sửa lỗi OCR trong văn bản mà KHÔNG thay đổi ý nghĩa hoặc bố cục.
 
 Các lỗi thường gặp cần sửa:
-1. Dấu câu sai: "Ngay." → "Ngày:", "So " → "Số:", "Ma so thue" → "Mã số thuế:"
-2. Thiếu dấu tiếng Việt: "HOA DON" → "HÓA ĐƠN", "GIA TRI" → "GIÁ TRỊ"
-3. Khoảng trắng thừa hoặc thiếu
-4. Các từ bị dính: "(VATINVOICE)" → "(VAT INVOICE)"
-5. Số bị nhận dạng sai: "O" → "0", "l" → "1"
+1. Tiếng Việt: "Ngay." → "Ngày:", "HOA DON" → "HÓA ĐƠN", "Ma so thue" → "Mã số thuế:"
+2. Tiếng Anh: "TOIAL" → "TOTAL", "lnvoice" → "Invoice", "Amounl" → "Amount"
+3. Ký tự số/chữ bị nhầm: "O" → "0", "l" → "1", "S" → "5"
+4. Khoảng trắng: "(VATINVOICE)" → "(VAT INVOICE)", "E lectricity" → "Electricity"
+5. Ký hiệu tiền tệ: "E" → "£", "$" đúng vị trí
+6. Ngày tháng: "04/O3/2010" → "04/03/2010"
 
 Quy tắc:
+- Giữ nguyên ngôn ngữ gốc của văn bản
+- KHÔNG dịch văn bản sang ngôn ngữ khác
 - Chỉ sửa lỗi rõ ràng, KHÔNG đoán hay thêm thông tin
-- Giữ nguyên số tiền, ngày tháng, mã số nếu không chắc chắn
+- Giữ nguyên số tiền, ngày tháng nếu không chắc chắn
 - Trả về văn bản đã sửa, mỗi dòng trên một dòng riêng
 - KHÔNG thêm giải thích hay chú thích"""
 
-        correction_prompt = f"""Sửa lỗi OCR trong văn bản hóa đơn sau:
+        correction_prompt = f"""Sửa lỗi OCR trong văn bản sau (giữ nguyên ngôn ngữ gốc):
 
 ---
 {raw_text[:2000]}
@@ -5073,7 +5095,7 @@ async def get_report_timeseries(
                     {"label": "Doanh thu", "data": [0], "color": "#10b981"},
                     {"label": "Chi phí", "data": [0], "color": "#ef4444"}
                 ],
-                "meta": {"currency": "VND", "period": f"{start_date} to {end_date}"}
+                "meta": {"currency": proposal.get("currency", "VND"), "period": f"{start_date} to {end_date}"}
             }
 
         labels = [row['month'] for row in rows]
@@ -5095,7 +5117,7 @@ async def get_report_timeseries(
                 }
             ],
             "meta": {
-                "currency": "VND",
+                "currency": proposal.get("currency", "VND"),
                 "period": f"{start_date} to {end_date}"
             }
         }

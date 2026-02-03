@@ -43,11 +43,11 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
     const imgRef = useRef<HTMLImageElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Fetch OCR boxes from API if documentId provided
+    // Fetch OCR boxes from API if documentId provided (for images and PDFs)
     const { data: ocrData } = useQuery({
         queryKey: ['ocr-boxes', documentId],
         queryFn: () => documentId ? api.getDocumentOcrBoxes(documentId) : null,
-        enabled: !!documentId && isImage,
+        enabled: !!documentId && (isImage || isPDF),
         staleTime: 60000,
     });
 
@@ -265,28 +265,48 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
         );
     }
 
-    // PDF preview
+    // PDF preview with OCR data panel
     if (isPDF) {
+        
         return (
             <div className="w-full h-full flex bg-white">
                 <div className="flex-1 flex flex-col">
-                    <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+                    {/* Header with controls */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
                         <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate max-w-[200px]" title={filename}>
                             {filename}
                         </span>
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
+                            {/* OCR Toggle for PDF */}
+                            <button
+                                onClick={() => setShowOverlay(!showOverlay)}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
+                                    showOverlay ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200' : 'bg-gray-100 text-gray-500'
+                                }`}
+                                title="Hiển thị văn bản OCR trích xuất từ PDF"
+                            >
+                                <Layers className="w-3.5 h-3.5" />
+                                OCR: {showOverlay ? 'BẬT' : 'TẮT'}
+                            </button>
+                            {/* Fields Toggle */}
                             <button
                                 onClick={() => setShowFieldPanel(!showFieldPanel)}
-                                className={`p-1.5 rounded transition-colors ${showFieldPanel ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-200 text-gray-500'}`}
-                                title="Hiển thị thông tin trích xuất"
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all ${
+                                    showFieldPanel ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200' : 'bg-gray-100 text-gray-500'
+                                }`}
+                                title="Hiển thị các trường đã trích xuất (OCR mapping)"
                             >
-                                <FileText className="w-4 h-4" />
+                                {showFieldPanel ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                Fields
                             </button>
-                            <a href={blobUrl} target="_blank" rel="noreferrer" className="p-1.5 hover:bg-gray-200 rounded transition-colors" title="Mở tab mới">
-                                <Maximize2 className="w-4 h-4 text-gray-600" />
+                            <div className="w-px h-4 bg-gray-200 my-auto"></div>
+                            <a href={blobUrl} target="_blank" rel="noreferrer" className="p-1 hover:bg-gray-100 rounded" title="Xem gốc">
+                                <Maximize2 className="w-4 h-4 text-gray-400" />
                             </a>
                         </div>
                     </div>
+                    
+                    {/* PDF iframe */}
                     <div className="flex-1 relative">
                         <iframe
                             src={`${blobUrl}#toolbar=0`}
@@ -296,25 +316,79 @@ export default function DocumentPreview({ fileUrl, documentId, filename, content
                     </div>
                 </div>
                 
-                {/* Fields Panel for PDF */}
-                {showFieldPanel && extractedFields.length > 0 && (
-                    <div className="w-72 border-l bg-gray-50 overflow-auto">
-                        <div className="px-4 py-3 border-b bg-white sticky top-0">
-                            <h3 className="font-semibold text-gray-900 text-sm">Thông tin trích xuất</h3>
-                        </div>
-                        <div className="p-3 space-y-2">
-                            {extractedFields.map((field) => (
-                                <div key={field.key} className="p-3 bg-white rounded-lg border">
-                                    <div className="text-xs text-gray-500 mb-1">{fieldLabels[field.key] || field.key}</div>
-                                    <div className="font-medium text-gray-900">{formatFieldValue(field.value)}</div>
-                                    {field.confidence && (
-                                        <div className="text-xs text-gray-400 mt-1">
-                                            Độ tin cậy: {(field.confidence * 100).toFixed(0)}%
+                {/* Side Panel: OCR Text or Fields */}
+                {(showOverlay || showFieldPanel) && (
+                    <div className="w-80 border-l bg-gray-50 overflow-auto flex flex-col">
+                        {/* OCR Text Section */}
+                        {showOverlay && (
+                            <div className="border-b">
+                                <div className="px-4 py-3 bg-white sticky top-0 border-b">
+                                    <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                                        <Layers className="w-4 h-4 text-blue-500" />
+                                        Văn bản OCR
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Nội dung đã nhận dạng từ tài liệu PDF
+                                    </p>
+                                </div>
+                                <div className="p-3">
+                                    {ocrData?.raw_text ? (
+                                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
+                                            {ocrData.raw_text}
+                                        </div>
+                                    ) : boxes.length > 0 ? (
+                                        <div className="bg-white rounded-lg border p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-64 overflow-auto font-mono text-xs">
+                                            {boxes.map((box: any) => box.text).filter(Boolean).join('\n')}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-4 text-gray-400 text-sm">
+                                            Chưa có dữ liệu OCR
                                         </div>
                                     )}
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
+                        
+                        {/* Fields Section */}
+                        {showFieldPanel && (
+                            <div className="flex-1">
+                                <div className="px-4 py-3 bg-white sticky top-0 border-b">
+                                    <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-emerald-500" />
+                                        Thông tin trích xuất
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Các trường được AI nhận diện từ OCR
+                                    </p>
+                                </div>
+                                <div className="p-3 space-y-2">
+                                    {extractedFields.length > 0 ? (
+                                        extractedFields.map((field) => (
+                                            <div 
+                                                key={field.key} 
+                                                className="p-3 bg-white rounded-lg border hover:border-blue-200 transition-colors cursor-pointer"
+                                                onMouseEnter={() => setHoveredField(field.key)}
+                                                onMouseLeave={() => setHoveredField(null)}
+                                            >
+                                                <div className="text-xs text-gray-500 mb-1">{fieldLabels[field.key] || field.key}</div>
+                                                <div className="font-medium text-gray-900">{formatFieldValue(field.value)}</div>
+                                                {field.confidence && (
+                                                    <div className="text-xs text-gray-400 mt-1">
+                                                        Độ tin cậy: {(field.confidence * 100).toFixed(0)}%
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-center py-8 text-gray-400">
+                                            <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                            <p className="text-sm">Chưa có dữ liệu trích xuất</p>
+                                            <p className="text-xs mt-1">Hệ thống sẽ tự động trích xuất sau khi xử lý OCR</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
