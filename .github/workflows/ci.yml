@@ -70,7 +70,7 @@ jobs:
       - name: Lint with Ruff
         run: |
           ruff check api/ core/ services/ domain/ tests/ --output-format=github --ignore=E501,F401,I001
-          ruff format --check api/ core/ services/ domain/ --diff || true
+          ruff format --check api/ core/ services/ domain/ --diff
 
       - name: Type check with compileall
         run: |

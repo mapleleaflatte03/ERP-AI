@@ -156,7 +156,7 @@ function DashboardTab() {
   const { data: kpis, isLoading: kpisLoading } = useQuery({
     queryKey: ['analytics-kpis'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/kpis');
+      const res = await fetch('/v1/analyze/kpis');
       return res.json();
     },
   });
@@ -311,14 +311,14 @@ function ExplorerTab() {
   const { data: schema } = useQuery({
     queryKey: ['analytics-schema'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/schema');
+      const res = await fetch('/v1/analyze/schema');
       return res.json();
     },
   });
 
   const queryMutation = useMutation({
     mutationFn: async (sql: string) => {
-      const res = await fetch('/v1/analytics/query', {
+      const res = await fetch('/v1/analyze/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: sql, execute: true }),
@@ -424,7 +424,7 @@ function ForecastTab() {
 
   const forecastMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch('/v1/analytics/forecast', {
+      const res = await fetch('/v1/analyze/forecast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ metric, horizon, model }),

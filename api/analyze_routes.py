@@ -45,6 +45,7 @@ class QueryRequest(BaseModel):
     question: str
     dataset_id: Optional[str] = None  # If specified, query this dataset
     limit: int = 100
+    execute: bool = True  # Whether to execute SQL
 
 
 class QueryResponse(BaseModel):
@@ -55,6 +56,13 @@ class QueryResponse(BaseModel):
     row_count: int = 0
     error: Optional[str] = None
     execution_time_ms: Optional[float] = None
+
+
+class ForecastRequest(BaseModel):
+    """Forecast request"""
+    metric: str
+    horizon: int = 30
+    model: str = "linear"  # "prophet" or "linear"
 
 
 # =============================================================================
@@ -907,3 +915,113 @@ async def run_report(report_id: str) -> dict:
             "success": False,
             "error": str(e)
         }
+
+
+# =============================================================================
+# KPIs Endpoint (unified from analytics)
+# =============================================================================
+
+@router.get("/kpis")
+async def get_kpis(
+    kpis: Optional[str] = Query(None, description="Comma-separated KPI names")
+):
+    """
+    Get KPI dashboard metrics.
+    
+    Available KPIs:
+    - total_revenue
+    - invoice_count
+    - avg_invoice_value
+    - vendor_count
+    - pending_approvals
+    - processed_documents
+    """
+    from src.analytics.engine import Aggregator
+    
+    try:
+        aggregator = Aggregator()
+        kpi_list = kpis.split(",") if kpis else None
+        dashboard = await aggregator.get_kpi_dashboard(kpi_list)
+        return dashboard.to_dict()
+    except Exception as e:
+        logger.error(f"KPI error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Schema Endpoint (unified from analytics)
+# =============================================================================
+
+@router.get("/schema")
+async def get_schema():
+    """Get database schema information for analytics"""
+    from src.analytics.connectors import PostgresConnector
+    
+    try:
+        connector = PostgresConnector()
+        await connector.connect()
+        tables = await connector.get_analytics_tables()
+        
+        return {
+            "tables": [
+                {
+                    "name": t.name,
+                    "schema": t.schema,
+                    "row_count": t.row_count,
+                    "columns": [
+                        {
+                            "name": c.name,
+                            "type": c.data_type,
+                            "nullable": c.nullable
+                        }
+                        for c in t.columns
+                    ]
+                }
+                for t in tables
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Schema error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Forecast Endpoint (unified from analytics)
+# =============================================================================
+
+@router.post("/forecast")
+async def run_forecast(request: ForecastRequest):
+    """
+    Generate a forecast for a metric.
+    
+    Available metrics:
+    - revenue: Daily revenue
+    - invoice_count: Daily invoice count
+    - avg_invoice_value: Daily average invoice value
+    
+    Models:
+    - linear: Simple linear regression (fast, always available)
+    - prophet: Facebook Prophet (more accurate, requires prophet package)
+    """
+    from src.analytics.engine import Forecaster
+    
+    try:
+        forecaster = Forecaster()
+        result = await forecaster.forecast(
+            metric=request.metric,
+            horizon=request.horizon,
+            model=request.model
+        )
+        return result.to_dict()
+    except Exception as e:
+        logger.error(f"Forecast error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/forecast/metrics")
+async def list_forecast_metrics():
+    """List available metrics for forecasting"""
+    from src.analytics.engine import Forecaster
+    
+    forecaster = Forecaster()
+    return {"metrics": forecaster.list_metrics()}
