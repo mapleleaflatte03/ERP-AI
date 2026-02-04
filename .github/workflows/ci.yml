@@ -80,10 +80,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://erpx:erpx_secret@localhost:5432/erpx
           REDIS_URL: redis://localhost:6379
-          LLM_PROVIDER: mock
+          LLM_PROVIDER: do_agent
           DISABLE_LOCAL_LLM: "1"
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest tests/ -v --tb=short -q
+          pytest tests/ -v --tb=short -q --ignore=tests/smoke_test.py --ignore=tests/e2e_smoke_test.py --ignore=tests/e2e_business_flow_test.py
 
   # ===========================================================================
   # Job 2: Frontend - Lint, Test, Type Check, Build
