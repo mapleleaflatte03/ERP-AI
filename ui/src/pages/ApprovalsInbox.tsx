@@ -118,24 +118,27 @@ export default function ApprovalsInbox() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Quantum Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Duyệt bút toán</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Danh sách ({totalCount})
-          </p>
+        <div className="quantum-header">
+          <div className="quantum-header__icon" style={{ background: 'linear-gradient(135deg, #f59e0b, #fbbf24)' }}>
+            <CheckCircle2 className="w-7 h-7" />
+          </div>
+          <div>
+            <h1 className="quantum-header__title">Duyệt bút toán</h1>
+            <p className="quantum-header__subtitle">Danh sách ({totalCount})</p>
+          </div>
         </div>
         <button
           onClick={() => refetch()}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="quantum-btn quantum-btn--primary"
         >
           Làm mới
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2">
+      {/* Quantum Tabs */}
+      <div className="quantum-tabs">
         {statusOptions.map((option) => {
           const Icon = option.icon;
           return (
@@ -145,11 +148,7 @@ export default function ApprovalsInbox() {
                 setStatusFilter(option.value);
                 setPage(1);
               }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition ${
-                statusFilter === option.value
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+              className={`quantum-tab ${statusFilter === option.value ? 'quantum-tab--active' : ''}`}
             >
               <Icon className="w-4 h-4" />
               {option.label}

@@ -116,6 +116,8 @@ const buildGreeting = (moduleKey: string) => {
       return 'Chào bạn! Tôi hỗ trợ rà soát chứng từ chờ duyệt và đề xuất hành động.';
     case 'analyze':
       return 'Chào bạn! Tôi có thể giải thích báo cáo và hỗ trợ phân tích dữ liệu (read-only).';
+    case 'reconciliation':
+      return 'Chào bạn! Tôi hỗ trợ đối chiếu giao dịch ngân hàng và phát hiện sai lệch.';
     default:
       return 'Chào bạn! Tôi sẵn sàng hỗ trợ.';
   }
@@ -201,6 +203,25 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
     },
   ]);
   const [input, setInput] = useState('');
+
+  // Agent state for UX feedback
+  type AgentState = 'idle' | 'thinking' | 'proposing' | 'waiting_confirm';
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_agentState, _setAgentState] = useState<AgentState>('idle');
+
+  // Check if there are any pending proposals
+  const hasPendingProposals = messages.some(m => 
+    m.action_proposals?.some(p => p.status === 'proposed' && p.requires_confirmation)
+  );
+
+  // Update agent state based on conditions
+  const getAgentState = (): AgentState => {
+    if (chatMutation.isPending) return 'thinking';
+    if (hasPendingProposals) return 'waiting_confirm';
+    return 'idle';
+  };
+
+  const currentAgentState = getAgentState();
 
   const chatMutation = useMutation({
     mutationFn: (variables: { message: string; context: Record<string, any> }) =>
@@ -322,12 +343,15 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
   if (!open) {
     return (
       <button
-        className="module-chat-fab"
+        className="module-chat-fab group"
         onClick={() => setOpen(true)}
         aria-label="Open module chat"
       >
-        <MessageSquare className="w-4 h-4" />
-        Chat {moduleKey}
+        <div className="relative">
+          <MessageSquare className="w-4 h-4" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+        </div>
+        <span className="font-medium">Chat {moduleKey}</span>
       </button>
     );
   }
@@ -353,7 +377,16 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
             <Bot className="w-3.5 h-3.5" />
           </div>
           <div>
-            <div className="module-chat-title">Module Chat</div>
+            <div className="module-chat-title flex items-center gap-2">
+              Module Chat
+              {/* Agent State Indicator */}
+              <span className={`agent-state agent-state--${currentAgentState}`}>
+                {currentAgentState === 'idle' && 'Sẵn sàng'}
+                {currentAgentState === 'thinking' && 'Đang xử lý...'}
+                {currentAgentState === 'proposing' && 'Đề xuất'}
+                {currentAgentState === 'waiting_confirm' && 'Chờ xác nhận'}
+              </span>
+            </div>
             <div className="module-chat-subtitle">{moduleKey} · {scopeLabel}</div>
           </div>
         </div>

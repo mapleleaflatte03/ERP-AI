@@ -286,13 +286,25 @@ h1, h2, h3 {
   z-index: 45;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 12px 20px;
   border-radius: 999px;
-  background: var(--accent-1);
-  color: var(--accent-contrast);
-  box-shadow: var(--shadow-1);
-  font-size: 0.85rem;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  color: white;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), 
+              box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.module-chat-fab:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+}
+
+.module-chat-fab:active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* =============================================================================
@@ -443,4 +455,384 @@ h1, h2, h3 {
 [data-motion="reduced"] .optimistic-pending::after,
 [data-motion="reduced"] .skeleton-line::after {
   animation: none;
+}
+
+/* =============================================================================
+   Agent State Machine - Visual Feedback
+   ============================================================================= */
+
+/* Agent states: idle, thinking, proposing, waiting_confirm */
+.agent-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-state--idle {
+  background: rgba(100, 116, 139, 0.1);
+  color: #64748b;
+}
+
+.agent-state--thinking {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  color: #6366f1;
+}
+
+.agent-state--thinking::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: quantum-pulse 1s ease-in-out infinite;
+}
+
+.agent-state--proposing {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(52, 211, 153, 0.15));
+  color: #10b981;
+}
+
+.agent-state--proposing::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: quantum-pulse 0.8s ease-in-out infinite;
+}
+
+.agent-state--waiting {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(251, 191, 36, 0.15));
+  color: #f59e0b;
+}
+
+.agent-state--waiting::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: quantum-pulse 1.2s ease-in-out infinite;
+}
+
+/* =============================================================================
+   Quantum Unified Components
+   ============================================================================= */
+
+/* Quantum Card - consistent across all modules */
+.quantum-card {
+  background: white;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
+}
+
+[data-theme="dark"] .quantum-card {
+  background: #1e293b;
+  border-color: rgba(51, 65, 85, 0.8);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Quantum Stat Card */
+.quantum-stat {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quantum-stat__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.quantum-stat__icon--primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-stat__icon--success {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+}
+
+.quantum-stat__icon--warning {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
+}
+
+.quantum-stat__icon--danger {
+  background: linear-gradient(135deg, #ef4444, #f87171);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+}
+
+.quantum-stat__label {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.quantum-stat__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .quantum-stat__label {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .quantum-stat__value {
+  color: #f1f5f9;
+}
+
+/* Quantum Badge */
+.quantum-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.quantum-badge--pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.quantum-badge--approved {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.quantum-badge--rejected {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.quantum-badge--processing {
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* Quantum Button */
+.quantum-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-btn--primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-btn--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4);
+}
+
+.quantum-btn--secondary {
+  background: white;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.quantum-btn--secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+/* Quantum Table */
+.quantum-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.quantum-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.quantum-table td {
+  padding: 16px;
+  font-size: 0.875rem;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 150ms ease;
+}
+
+.quantum-table tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+[data-theme="dark"] .quantum-table th {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .quantum-table td {
+  color: #e2e8f0;
+  border-color: #1e293b;
+}
+
+/* Quantum Empty State */
+.quantum-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.quantum-empty__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.quantum-empty__icon svg {
+  width: 28px;
+  height: 28px;
+  color: #94a3b8;
+}
+
+.quantum-empty__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.quantum-empty__desc {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+/* Quantum Page Header - matches Analyze style */
+.quantum-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.quantum-header__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-header__icon svg {
+  width: 28px;
+  height: 28px;
+  color: white;
+}
+
+.quantum-header__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.quantum-header__subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+/* Quantum Tabs - matches Analyze style */
+.quantum-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(241, 245, 249, 0.8);
+  border-radius: 16px;
+}
+
+.quantum-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-tab:hover {
+  color: #475569;
+}
+
+.quantum-tab--active {
+  background: white;
+  color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+}
+
+[data-theme="dark"] .quantum-tabs {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+[data-theme="dark"] .quantum-tab {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .quantum-tab--active {
+  background: #334155;
+  color: #a5b4fc;
 }

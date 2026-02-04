@@ -160,22 +160,27 @@ export default function ProposalsInbox() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Quantum Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Đề xuất hạch toán</h1>
-          <p className="text-gray-500 text-sm mt-1">Xem và quản lý các đề xuất bút toán từ AI</p>
+        <div className="quantum-header">
+          <div className="quantum-header__icon" style={{ background: 'linear-gradient(135deg, #10b981, #34d399)' }}>
+            <FileText className="w-7 h-7" />
+          </div>
+          <div>
+            <h1 className="quantum-header__title">Đề xuất hạch toán</h1>
+            <p className="quantum-header__subtitle">Xem và quản lý các đề xuất bút toán từ AI</p>
+          </div>
         </div>
         <button
           onClick={() => refetch()}
-          className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg hover:bg-gray-50"
+          className="quantum-btn quantum-btn--secondary"
         >
           <RefreshCw className="w-4 h-4" />
           Làm mới
         </button>
       </div>
 
-      {/* Filters */}
+      {/* Quantum Filters */}
       <div className="flex flex-wrap gap-4">
         <div className="flex-1 min-w-[200px]">
           <div className="relative">
@@ -185,25 +190,21 @@ export default function ProposalsInbox() {
               placeholder="Tìm theo tên file, NCC, số HĐ..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
             />
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="quantum-tabs">
           {[
-            { value: '', label: 'Tất cả', icon: Filter, color: 'gray' },
-            { value: 'pending', label: 'Chờ duyệt', icon: Clock, color: 'yellow' },
-            { value: 'approved', label: 'Đã duyệt', icon: CheckCircle, color: 'green' },
-            { value: 'rejected', label: 'Từ chối', icon: XCircle, color: 'red' },
+            { value: '', label: 'Tất cả', icon: Filter },
+            { value: 'pending', label: 'Chờ duyệt', icon: Clock },
+            { value: 'approved', label: 'Đã duyệt', icon: CheckCircle },
+            { value: 'rejected', label: 'Từ chối', icon: XCircle },
           ].map(filter => (
             <button
               key={filter.value}
               onClick={() => setStatusFilter(filter.value as typeof statusFilter)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === filter.value
-                  ? `bg-${filter.color}-100 text-${filter.color}-700 border border-${filter.color}-300`
-                  : 'bg-white border hover:bg-gray-50'
-              }`}
+              className={`quantum-tab ${statusFilter === filter.value ? 'quantum-tab--active' : ''}`}
             >
               <filter.icon className="w-4 h-4" />
               {filter.label}

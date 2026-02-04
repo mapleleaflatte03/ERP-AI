@@ -186,16 +186,21 @@ export default function DocumentsInbox() {
   return (
     <>
       <div className="space-y-6">
-      {/* Header */}
+      {/* Quantum Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inbox Chứng từ</h1>
-          <p className="text-gray-500 text-sm mt-1">Quản lý hóa đơn, phiếu thu/chi, và chứng từ kế toán</p>
+        <div className="quantum-header">
+          <div className="quantum-header__icon">
+            <FileText className="w-7 h-7" />
+          </div>
+          <div>
+            <h1 className="quantum-header__title">Inbox Chứng từ</h1>
+            <p className="quantum-header__subtitle">Quản lý hóa đơn, phiếu thu/chi, và chứng từ kế toán</p>
+          </div>
         </div>
       </div>
 
-      {/* Document Type Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      {/* Quantum Tabs */}
+      <div className="quantum-tabs">
         {[
           { value: '', label: 'Tất cả', icon: FileText },
           { value: 'invoice', label: 'Hóa đơn', icon: Receipt },
@@ -207,10 +212,7 @@ export default function DocumentsInbox() {
           <button
             key={tab.value}
             onClick={() => { setTypeFilter(tab.value as DocumentType | ''); setPage(1); }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${typeFilter === tab.value
-              ? 'bg-blue-600 text-white'
-              : 'bg-white border hover:bg-gray-50 text-gray-700'
-              }`}
+            className={`quantum-tab ${typeFilter === tab.value ? 'quantum-tab--active' : ''}`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
@@ -288,28 +290,24 @@ export default function DocumentsInbox() {
         </select>
       </div>
 
-      {/* Stats Summary */}
+      {/* Quantum Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-              <FileText className="w-5 h-5 text-gray-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{totalCount}</div>
-              <div className="text-sm text-gray-500">Tổng chứng từ</div>
-            </div>
+        <div className="quantum-card quantum-stat">
+          <div className="quantum-stat__icon quantum-stat__icon--primary">
+            <FileText className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="quantum-stat__value">{totalCount}</div>
+            <div className="quantum-stat__label">Tổng chứng từ</div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-5 h-5 text-amber-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{pendingCount}</div>
-              <div className="text-sm text-gray-500">Chờ duyệt</div>
-            </div>
+        <div className="quantum-card quantum-stat">
+          <div className="quantum-stat__icon quantum-stat__icon--warning">
+            <Clock className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="quantum-stat__value">{pendingCount}</div>
+            <div className="quantum-stat__label">Chờ duyệt</div>
           </div>
         </div>
         {/* ... (Other stats placeholders since we don't have aggregated stats API yet) ... */}
