@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Document, DocumentStatus, DocumentType } from '../types';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   new: 'Mới',
@@ -432,6 +433,7 @@ export default function DocumentsInbox() {
         )}
       </div>
       </div>
+      <ModuleChatDock module="documents" />
 
       {/* Server Import Modal - disabled */}
     </>

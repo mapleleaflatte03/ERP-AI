@@ -65,6 +65,22 @@ export default function ActionProposalCard({ proposal, onStatusChange }: ActionP
   };
 
   // Already completed states
+  if (loading) {
+    return (
+      <div className="mt-3 p-4 rounded-xl border border-blue-200 bg-blue-50 animate-pulse" aria-busy="true">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-blue-200" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 bg-blue-200 rounded w-1/3" />
+            <div className="h-4 bg-blue-200 rounded w-2/3" />
+            <div className="h-3 bg-blue-200 rounded w-1/2" />
+          </div>
+        </div>
+        <p className="text-xs text-blue-700 mt-3">Đang thực hiện hành động...</p>
+      </div>
+    );
+  }
+
   if (status === 'executed') {
     return (
       <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl">

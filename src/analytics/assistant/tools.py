@@ -3,6 +3,8 @@ AI Assistant Tools for Analytics
 """
 import logging
 import json
+import re
+import uuid
 from typing import Any, Dict, List, Optional
 
 from ..connectors import PostgresConnector, DatasetConnector, QueryResult
@@ -11,6 +13,46 @@ from ..core.config import get_config
 from ..core.exceptions import ToolExecutionError
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_cte_names(sql: str) -> set[str]:
+    names: set[str] = set()
+    for match in re.finditer(r'\bWITH\s+([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    for match in re.finditer(r',\s*([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    return names
+
+
+def _extract_table_names(sql: str) -> list[str]:
+    tables: list[str] = []
+    for match in re.finditer(r'\b(FROM|JOIN)\s+([a-zA-Z0-9_."`]+)', sql, re.IGNORECASE):
+        token = match.group(2).strip()
+        if token.startswith("("):
+            continue
+        token = token.strip('`"')
+        token = token.split()[0]
+        token = token.split(".")[-1]
+        tables.append(token)
+    return tables
+
+
+def _enforce_sql_guard(sql: str, allowed_tables: set[str], limit: int) -> tuple[str, Optional[str]]:
+    sql_upper = sql.strip().upper()
+    if not (sql_upper.startswith("SELECT") or sql_upper.startswith("WITH")):
+        return sql, "Only SELECT queries are allowed"
+    dangerous = ["DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"]
+    for kw in dangerous:
+        if re.search(rf'\b{kw}\b', sql_upper):
+            return sql, f"Query contains forbidden keyword: {kw}"
+    ctes = _extract_cte_names(sql)
+    tables = [t for t in _extract_table_names(sql) if t not in ctes]
+    for table in tables:
+        if table not in allowed_tables:
+            return sql, f"Table not allowed for analytics: {table}"
+    if "LIMIT" not in sql_upper:
+        sql = f"{sql.rstrip(';')} LIMIT {limit}"
+    return sql, None
 
 
 # Tool definitions for OpenAI function calling
@@ -333,7 +375,33 @@ class ToolExecutor:
     async def _execute_sql(self, sql: str) -> Dict[str, Any]:
         """Execute raw SQL"""
         await self._pg_connector.connect()
+        config = get_config()
+        tables = await self._pg_connector.get_analytics_tables()
+        allowed_tables = {t.name for t in tables}
+        sql, guard_error = _enforce_sql_guard(sql, allowed_tables, config.max_query_rows)
+        if guard_error:
+            raise ToolExecutionError(guard_error)
         result = await self._pg_connector.execute_query(sql)
+
+        # Audit log (best-effort)
+        try:
+            if self._pg_connector._pool:
+                async with self._pg_connector._pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+                        VALUES ('analytics_query', $1, 'executed', 'assistant', $2, NOW())
+                        """,
+                        str(uuid.uuid4()),
+                        {
+                            "module": "analytics_assistant",
+                            "row_count": result.row_count,
+                            "sql": result.sql,
+                        }
+                    )
+        except Exception:
+            pass
+
         return result.to_dict()
     
     async def _create_visualization(

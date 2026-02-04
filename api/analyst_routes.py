@@ -11,6 +11,8 @@ Endpoints:
 
 import json
 import logging
+import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -112,6 +114,45 @@ Common Vietnamese accounting terms:
 - Tổng tiền = total_amount
 - Thuế = tax_amount
 """
+
+def _extract_cte_names(sql: str) -> set[str]:
+    names: set[str] = set()
+    for match in re.finditer(r'\bWITH\s+([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    for match in re.finditer(r',\s*([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    return names
+
+
+def _extract_table_names(sql: str) -> list[str]:
+    tables: list[str] = []
+    for match in re.finditer(r'\b(FROM|JOIN)\s+([a-zA-Z0-9_."`]+)', sql, re.IGNORECASE):
+        token = match.group(2).strip()
+        if token.startswith("("):
+            continue
+        token = token.strip('`"')
+        token = token.split()[0]
+        token = token.split(".")[-1]
+        tables.append(token)
+    return tables
+
+
+def _enforce_sql_guard(sql: str, allowed_tables: set[str], limit: int) -> tuple[str, Optional[str]]:
+    sql_upper = sql.strip().upper()
+    if not (sql_upper.startswith("SELECT") or sql_upper.startswith("WITH")):
+        return sql, "Only SELECT queries are allowed"
+    dangerous = ["DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"]
+    for kw in dangerous:
+        if re.search(rf'\b{kw}\b', sql_upper):
+            return sql, f"Query contains forbidden keyword: {kw}"
+    ctes = _extract_cte_names(sql)
+    tables = [t for t in _extract_table_names(sql) if t not in ctes]
+    for table in tables:
+        if table not in allowed_tables:
+            return sql, f"Table not allowed for analytics: {table}"
+    if "LIMIT" not in sql_upper:
+        sql = f"{sql.rstrip(';')} LIMIT {limit}"
+    return sql, None
 
 
 # ===== NL2SQL Translation =====
@@ -331,6 +372,19 @@ async def execute_nl_query(request: NLQueryRequest, pool=Depends(get_pool)):
         # Translate to SQL
         sql = translate_nl_to_sql(question)
         logger.info(f"NL2SQL: '{question[:50]}...' -> {sql[:100]}...")
+
+        max_limit = 1000
+        allowed_tables = {
+            "extracted_invoices",
+            "documents",
+            "ledger_entries",
+            "ledger_lines",
+            "approvals",
+            "journal_proposals",
+        }
+        sql, guard_error = _enforce_sql_guard(sql, allowed_tables, max_limit)
+        if guard_error:
+            raise HTTPException(status_code=400, detail=guard_error)
         
         # Execute query
         async with pool.acquire() as conn:
@@ -345,7 +399,10 @@ async def execute_nl_query(request: NLQueryRequest, pool=Depends(get_pool)):
                 pass  # History table might not exist
             
             # Execute the query
-            rows = await conn.fetch(sql)
+            timeout_ms = int(os.getenv("ANALYTICS_QUERY_TIMEOUT_MS", "30000"))
+            async with conn.transaction():
+                await conn.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+                rows = await conn.fetch(sql)
             
             # Convert to dict
             if rows:
@@ -357,6 +414,24 @@ async def execute_nl_query(request: NLQueryRequest, pool=Depends(get_pool)):
         
         execution_time = int((time.time() - start_time) * 1000)
         
+        # Audit log (best-effort)
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+                    VALUES ('analytics_query', $1, 'executed', 'analyst', $2, NOW())
+                    """,
+                    str(uuid.uuid4()),
+                    {
+                        "module": "analyst",
+                        "row_count": len(data),
+                        "execution_time_ms": execution_time,
+                    }
+                )
+        except Exception:
+            pass
+
         return QueryResult(
             columns=columns,
             rows=data,

@@ -340,7 +340,7 @@ async def confirm_action(action_id: str, request: ActionConfirmRequest = None) -
         
         if row["status"] != "proposed":
             raise HTTPException(
-                status_code=400, 
+                status_code=409,
                 detail=f"Cannot confirm action in '{row['status']}' status"
             )
         
@@ -353,6 +353,16 @@ async def confirm_action(action_id: str, request: ActionConfirmRequest = None) -
             """,
             action_id,
             request.user_id if request and request.user_id else None
+        )
+
+        # Audit confirm event
+        await conn.execute(
+            """
+            INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+            VALUES ('agent_action', $1, 'confirmed', 'user', $2, NOW())
+            """,
+            action_id,
+            {"action_type": row["action_type"]}
         )
         
         # Execute the action

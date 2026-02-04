@@ -15,7 +15,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  PYTHON_VERSION: '3.10'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   # ===========================================================================
@@ -113,6 +113,12 @@ jobs:
       - name: Run unit tests
         run: npm run test || echo "Tests completed"
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright smoke
+        run: npx playwright test --grep @smoke
+
       - name: Build
         env:
           VITE_KEYCLOAK_URL: https://auth.example.com
@@ -124,6 +130,15 @@ jobs:
           name: ui-dist
           path: ui/dist
           retention-days: 7
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            ui/playwright-report
+            ui/test-results
 
   # ===========================================================================
   # Job 3: Security Audit

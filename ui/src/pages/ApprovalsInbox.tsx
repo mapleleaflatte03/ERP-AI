@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import api from '../lib/api';
 import type { Approval } from '../types';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 import { Link } from 'react-router-dom';
 
@@ -327,6 +328,7 @@ export default function ApprovalsInbox() {
           </div>
         </div>
       )}
+      <ModuleChatDock module="approvals" />
     </div>
   );
 }

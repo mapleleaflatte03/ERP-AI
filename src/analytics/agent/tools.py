@@ -5,6 +5,8 @@ Register all available tools for the analytics agent
 import pandas as pd
 from typing import Any, Dict, List, Optional
 import logging
+import re
+import uuid
 
 from ..core.registry import tool, get_registry
 from ..connectors.dataset import DatasetConnector
@@ -17,6 +19,46 @@ logger = logging.getLogger(__name__)
 # Shared connectors
 _dataset_connector: Optional[DatasetConnector] = None
 _postgres_connector: Optional[PostgresConnector] = None
+
+
+def _extract_cte_names(sql: str) -> set[str]:
+    names: set[str] = set()
+    for match in re.finditer(r'\bWITH\s+([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    for match in re.finditer(r',\s*([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    return names
+
+
+def _extract_table_names(sql: str) -> list[str]:
+    tables: list[str] = []
+    for match in re.finditer(r'\b(FROM|JOIN)\s+([a-zA-Z0-9_."`]+)', sql, re.IGNORECASE):
+        token = match.group(2).strip()
+        if token.startswith("("):
+            continue
+        token = token.strip('`"')
+        token = token.split()[0]
+        token = token.split(".")[-1]
+        tables.append(token)
+    return tables
+
+
+def _enforce_sql_guard(sql: str, allowed_tables: set[str], limit: int) -> tuple[str, Optional[str]]:
+    sql_upper = sql.strip().upper()
+    if not (sql_upper.startswith("SELECT") or sql_upper.startswith("WITH")):
+        return sql, "Only SELECT queries are allowed"
+    dangerous = ["DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"]
+    for kw in dangerous:
+        if re.search(rf'\b{kw}\b', sql_upper):
+            return sql, f"Query contains forbidden keyword: {kw}"
+    ctes = _extract_cte_names(sql)
+    tables = [t for t in _extract_table_names(sql) if t not in ctes]
+    for table in tables:
+        if table not in allowed_tables:
+            return sql, f"Table not allowed for analytics: {table}"
+    if "LIMIT" not in sql_upper:
+        sql = f"{sql.rstrip(';')} LIMIT {limit}"
+    return sql, None
 
 
 async def get_dataset_connector() -> DatasetConnector:
@@ -267,21 +309,45 @@ async def list_tables() -> Dict[str, Any]:
 async def execute_query(sql: str) -> Dict[str, Any]:
     """Execute SQL query"""
     connector = await get_postgres_connector()
-    
-    # Safety check - only allow SELECT
-    sql_upper = sql.strip().upper()
-    if not sql_upper.startswith("SELECT"):
-        return {"success": False, "error": "Only SELECT queries are allowed"}
-    
+
     try:
-        result = await connector.execute(sql)
-        return {
-            "success": True,
+        tables = await connector.get_analytics_tables()
+        allowed_tables = {t.name for t in tables}
+        sql, guard_error = _enforce_sql_guard(sql, allowed_tables, 1000)
+        if guard_error:
+            return {"success": False, "error": guard_error}
+
+        result = await connector.execute_query(sql)
+        payload = {
+            "success": result.success,
             "rows": result.row_count,
             "columns": result.columns,
-            "data": result.data.head(100).to_dict(orient="records"),
+            "data": result.rows[:100],
             "execution_time_ms": result.execution_time_ms,
         }
+        if result.error:
+            payload["error"] = result.error
+
+        # Audit log (best-effort)
+        try:
+            if connector._pool:
+                async with connector._pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+                        VALUES ('analytics_query', $1, 'executed', 'agent', $2, NOW())
+                        """,
+                        str(uuid.uuid4()),
+                        {
+                            "module": "analytics_agent",
+                            "row_count": result.row_count,
+                            "sql": result.sql,
+                        }
+                    )
+        except Exception:
+            pass
+
+        return payload
     except Exception as e:
         return {"success": False, "error": str(e)}
 

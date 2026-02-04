@@ -19,6 +19,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -110,6 +111,46 @@ def sanitize_table_name(name: str) -> str:
     if safe and safe[0].isdigit():
         safe = 'ds_' + safe
     return safe[:60]  # PostgreSQL limit
+
+
+def _extract_cte_names(sql: str) -> set[str]:
+    names: set[str] = set()
+    for match in re.finditer(r'\bWITH\s+([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    for match in re.finditer(r',\s*([a-zA-Z0-9_]+)\s+AS\b', sql, re.IGNORECASE):
+        names.add(match.group(1))
+    return names
+
+
+def _extract_table_names(sql: str) -> list[str]:
+    tables: list[str] = []
+    for match in re.finditer(r'\b(FROM|JOIN)\s+([a-zA-Z0-9_."`]+)', sql, re.IGNORECASE):
+        token = match.group(2).strip()
+        if token.startswith("("):
+            continue
+        token = token.strip('`"')
+        token = token.split()[0]
+        token = token.split(".")[-1]
+        tables.append(token)
+    return tables
+
+
+def _enforce_sql_guard(sql: str, allowed_tables: set[str], limit: int) -> tuple[str, Optional[str]]:
+    sql_upper = sql.strip().upper()
+    if not (sql_upper.startswith("SELECT") or sql_upper.startswith("WITH")):
+        return sql, "Only SELECT queries are allowed"
+    dangerous = ["DROP", "DELETE", "UPDATE", "INSERT", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE"]
+    for kw in dangerous:
+        if re.search(rf'\b{kw}\b', sql_upper):
+            return sql, f"Query contains forbidden keyword: {kw}"
+    ctes = _extract_cte_names(sql)
+    tables = [t for t in _extract_table_names(sql) if t not in ctes]
+    for table in tables:
+        if table not in allowed_tables:
+            return sql, f"Table not allowed for analytics: {table}"
+    if "LIMIT" not in sql_upper:
+        sql = f"{sql.rstrip(';')} LIMIT {limit}"
+    return sql, None
 
 
 # =============================================================================
@@ -372,6 +413,8 @@ async def run_analysis_query(request: QueryRequest) -> dict:
     
     start_time = time.time()
     
+    max_limit = min(max(request.limit, 1), 1000)
+
     # Build schema context
     async with pool.acquire() as conn:
         if request.dataset_id:
@@ -428,7 +471,7 @@ Question: {request.question}
 Rules:
 1. Return ONLY the SQL query, no explanation
 2. Use proper PostgreSQL syntax
-3. Limit results to {request.limit} rows
+3. Limit results to {max_limit} rows
 4. For Vietnamese text, use ILIKE for case-insensitive search
 5. Format dates properly (YYYY-MM-DD)
 6. Use aggregate functions (SUM, COUNT, AVG) when appropriate
@@ -445,15 +488,30 @@ SQL:"""
         if sql.lower().startswith("sql:"):
             sql = sql[4:].strip()
         
-        # Security check - only allow SELECT
-        sql_upper = sql.upper()
-        if any(kw in sql_upper for kw in ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE']):
-            raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+        allowed_tables = {
+            "extracted_invoices",
+            "documents",
+            "approvals",
+            "journal_proposals",
+            "datasets",
+            "vendors",
+            "accounts",
+            "ledger_entries",
+            "ledger_lines",
+            "journal_entries",
+            table_name,
+        }
+        sql, guard_error = _enforce_sql_guard(sql, allowed_tables, max_limit)
+        if guard_error:
+            raise HTTPException(status_code=400, detail=guard_error)
         
         # Execute query
+        timeout_ms = int(os.getenv("ANALYTICS_QUERY_TIMEOUT_MS", "30000"))
         async with pool.acquire() as conn:
-            rows = await conn.fetch(sql)
-            results = [dict(row) for row in rows]
+            async with conn.transaction():
+                await conn.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+                rows = await conn.fetch(sql)
+                results = [dict(row) for row in rows]
             
             # Convert special types to strings
             for row in results:
@@ -465,8 +523,24 @@ SQL:"""
         
         execution_time = (time.time() - start_time) * 1000
         
-        # Audit logging skipped (schema uses different columns)
-        # Query logged successfully
+        # Audit log (best-effort)
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+                    VALUES ('analytics_query', $1, 'executed', 'analyze', $2, NOW())
+                    """,
+                    str(uuid.uuid4()),
+                    {
+                        "module": "analyze",
+                        "dataset_id": request.dataset_id,
+                        "row_count": len(results),
+                        "execution_time_ms": round(execution_time, 2),
+                    }
+                )
+        except Exception:
+            pass
         
         return {
             "success": True,

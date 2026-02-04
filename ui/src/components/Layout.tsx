@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
@@ -27,7 +27,7 @@ const navigation = [
   { name: 'Duyệt', href: '/approvals', icon: CheckSquare },
   { name: 'Đối chiếu', href: '/reconciliation', icon: ArrowLeftRight, comingSoon: true },
   { name: 'Trợ lý AI', href: '/copilot', icon: MessageCircle, beta: true },
-  { name: 'Analyze', href: '/analyze', icon: BarChart3 },
+  { name: 'Báo cáo', href: '/analyze', icon: BarChart3 },
   { name: 'Lịch sử', href: '/evidence', icon: Clock },
 ];
 
@@ -39,8 +39,25 @@ export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showPrefs, setShowPrefs] = useState(false);
   // Use state to track auth and trigger re-render after login
   const [isAuthenticated, setIsAuthenticated] = useState(() => api.isAuthenticated());
+  const [uiPrefs, setUiPrefs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('erpx_ui_prefs');
+      if (!raw) {
+        return { theme: 'light', density: 'comfortable', motion: 'normal' };
+      }
+      const parsed = JSON.parse(raw);
+      return {
+        theme: parsed.theme || 'light',
+        density: parsed.density || 'comfortable',
+        motion: parsed.motion || 'normal',
+      };
+    } catch {
+      return { theme: 'light', density: 'comfortable', motion: 'normal' };
+    }
+  });
 
   const handleLoginSuccess = useCallback(() => {
     setIsAuthenticated(true);
@@ -50,6 +67,18 @@ export default function Layout() {
     api.clearToken();
     setIsAuthenticated(false);
   };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('erpx_ui_prefs', JSON.stringify(uiPrefs));
+    } catch {
+      // ignore
+    }
+    const root = document.documentElement;
+    root.setAttribute('data-theme', uiPrefs.theme);
+    root.setAttribute('data-density', uiPrefs.density);
+    root.setAttribute('data-motion', uiPrefs.motion);
+  }, [uiPrefs]);
 
   // Show login modal if not authenticated
   if (!isAuthenticated) {
@@ -201,9 +230,81 @@ export default function Layout() {
                 adminNavigation.find((n) => n.href === location.pathname)?.name ||
                 'AI Kế Toán'}
             </h1>
-            <div className="hidden md:flex items-center gap-2 text-xs text-gray-400">
-              <span className="px-2 py-1 bg-gray-100 rounded border">⌘K</span>
-              <span>to search</span>
+            <div className="flex items-center gap-3">
+              <div className="hidden md:flex items-center gap-2 text-xs text-gray-400">
+                <span className="px-2 py-1 bg-gray-100 rounded border">⌘K</span>
+                <span>to search</span>
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowPrefs((prev) => !prev)}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span className="text-xs">Appearance</span>
+                </button>
+                {showPrefs && (
+                  <div className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow-lg p-3 text-xs text-gray-700 z-50">
+                    <div className="font-semibold text-gray-900 mb-2">UI Preferences</div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[11px] text-gray-500 mb-1">Theme</div>
+                        <div className="flex gap-2">
+                          {['light', 'dark'].map((theme) => (
+                            <button
+                              key={theme}
+                              onClick={() => setUiPrefs((prev) => ({ ...prev, theme }))}
+                              className={`px-2 py-1 rounded border ${
+                                uiPrefs.theme === theme
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {theme}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-gray-500 mb-1">Density</div>
+                        <div className="flex gap-2">
+                          {['compact', 'comfortable', 'spacious'].map((density) => (
+                            <button
+                              key={density}
+                              onClick={() => setUiPrefs((prev) => ({ ...prev, density }))}
+                              className={`px-2 py-1 rounded border ${
+                                uiPrefs.density === density
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {density}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-gray-500 mb-1">Motion</div>
+                        <div className="flex gap-2">
+                          {['normal', 'reduced'].map((motion) => (
+                            <button
+                              key={motion}
+                              onClick={() => setUiPrefs((prev) => ({ ...prev, motion }))}
+                              className={`px-2 py-1 rounded border ${
+                                uiPrefs.motion === motion
+                                  ? 'bg-gray-900 text-white border-gray-900'
+                                  : 'bg-white text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {motion}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>

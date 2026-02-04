@@ -24,6 +24,7 @@ from core.constants import (
     DOC_TYPE_OTHER,
     DOC_TYPE_RECEIPT,
     DOC_TYPE_VAT_INVOICE,
+    DocumentType,
     MODE_STRICT,
     RECONCILIATION_AMOUNT_TOLERANCE_PERCENT,
     RECONCILIATION_AMOUNT_TOLERANCE_VND,
@@ -132,13 +133,15 @@ class AccountingWorkflow:
     # STEP A: INGEST & NORMALIZE
     # =========================================================================
 
-    def _step_a_ingest(self):
+    def _step_a_ingest(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step A: Ingest & Normalize
         - Parse raw input or structured input
         - Normalize text (strip, clean whitespace)
         - Extract text blocks for later processing
         """
+        if state is not None:
+            self.state = state
         state = self.state
 
         # Determine input source
@@ -163,8 +166,12 @@ class AccountingWorkflow:
         else:
             state.add_error("No input provided (ocr_text or structured_fields required)")
             state.error_message = "No input data"
+            state.has_error = True
 
         logger.debug(f"Ingest complete: {len(state.text_blocks or [])} blocks")
+        if not state.error_message:
+            state.current_step = WorkflowStep.CLASSIFY
+        return state
 
     def _normalize_text(self, text: str) -> str:
         """Normalize text: strip, reduce whitespace"""
@@ -186,27 +193,42 @@ class AccountingWorkflow:
     # STEP B: DOCUMENT TYPE CLASSIFICATION
     # =========================================================================
 
-    def _step_b_classify(self):
+    def _step_b_classify(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step B: Document Type Classification
         - Determine if receipt, VAT invoice, bank slip, or other
         - R4: Doc-Type Truth - Don't mis-classify
         """
+        if state is not None:
+            self.state = state
         state = self.state
-        text = (state.normalized_text or "").lower()
+        text = (state.normalized_text or state.raw_input or state.raw_content or "").lower()
         structured = state.structured_input or {}
+        doc_type_map = {
+            DOC_TYPE_VAT_INVOICE: DocumentType.INVOICE.value,
+            DOC_TYPE_BANK_SLIP: DocumentType.BANK_STATEMENT.value,
+        }
 
         # Check structured data first
         if "doc_type" in structured:
-            state.doc_type = structured["doc_type"]
+            state.doc_type = doc_type_map.get(structured["doc_type"], structured["doc_type"])
             state.doc_type_confidence = 1.0
             state.add_evidence("doc_type", state.doc_type, "structured", "Explicit doc_type field")
-            return
+            state.current_step = WorkflowStep.EXTRACT
+            return state
 
         # Classify based on keywords
-        vat_keywords = ["hóa đơn gtgt", "vat invoice", "mst:", "mã số thuế", "serial:", "ký hiệu:"]
+        vat_keywords = [
+            "hóa đơn gtgt",
+            "hóa đơn giá trị gia tăng",
+            "vat invoice",
+            "mst:",
+            "mã số thuế",
+            "serial:",
+            "ký hiệu:",
+        ]
         receipt_keywords = ["receipt", "phiếu thu", "biên lai", "pos", "total:", "tổng cộng:"]
-        bank_keywords = ["bank statement", "sao kê ngân hàng", "giao dịch ngân hàng", "bank transaction"]
+        bank_keywords = ["bank statement", "sao kê ngân hàng", "sào kê ngân hàng", "giao dịch ngân hàng", "bank transaction"]
 
         vat_score = sum(1 for k in vat_keywords if k in text)
         receipt_score = sum(1 for k in receipt_keywords if k in text)
@@ -215,7 +237,7 @@ class AccountingWorkflow:
         # Check for structured invoice indicators
         if structured.get("invoice_serial") or structured.get("tax_id"):
             vat_score += 2
-        if structured.get("store") or structured.get("company") in ["", None]:
+        if structured.get("store") or (structured.get("company") not in ["", None]):
             receipt_score += 1
 
         # Determine type
@@ -237,23 +259,28 @@ class AccountingWorkflow:
             evidence = ["No clear classification keywords found"]
 
         state.classification_evidence = evidence
+        state.doc_type = doc_type_map.get(state.doc_type, state.doc_type)
         state.add_evidence("doc_type", state.doc_type, "inferred", f"Keywords: {evidence}")
 
         logger.debug(f"Classification: {state.doc_type} (confidence: {state.doc_type_confidence})")
+        state.current_step = WorkflowStep.EXTRACT
+        return state
 
     # =========================================================================
     # STEP C: FIELD EXTRACTION
     # =========================================================================
 
-    def _step_c_extract(self):
+    def _step_c_extract(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step C: Field Extraction
         - Extract all fields from OCR text and structured input
         - R2: No Hallucination - Only extract what's present
         - R3: Amount/Date Integrity - Verbatim extraction
         """
+        if state is not None:
+            self.state = state
         state = self.state
-        text = state.normalized_text or ""
+        text = state.normalized_text or state.raw_input or state.raw_content or ""
         structured = state.structured_input or {}
 
         extracted = {}
@@ -307,7 +334,10 @@ class AccountingWorkflow:
         extracted["chi_tiet"] = {"items": items, "subtotal": subtotal, "grand_total": grand_total}
 
         state.extracted_fields = extracted
+        state.extracted_data = extracted
         logger.debug(f"Extraction complete: {len(extracted)} sections")
+        state.current_step = WorkflowStep.VALIDATE
+        return state
 
     def _extract_field(self, text: str, structured: dict, *field_names) -> str | None:
         """Extract a field value from structured data or text"""
@@ -385,18 +415,20 @@ class AccountingWorkflow:
     # STEP D: VALIDATION & POLICY CHECK
     # =========================================================================
 
-    def _step_d_validate(self):
+    def _step_d_validate(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step D: Validation & Policy Check
         - Check required fields based on doc_type and mode
         - R4: Doc-Type Truth handling
         - R6: Approval Gate preparation
         """
+        if state is not None:
+            self.state = state
         state = self.state
         extracted = state.extracted_fields
 
         # Determine required fields based on doc_type and mode
-        if state.doc_type == DOC_TYPE_VAT_INVOICE:
+        if state.doc_type in (DOC_TYPE_VAT_INVOICE, DocumentType.INVOICE.value):
             if self.mode == MODE_STRICT:
                 required = ["invoice_serial", "invoice_no", "invoice_date", "tax_id", "tax_account", "tax_group"]
             else:
@@ -441,7 +473,15 @@ class AccountingWorkflow:
         else:
             state.validation_status = ValidationStatus.PASS
 
+        state.validation_result = {
+            "is_valid": state.validation_status != ValidationStatus.FAIL,
+            "errors": state.validation_errors,
+            "warnings": state.validation_warnings,
+        }
+
         logger.debug(f"Validation: {state.validation_status.value}, missing: {missing}")
+        state.current_step = WorkflowStep.RECONCILE if state.bank_transactions else WorkflowStep.DECISION
+        return state
 
     def _get_nested_field(self, data: dict, field: str) -> Any:
         """Get a field from nested dict structure"""
@@ -470,18 +510,21 @@ class AccountingWorkflow:
     # STEP E: BANK RECONCILIATION
     # =========================================================================
 
-    def _step_e_reconcile(self):
+    def _step_e_reconcile(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step E: Bank Reconciliation
         - Match invoices with bank transactions
         - Apply tolerance rules: ±0.5% or ±50,000 VND, ±7 days
         """
+        if state is not None:
+            self.state = state
         state = self.state
         bank_txns = state.bank_transactions or []
 
         if not bank_txns:
             logger.debug("No bank transactions to reconcile")
-            return
+            state.current_step = WorkflowStep.DECISION
+            return state
 
         extracted = state.extracted_fields
         invoice_total = extracted.get("chi_tiet", {}).get("grand_total")
@@ -567,6 +610,8 @@ class AccountingWorkflow:
             state.add_warning("No matching bank transaction found")
 
         logger.debug(f"Reconciliation: {len(matches)} matches found")
+        state.current_step = WorkflowStep.DECISION
+        return state
 
     def _parse_date(self, date_str: str) -> datetime | None:
         """Parse date string to datetime"""
@@ -582,12 +627,14 @@ class AccountingWorkflow:
     # STEP F: FINAL DECISION
     # =========================================================================
 
-    def _step_f_decision(self):
+    def _step_f_decision(self, state: WorkflowState | None = None) -> WorkflowState:
         """
         Step F: Final Decision
         - Set needs_human_review flag
         - R6: Approval Gate logic
         """
+        if state is not None:
+            self.state = state
         state = self.state
 
         # Conditions requiring human review
@@ -601,7 +648,8 @@ class AccountingWorkflow:
             state.mark_for_review(f"Low classification confidence: {state.doc_type_confidence}")
 
         # Check amount threshold
-        grand_total = state.extracted_fields.get("chi_tiet", {}).get("grand_total")
+        chi_tiet = state.extracted_fields.get("chi_tiet")
+        grand_total = chi_tiet.get("grand_total") if isinstance(chi_tiet, dict) else state.extracted_fields.get("grand_total")
         if grand_total and grand_total > APPROVAL_THRESHOLD_AUTO:
             state.mark_for_review(f"Amount exceeds auto-approval threshold: {grand_total}")
             state.approval_threshold_exceeded = True
@@ -610,7 +658,11 @@ class AccountingWorkflow:
         if state.bank_transactions and not state.reconciliation_matches:
             state.add_warning("No bank transaction match - manual reconciliation needed")
 
+        state.output = self._build_output()
+        state.current_step = WorkflowStep.DECISION
+
         logger.debug(f"Decision: needs_review={state.needs_human_review}, reasons={state.review_reasons}")
+        return state
 
     # =========================================================================
     # OUTPUT BUILDER

@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import api from '../lib/api';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 interface JournalEntry {
   account_code: string;
@@ -417,6 +418,7 @@ export default function ProposalsInbox() {
           )}
         </div>
       </div>
+      <ModuleChatDock module="proposals" />
     </div>
   );
 }
