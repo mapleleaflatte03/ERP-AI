@@ -6,6 +6,7 @@ These endpoints provide a document-centric view for the UI,
 mapping to the underlying jobs-based architecture.
 """
 
+import json
 import logging
 import os
 import sys

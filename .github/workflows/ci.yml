@@ -69,8 +69,8 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          ruff check . --output-format=github --ignore=E501,F401 || echo "::warning::Ruff found issues"
-          ruff format --check . || echo "::warning::Ruff format check found issues"
+          ruff check api/ core/ services/ domain/ tests/ --output-format=github --ignore=E501,F401,I001
+          ruff format --check api/ core/ services/ domain/ --diff || true
 
       - name: Type check with compileall
         run: |
@@ -83,7 +83,7 @@ jobs:
           LLM_PROVIDER: mock
           DISABLE_LOCAL_LLM: "1"
         run: |
-          pytest tests/ -v --tb=short -q 2>&1 || echo "::warning::Some tests failed"
+          pytest tests/ -v --tb=short -q
 
   # ===========================================================================
   # Job 2: Frontend - Lint, Test, Type Check, Build
@@ -110,7 +110,7 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint 2>&1 || echo "::warning::ESLint found issues"
+        run: npm run lint || echo "::warning::ESLint found issues (non-blocking for legacy code)"
 
       - name: Type check
         run: npx tsc --noEmit
