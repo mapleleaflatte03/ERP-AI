@@ -8,6 +8,7 @@ import {
   Ban,
   HelpCircle,
 } from 'lucide-react';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 // No mock data - feature not yet implemented in backend
 
@@ -162,6 +163,15 @@ export default function Reconciliation() {
           </li>
         </ul>
       </div>
+
+      {/* Module Chat Dock for Reconciliation Agent */}
+      <ModuleChatDock 
+        module="reconciliation" 
+        scope={{ 
+          context: 'bank_statement_matching',
+          capabilities: 'discrepancy_detection, auto_match, variance_analysis'
+        }} 
+      />
     </div>
   );
 }

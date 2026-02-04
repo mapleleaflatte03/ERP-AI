@@ -294,3 +294,153 @@ h1, h2, h3 {
   box-shadow: var(--shadow-1);
   font-size: 0.85rem;
 }
+
+/* =============================================================================
+   Quantum Shimmer & Loading States
+   ============================================================================= */
+
+/* Quantum shimmer effect - replaces traditional spinners */
+@keyframes quantum-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.quantum-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-element {
+  background: linear-gradient(
+    90deg,
+    rgba(14, 165, 160, 0.1) 0%,
+    rgba(14, 165, 160, 0.25) 20%,
+    rgba(56, 189, 248, 0.3) 50%,
+    rgba(14, 165, 160, 0.25) 80%,
+    rgba(14, 165, 160, 0.1) 100%
+  );
+  background-size: 200% 100%;
+  animation: quantum-shimmer 1.8s var(--motion-ease) infinite;
+}
+
+[data-theme="dark"] .shimmer-element {
+  background: linear-gradient(
+    90deg,
+    rgba(45, 212, 191, 0.1) 0%,
+    rgba(45, 212, 191, 0.2) 20%,
+    rgba(56, 189, 248, 0.25) 50%,
+    rgba(45, 212, 191, 0.2) 80%,
+    rgba(45, 212, 191, 0.1) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Quantum pulse indicator */
+@keyframes quantum-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.quantum-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  animation: quantum-pulse 1.5s var(--motion-ease) infinite;
+}
+
+/* Optimistic state styles */
+.optimistic-pending {
+  position: relative;
+}
+
+.optimistic-pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(14, 165, 160, 0.1) 50%,
+    transparent 70%
+  );
+  background-size: 200% 200%;
+  animation: quantum-shimmer 2s linear infinite;
+  pointer-events: none;
+}
+
+/* Skeleton loading for cards */
+.skeleton-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: quantum-shimmer 1.5s var(--motion-ease) infinite;
+}
+
+[data-theme="dark"] .skeleton-line::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .quantum-shimmer,
+  .shimmer-element,
+  .quantum-pulse,
+  .optimistic-pending::after,
+  .skeleton-line::after {
+    animation: none;
+  }
+  
+  .quantum-pulse {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+[data-motion="reduced"] .quantum-shimmer,
+[data-motion="reduced"] .shimmer-element,
+[data-motion="reduced"] .quantum-pulse,
+[data-motion="reduced"] .optimistic-pending::after,
+[data-motion="reduced"] .skeleton-line::after {
+  animation: none;
+}

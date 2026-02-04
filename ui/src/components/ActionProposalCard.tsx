@@ -3,10 +3,15 @@
  * 
  * Renders when Copilot proposes an action (approve/reject) that requires
  * user confirmation before execution.
+ * 
+ * Features:
+ * - Optimistic UI updates (instant feedback)
+ * - Quantum shimmer loading states
+ * - Graceful error recovery with rollback
  */
 
-import { useState } from 'react';
-import { CheckCircle, XCircle, RefreshCw, AlertTriangle, Clock, Check, X } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { CheckCircle, XCircle, RefreshCw, AlertTriangle, Clock, Check, X, Undo2 } from 'lucide-react';
 import api from '../lib/api';
 
 interface ActionProposal {
@@ -22,76 +27,163 @@ interface ActionProposalCardProps {
   onStatusChange?: (newStatus: string, result?: any) => void;
 }
 
+type OptimisticState = {
+  status: string;
+  isOptimistic: boolean;
+  previousStatus: string;
+};
+
 export default function ActionProposalCard({ proposal, onStatusChange }: ActionProposalCardProps) {
-  const [status, setStatus] = useState(proposal.status);
+  const [optimisticState, setOptimisticState] = useState<OptimisticState>({
+    status: proposal.status,
+    isOptimistic: false,
+    previousStatus: proposal.status,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const status = optimisticState.status;
   const isApprove = proposal.action_type === 'approve_proposal';
   const actionLabel = isApprove ? 'Duyệt chứng từ' : 'Từ chối chứng từ';
   const actionIcon = isApprove ? CheckCircle : XCircle;
   const ActionIcon = actionIcon;
 
+  // Optimistic update with rollback capability
+  const setOptimisticStatus = useCallback((newStatus: string) => {
+    setOptimisticState(prev => ({
+      status: newStatus,
+      isOptimistic: true,
+      previousStatus: prev.status,
+    }));
+  }, []);
+
+  const rollbackStatus = useCallback(() => {
+    setOptimisticState(prev => ({
+      status: prev.previousStatus,
+      isOptimistic: false,
+      previousStatus: prev.previousStatus,
+    }));
+  }, []);
+
+  const confirmStatus = useCallback((finalStatus: string) => {
+    setOptimisticState({
+      status: finalStatus,
+      isOptimistic: false,
+      previousStatus: finalStatus,
+    });
+  }, []);
+
   const handleConfirm = async () => {
-    setLoading(true);
+    // Optimistic update - show success immediately
+    setOptimisticStatus('executed');
     setError(null);
-    try {
-      const response = await api.confirmAgentAction(proposal.action_id);
-      setStatus('executed');
-      setResult(response.result);
-      onStatusChange?.('executed', response.result);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Không thể thực hiện hành động');
-      setStatus('failed');
-      onStatusChange?.('failed');
-    } finally {
-      setLoading(false);
+    setCanUndo(true);
+
+    // Allow undo for 3 seconds
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
     }
+
+    undoTimeoutRef.current = setTimeout(async () => {
+      setCanUndo(false);
+      setLoading(true);
+      
+      try {
+        const response = await api.confirmAgentAction(proposal.action_id);
+        confirmStatus('executed');
+        setResult(response.result);
+        onStatusChange?.('executed', response.result);
+      } catch (err: any) {
+        // Rollback on error
+        rollbackStatus();
+        setError(err.response?.data?.detail || 'Không thể thực hiện hành động');
+        onStatusChange?.('failed');
+      } finally {
+        setLoading(false);
+      }
+    }, 3000);
+  };
+
+  const handleUndo = () => {
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+    }
+    setCanUndo(false);
+    rollbackStatus();
   };
 
   const handleCancel = async () => {
-    setLoading(true);
+    // Optimistic update
+    setOptimisticStatus('cancelled');
     setError(null);
+    setLoading(true);
+
     try {
       await api.cancelAgentAction(proposal.action_id);
-      setStatus('cancelled');
+      confirmStatus('cancelled');
       onStatusChange?.('cancelled');
     } catch (err: any) {
+      rollbackStatus();
       setError(err.response?.data?.detail || 'Không thể hủy hành động');
     } finally {
       setLoading(false);
     }
   };
 
-  // Already completed states
-  if (loading) {
+  // Quantum Shimmer Loading State
+  if (loading && !optimisticState.isOptimistic) {
     return (
-      <div className="mt-3 p-4 rounded-xl border border-blue-200 bg-blue-50 animate-pulse" aria-busy="true">
+      <div className="mt-3 p-4 rounded-xl border border-blue-200 bg-blue-50 quantum-shimmer" aria-busy="true">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-blue-200" />
+          <div className="w-10 h-10 rounded-full shimmer-element" />
           <div className="flex-1 space-y-2">
-            <div className="h-3 bg-blue-200 rounded w-1/3" />
-            <div className="h-4 bg-blue-200 rounded w-2/3" />
-            <div className="h-3 bg-blue-200 rounded w-1/2" />
+            <div className="h-3 shimmer-element rounded w-1/3" />
+            <div className="h-4 shimmer-element rounded w-2/3" />
+            <div className="h-3 shimmer-element rounded w-1/2" />
           </div>
         </div>
-        <p className="text-xs text-blue-700 mt-3">Đang thực hiện hành động...</p>
+        <p className="text-xs text-blue-700 mt-3 flex items-center gap-2">
+          <span className="quantum-pulse" />
+          Đang thực hiện hành động...
+        </p>
       </div>
     );
   }
 
+  // Executed state (with undo option if optimistic)
   if (status === 'executed') {
     return (
-      <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+      <div className={`mt-3 p-4 border rounded-xl transition-all duration-200 ${
+        optimisticState.isOptimistic 
+          ? 'bg-green-50/80 border-green-300 border-dashed' 
+          : 'bg-green-50 border-green-200'
+      }`}>
         <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+            optimisticState.isOptimistic ? 'bg-green-100 animate-pulse' : 'bg-green-100'
+          }`}>
             <Check className="w-4 h-4 text-green-600" />
           </div>
           <div className="flex-1">
-            <p className="font-medium text-green-800">✅ {actionLabel} - Đã thực hiện</p>
+            <div className="flex items-center justify-between">
+              <p className="font-medium text-green-800">
+                {optimisticState.isOptimistic ? '⏳' : '✅'} {actionLabel} - {optimisticState.isOptimistic ? 'Đang xử lý...' : 'Đã thực hiện'}
+              </p>
+              {canUndo && (
+                <button
+                  onClick={handleUndo}
+                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition-colors"
+                >
+                  <Undo2 className="w-3 h-3" />
+                  Hoàn tác (3s)
+                </button>
+              )}
+            </div>
             <p className="text-sm text-green-700 mt-1">{proposal.description}</p>
-            {result && (
+            {result && !optimisticState.isOptimistic && (
               <p className="text-xs text-green-600 mt-2">
                 {result.message || 'Hành động đã được thực hiện thành công'}
               </p>

@@ -78,3 +78,4 @@ opencv-python-headless==4.9.0.80
 paddlepaddle>=3.0.0
 paddleocr>=2.6.0,<2.8.0
 numpy<2.0
+psutil>=5.9.0
