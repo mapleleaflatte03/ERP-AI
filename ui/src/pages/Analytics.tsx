@@ -156,7 +156,7 @@ function DashboardTab() {
   const { data: kpis, isLoading: kpisLoading } = useQuery({
     queryKey: ['analytics-kpis'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/kpis');
+      const res = await fetch('/v1/analyze/kpis');
       return res.json();
     },
   });
@@ -164,7 +164,7 @@ function DashboardTab() {
   const { data: datasets } = useQuery({
     queryKey: ['analytics-datasets'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/datasets');
+      const res = await fetch('/v1/analyze/datasets');
       return res.json();
     },
   });
@@ -311,14 +311,14 @@ function ExplorerTab() {
   const { data: schema } = useQuery({
     queryKey: ['analytics-schema'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/schema');
+      const res = await fetch('/v1/analyze/schema');
       return res.json();
     },
   });
 
   const queryMutation = useMutation({
     mutationFn: async (sql: string) => {
-      const res = await fetch('/v1/analytics/query', {
+      const res = await fetch('/v1/analyze/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: sql, execute: true }),
@@ -424,7 +424,7 @@ function ForecastTab() {
 
   const forecastMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch('/v1/analytics/forecast', {
+      const res = await fetch('/v1/analyze/forecast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ metric, horizon, model }),
@@ -526,12 +526,14 @@ function ForecastTab() {
 function DatasetsTab() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [selected, setSelected] = useState<Dataset | null>(null);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [showPreview, setShowPreview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['analytics-datasets'],
     queryFn: async () => {
-      const res = await fetch('/v1/analytics/datasets');
+      const res = await fetch('/v1/analyze/datasets');
       return res.json();
     },
   });
@@ -541,14 +543,115 @@ function DatasetsTab() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('name', file.name.replace(/\.[^/.]+$/, ''));
-      const res = await fetch('/v1/analytics/datasets', { method: 'POST', body: formData });
+      const res = await fetch('/v1/analyze/datasets/upload', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error('Upload failed');
       return res.json();
     },
-    onSuccess: () => { setUploadFiles([]); refetch(); },
+    onSuccess: () => { 
+      setUploadFiles([]); 
+      refetch(); 
+      alert('✅ Upload thành công!');
+    },
+    onError: (err) => alert(`❌ Upload thất bại: ${err}`),
   });
+
+  const previewMutation = useMutation({
+    mutationFn: async (datasetId: string) => {
+      const res = await fetch(`/v1/analyze/datasets/${datasetId}/preview?limit=200`);
+      if (!res.ok) throw new Error('Preview failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setPreviewData(data);
+      setShowPreview(true);
+    },
+    onError: (err) => alert(`❌ Preview thất bại: ${err}`),
+  });
+
+  const cleanMutation = useMutation({
+    mutationFn: async (datasetId: string) => {
+      const res = await fetch(`/v1/analyze/datasets/${datasetId}/clean`, { method: 'POST' });
+      if (!res.ok) throw new Error('Clean failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetch();
+      alert(`✅ Clean thành công! Đã xử lý ${data.cleaned_rows} rows (xóa ${data.rows_removed} rows rỗng)`);
+    },
+    onError: (err) => alert(`❌ Clean thất bại: ${err}`),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (datasetId: string) => {
+      const res = await fetch(`/v1/analyze/datasets/${datasetId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      setSelected(null);
+      refetch();
+      alert('✅ Xóa thành công!');
+    },
+    onError: (err) => alert(`❌ Xóa thất bại: ${err}`),
+  });
+
+  const handleExport = async (datasetId: string, name: string) => {
+    try {
+      const res = await fetch(`/v1/analyze/datasets/${datasetId}/export`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`❌ Export thất bại: ${err}`);
+    }
+  };
+
+  // Get dataset ID from data (might be 'id' or need to find by name)
+  const getDatasetId = (ds: Dataset): string => {
+    // Check if data.datasets has id field
+    const found = data?.datasets?.find((d: any) => d.name === ds.name);
+    return found?.id || ds.name;
+  };
 
   return (
     <div className="flex gap-6" style={{ height: 'calc(100vh - 220px)' }}>
+      {/* Preview Modal */}
+      {showPreview && previewData && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowPreview(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="font-bold text-lg">Preview ({previewData.preview_rows} / {previewData.total_rows} rows)</h3>
+              <button onClick={() => setShowPreview(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="overflow-auto max-h-[calc(80vh-80px)]">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    {previewData.columns?.map((col: any, i: number) => (
+                      <th key={i} className="px-4 py-3 text-left font-medium text-gray-700 border-b">{col.name || col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewData.data?.map((row: any, i: number) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      {Object.values(row).map((val: any, j: number) => (
+                        <td key={j} className="px-4 py-2 border-b text-gray-600">{String(val ?? '')}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main */}
       <div className="flex-1 overflow-y-auto">
         {/* Upload */}
@@ -598,9 +701,9 @@ function DatasetsTab() {
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-4">
-            {data?.datasets?.map((ds: Dataset) => (
+            {data?.datasets?.map((ds: any) => (
               <div
-                key={ds.name}
+                key={ds.id || ds.name}
                 onClick={() => setSelected(ds)}
                 className={`bg-white rounded-2xl border p-5 cursor-pointer transition-all hover:shadow-xl hover:border-violet-300 ${selected?.name === ds.name ? 'border-violet-500 ring-2 ring-violet-200' : ''}`}
               >
@@ -608,13 +711,18 @@ function DatasetsTab() {
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
                     <FileSpreadsheet className="w-6 h-6 text-white" />
                   </div>
-                  <button className="p-2 hover:bg-gray-100 rounded-lg"><MoreVertical className="w-4 h-4 text-gray-400" /></button>
+                  <div className="flex items-center gap-1">
+                    {ds.status === 'cleaned' && (
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Cleaned</span>
+                    )}
+                    <button className="p-2 hover:bg-gray-100 rounded-lg"><MoreVertical className="w-4 h-4 text-gray-400" /></button>
+                  </div>
                 </div>
                 <h4 className="font-bold text-gray-900 truncate">{ds.name}</h4>
                 <p className="text-sm text-gray-500 mb-3">{ds.description || 'No description'}</p>
                 <div className="flex gap-4 text-sm">
-                  <span className="flex items-center gap-1 text-gray-600"><Hash className="w-4 h-4 text-gray-400" /> <strong>{formatNumber(ds.row_count)}</strong> rows</span>
-                  <span className="flex items-center gap-1 text-gray-600"><Layers className="w-4 h-4 text-gray-400" /> <strong>{ds.column_count}</strong> cols</span>
+                  <span className="flex items-center gap-1 text-gray-600"><Hash className="w-4 h-4 text-gray-400" /> <strong>{formatNumber(ds.row_count || 0)}</strong> rows</span>
+                  <span className="flex items-center gap-1 text-gray-600"><Layers className="w-4 h-4 text-gray-400" /> <strong>{ds.column_count || 0}</strong> cols</span>
                 </div>
               </div>
             ))}
@@ -633,15 +741,50 @@ function DatasetsTab() {
             <FileSpreadsheet className="w-8 h-8 text-white" />
           </div>
           <h4 className="text-xl font-bold text-gray-900 mb-2">{selected.name}</h4>
-          <p className="text-gray-500 text-sm mb-6">{selected.description}</p>
+          <p className="text-gray-500 text-sm mb-6">{selected.description || 'Không có mô tả'}</p>
           <div className="space-y-3 mb-6">
-            <div className="flex justify-between py-2 border-b"><span className="text-gray-500">Rows</span><span className="font-bold">{formatNumber(selected.row_count)}</span></div>
-            <div className="flex justify-between py-2 border-b"><span className="text-gray-500">Columns</span><span className="font-bold">{selected.column_count}</span></div>
+            <div className="flex justify-between py-2 border-b"><span className="text-gray-500">Rows</span><span className="font-bold">{formatNumber(selected.row_count || 0)}</span></div>
+            <div className="flex justify-between py-2 border-b"><span className="text-gray-500">Columns</span><span className="font-bold">{selected.column_count || 0}</span></div>
+            <div className="flex justify-between py-2 border-b">
+              <span className="text-gray-500">Status</span>
+              <span className={`font-bold ${(selected as any).status === 'cleaned' ? 'text-green-600' : 'text-amber-600'}`}>
+                {(selected as any).status || 'raw'}
+              </span>
+            </div>
           </div>
           <div className="space-y-2">
-            <button className="w-full px-4 py-3 bg-violet-100 text-violet-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-violet-200"><Eye className="w-4 h-4" /> Xem dữ liệu</button>
-            <button className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-200"><Download className="w-4 h-4" /> Export</button>
-            <button className="w-full px-4 py-3 bg-red-50 text-red-600 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-red-100"><Trash2 className="w-4 h-4" /> Xóa</button>
+            <button 
+              onClick={() => previewMutation.mutate(getDatasetId(selected))}
+              disabled={previewMutation.isPending}
+              className="w-full px-4 py-3 bg-violet-100 text-violet-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-violet-200 disabled:opacity-50"
+            >
+              {previewMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} Xem dữ liệu
+            </button>
+            <button 
+              onClick={() => cleanMutation.mutate(getDatasetId(selected))}
+              disabled={cleanMutation.isPending || (selected as any).status === 'cleaned'}
+              className="w-full px-4 py-3 bg-blue-100 text-blue-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-blue-200 disabled:opacity-50"
+            >
+              {cleanMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} 
+              {(selected as any).status === 'cleaned' ? 'Đã Clean' : 'Clean Data'}
+            </button>
+            <button 
+              onClick={() => handleExport(getDatasetId(selected), selected.name)}
+              className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-200"
+            >
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+            <button 
+              onClick={() => {
+                if (confirm(`Xóa dataset "${selected.name}"?`)) {
+                  deleteMutation.mutate(getDatasetId(selected));
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="w-full px-4 py-3 bg-red-50 text-red-600 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-red-100 disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />} Xóa
+            </button>
           </div>
         </div>
       )}

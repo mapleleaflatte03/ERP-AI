@@ -392,6 +392,206 @@ async def delete_dataset(dataset_id: str) -> dict:
         return {"success": True, "message": "Dataset deleted"}
 
 
+@router.get("/datasets/{dataset_id}/preview")
+async def preview_dataset(
+    dataset_id: str,
+    limit: int = Query(200, ge=1, le=1000)
+) -> dict:
+    """Preview dataset rows (up to 200 by default)"""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        # Get dataset metadata
+        row = await conn.fetchrow(
+            "SELECT table_name, columns, row_count FROM datasets WHERE id = $1",
+            dataset_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        table_name = row.get("table_name")
+        if not table_name:
+            raise HTTPException(status_code=400, detail="Dataset not loaded into database")
+        
+        # Fetch preview rows
+        try:
+            data = await conn.fetch(f'SELECT * FROM "{table_name}" LIMIT {limit}')
+            rows = [dict(r) for r in data]
+            return {
+                "dataset_id": dataset_id,
+                "columns": row.get("columns") or [],
+                "total_rows": row.get("row_count", 0),
+                "preview_rows": len(rows),
+                "data": rows
+            }
+        except Exception as e:
+            logger.error(f"Preview query failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to preview: {str(e)}")
+
+
+@router.post("/datasets/{dataset_id}/clean")
+async def clean_dataset(dataset_id: str) -> dict:
+    """Clean dataset: strip whitespace, normalize headers, parse dates, handle nulls"""
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT table_name, columns, status FROM datasets WHERE id = $1",
+            dataset_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        table_name = row.get("table_name")
+        if not table_name:
+            raise HTTPException(status_code=400, detail="Dataset not loaded into database")
+        
+        # Already cleaned?
+        if row.get("status") == "cleaned":
+            return {"success": True, "message": "Dataset already cleaned", "status": "cleaned"}
+        
+        try:
+            # Load into pandas for cleaning
+            import pandas as pd
+            data = await conn.fetch(f'SELECT * FROM "{table_name}"')
+            df = pd.DataFrame([dict(r) for r in data])
+            
+            # Clean operations
+            original_rows = len(df)
+            
+            # 1. Strip whitespace from string columns
+            for col in df.select_dtypes(include=['object']).columns:
+                df[col] = df[col].astype(str).str.strip().replace('nan', None)
+            
+            # 2. Drop all-null rows
+            df = df.dropna(how='all')
+            
+            # 3. Parse datetime candidates
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    try:
+                        parsed = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
+                        if parsed.notna().sum() > len(df) * 0.5:  # >50% valid dates
+                            df[col] = parsed
+                    except:
+                        pass
+            
+            # 4. Numeric coercion for numeric-looking columns
+            for col in df.select_dtypes(include=['object']).columns:
+                try:
+                    numeric = pd.to_numeric(df[col].str.replace(',', ''), errors='coerce')
+                    if numeric.notna().sum() > len(df) * 0.5:
+                        df[col] = numeric
+                except:
+                    pass
+            
+            cleaned_rows = len(df)
+            
+            # Recreate table with cleaned data
+            await conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+            
+            # Create table from cleaned df
+            columns_sql = []
+            for col in df.columns:
+                dtype = df[col].dtype
+                if pd.api.types.is_integer_dtype(dtype):
+                    col_type = "BIGINT"
+                elif pd.api.types.is_float_dtype(dtype):
+                    col_type = "DOUBLE PRECISION"
+                elif pd.api.types.is_datetime64_any_dtype(dtype):
+                    col_type = "TIMESTAMP"
+                else:
+                    col_type = "TEXT"
+                columns_sql.append(f'"{col}" {col_type}')
+            
+            create_sql = f'CREATE TABLE "{table_name}" ({", ".join(columns_sql)})'
+            await conn.execute(create_sql)
+            
+            # Insert cleaned data
+            if len(df) > 0:
+                cols = ', '.join([f'"{c}"' for c in df.columns])
+                placeholders = ', '.join([f'${i+1}' for i in range(len(df.columns))])
+                insert_sql = f'INSERT INTO "{table_name}" ({cols}) VALUES ({placeholders})'
+                
+                for _, row_data in df.iterrows():
+                    values = [
+                        v.isoformat() if hasattr(v, 'isoformat') else (None if pd.isna(v) else v)
+                        for v in row_data.values
+                    ]
+                    await conn.execute(insert_sql, *values)
+            
+            # Update dataset status
+            new_columns = [{"name": c, "type": str(df[c].dtype)} for c in df.columns]
+            await conn.execute(
+                """
+                UPDATE datasets 
+                SET status = 'cleaned', row_count = $2, columns = $3, updated_at = NOW()
+                WHERE id = $1
+                """,
+                dataset_id, cleaned_rows, json.dumps(new_columns)
+            )
+            
+            return {
+                "success": True,
+                "message": "Dataset cleaned successfully",
+                "status": "cleaned",
+                "original_rows": original_rows,
+                "cleaned_rows": cleaned_rows,
+                "rows_removed": original_rows - cleaned_rows
+            }
+            
+        except Exception as e:
+            logger.error(f"Clean failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Clean failed: {str(e)}")
+
+
+@router.get("/datasets/{dataset_id}/export")
+async def export_dataset(dataset_id: str) -> dict:
+    """Export dataset as downloadable CSV"""
+    from fastapi.responses import StreamingResponse
+    
+    pool = await get_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT table_name, name FROM datasets WHERE id = $1",
+            dataset_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        table_name = row.get("table_name")
+        if not table_name:
+            raise HTTPException(status_code=400, detail="Dataset not loaded into database")
+        
+        try:
+            import pandas as pd
+            data = await conn.fetch(f'SELECT * FROM "{table_name}"')
+            df = pd.DataFrame([dict(r) for r in data])
+            
+            # Convert to CSV
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_buffer.seek(0)
+            
+            filename = f"{row.get('name', 'dataset')}_{dataset_id[:8]}.csv"
+            
+            return StreamingResponse(
+                iter([csv_buffer.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
 # =============================================================================
 # NL2SQL Query (unified across datasets and extracted_invoices)
 # =============================================================================
