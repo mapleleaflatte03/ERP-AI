@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
-  Filter,
   Search,
   ArrowLeft,
   FileCheck,
@@ -16,9 +15,12 @@ import {
   Upload,
   Brain,
   Bookmark,
+  Shield,
+  Activity,
 } from 'lucide-react';
 import api from '../lib/api';
 import type { EvidenceEvent } from '../types';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 
 const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -98,7 +100,7 @@ function EventCard({ event }: { event: EvidenceEvent }) {
   const label = ACTION_LABELS[event.action] || event.action;
 
   return (
-    <div className="flex gap-4 p-4 bg-white rounded-lg border hover:shadow-sm transition-shadow">
+    <div className="quantum-card flex gap-4 p-4 hover:shadow-sm transition-shadow">
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center border ${colorClass}`}>
         <Icon className="w-5 h-5" />
       </div>
@@ -191,80 +193,122 @@ export default function Evidence() {
 
   return (
     <div className="space-y-6">
-      {/* ... Header ... */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      {/* Quantum Header */}
+      <div className="quantum-header">
+        <div className="flex items-center gap-4">
           {documentId && (
             <button
               onClick={() => navigate(-1)}
-              className="p-2 rounded-lg hover:bg-gray-100"
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
+          <div className="quantum-header__icon">
+            <Shield className="w-6 h-6" />
+          </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {documentId ? `Lịch sử chứng từ: ${documentId}` : 'Nhật ký hoạt động'}
+            <h1 className="quantum-header__title">
+              {documentId ? `Lịch sử: ${documentId.slice(0, 8)}...` : 'Nhật ký hoạt động'}
             </h1>
-            <p className="text-gray-500 text-sm mt-1">
-              {documentId ? 'Timeline đầy đủ các sự kiện' : 'Hoạt động gần đây trong hệ thống'}
+            <p className="quantum-header__subtitle">
+              {documentId ? 'Timeline đầy đủ các sự kiện' : 'Audit trail & Evidence store'}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          {/* Export buttons... */}
-        </div>
       </div>
 
-      {/* Filters ... */}
+      {/* Quantum Tabs / Filters */}
+      <div className="quantum-tabs">
+        <button
+          onClick={() => setFilterAction('all')}
+          className={`quantum-tab ${filterAction === 'all' ? 'quantum-tab--active' : ''}`}
+        >
+          <Activity className="w-4 h-4" />
+          Tất cả
+        </button>
+        <button
+          onClick={() => setFilterAction('document.uploaded')}
+          className={`quantum-tab ${filterAction === 'document.uploaded' ? 'quantum-tab--active' : ''}`}
+        >
+          <Upload className="w-4 h-4" />
+          Tải lên
+        </button>
+        <button
+          onClick={() => setFilterAction('journal.proposed')}
+          className={`quantum-tab ${filterAction === 'journal.proposed' ? 'quantum-tab--active' : ''}`}
+        >
+          <Edit3 className="w-4 h-4" />
+          Đề xuất
+        </button>
+        <button
+          onClick={() => setFilterAction('journal.approved')}
+          className={`quantum-tab ${filterAction === 'journal.approved' ? 'quantum-tab--active' : ''}`}
+        >
+          <CheckCircle2 className="w-4 h-4" />
+          Duyệt
+        </button>
+        <button
+          onClick={() => setFilterAction('journal.rejected')}
+          className={`quantum-tab ${filterAction === 'journal.rejected' ? 'quantum-tab--active' : ''}`}
+        >
+          <XCircle className="w-4 h-4" />
+          Từ chối
+        </button>
+      </div>
+
+      {/* Search */}
       <div className="flex gap-4 items-center">
-        {/* ... Search ... */}
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
             placeholder="Tìm kiếm theo hành động, người dùng, mã chứng từ..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
           />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-400" />
-          <select
-            value={filterAction}
-            onChange={e => setFilterAction(e.target.value)}
-            className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">Tất cả hành động</option>
-            <option value="document.uploaded">Tải lên</option>
-            <option value="extraction.completed">Trích xuất</option>
-            <option value="journal.proposed">Đề xuất</option>
-            <option value="journal.approved">Duyệt</option>
-            <option value="journal.rejected">Từ chối</option>
-            <option value="document.posted">Ghi sổ</option>
-          </select>
         </div>
       </div>
 
-      {/* Stats Summary */}
+      {/* Quantum Stats Summary */}
       {!documentId && (
-        <div className="grid grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-gray-900">{metrics.total_documents || 0}</div>
-            <div className="text-sm text-gray-500">Tổng chứng từ</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="quantum-stat">
+            <div className="quantum-stat__icon quantum-stat__icon--primary">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="quantum-stat__value">{metrics.total_documents || 0}</div>
+              <div className="quantum-stat__label">Tổng chứng từ</div>
+            </div>
           </div>
-          <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-green-600">{metrics.approved_documents || 0}</div>
-            <div className="text-sm text-gray-500">Đã duyệt</div>
+          <div className="quantum-stat">
+            <div className="quantum-stat__icon quantum-stat__icon--success">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="quantum-stat__value">{metrics.approved_documents || 0}</div>
+              <div className="quantum-stat__label">Đã duyệt</div>
+            </div>
           </div>
-          <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-amber-600">{metrics.pending_documents || 0}</div>
-            <div className="text-sm text-gray-500">Đang xử lý</div>
+          <div className="quantum-stat">
+            <div className="quantum-stat__icon quantum-stat__icon--warning">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="quantum-stat__value">{metrics.pending_documents || 0}</div>
+              <div className="quantum-stat__label">Đang xử lý</div>
+            </div>
           </div>
-          <div className="bg-white p-4 rounded-xl border">
-            <div className="text-2xl font-bold text-red-600">{metrics.rejected_documents || 0}</div>
-            <div className="text-sm text-gray-500">Từ chối</div>
+          <div className="quantum-stat">
+            <div className="quantum-stat__icon quantum-stat__icon--danger">
+              <XCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="quantum-stat__value">{metrics.rejected_documents || 0}</div>
+              <div className="quantum-stat__label">Từ chối</div>
+            </div>
           </div>
         </div>
       )}
@@ -272,14 +316,15 @@ export default function Evidence() {
       {/* Timeline */}
       <div className="space-y-3">
         {isLoading ? (
-          <div className="text-center py-12 bg-white rounded-xl border">
+          <div className="quantum-card text-center py-12">
             <Clock className="w-12 h-12 mx-auto text-gray-300 mb-4 animate-pulse" />
             <p className="text-gray-500">Đang tải dữ liệu...</p>
           </div>
         ) : filteredEvents.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-xl border">
-            <Clock className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500">Chưa có hoạt động nào</p>
+          <div className="quantum-card text-center py-12">
+            <Shield className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+            <p className="text-gray-500 font-medium">Chưa có hoạt động nào</p>
+            <p className="text-gray-400 text-sm mt-1">Các sự kiện sẽ hiển thị tại đây</p>
           </div>
         ) : (
           filteredEvents.map(event => (
@@ -291,11 +336,14 @@ export default function Evidence() {
       {/* Load More */}
       {filteredEvents.length > 0 && (
         <div className="text-center">
-          <button className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800">
+          <button className="px-4 py-2 text-sm text-teal-600 hover:text-teal-800 font-medium">
             Xem thêm hoạt động cũ hơn
           </button>
         </div>
       )}
+
+      {/* Module Chat Dock */}
+      <ModuleChatDock module="evidence" />
     </div>
   );
 }

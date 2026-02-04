@@ -1,17 +1,15 @@
 /**
  * Analytics Module v3.0 - Complete Redesign
  * Modern AI-powered financial analysis dashboard
+ * Note: Chat functionality is provided by ModuleChatDock component
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
-  MessageSquare,
   Database,
-  BarChart3,
   TrendingUp,
   FileSpreadsheet,
-  Send,
   Play,
   Sparkles,
   ArrowUp,
@@ -22,15 +20,12 @@ import {
   Users,
   DollarSign,
   FileText,
-  Bot,
-  User,
   Download,
   Eye,
   Trash2,
   LayoutDashboard,
   Activity,
   Zap,
-  CheckCircle2,
   Loader2,
   Hash,
   Layers,
@@ -40,15 +35,6 @@ import {
 import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 // Types
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp?: string;
-  toolCalls?: any[];
-  toolResults?: any[];
-  visualizations?: any[];
-}
-
 interface Dataset {
   name: string;
   row_count: number;
@@ -57,7 +43,7 @@ interface Dataset {
   description?: string;
 }
 
-type TabType = 'dashboard' | 'chat' | 'explorer' | 'forecast' | 'datasets';
+type TabType = 'dashboard' | 'explorer' | 'forecast' | 'datasets';
 
 const formatNumber = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -77,7 +63,6 @@ export default function Analytics() {
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'chat', label: 'AI Chat', icon: MessageSquare },
     { id: 'explorer', label: 'Explorer', icon: Database },
     { id: 'forecast', label: 'Dự báo', icon: TrendingUp },
     { id: 'datasets', label: 'Datasets', icon: FileSpreadsheet },
@@ -137,7 +122,6 @@ export default function Analytics() {
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 py-6">
         {activeTab === 'dashboard' && <DashboardTab />}
-        {activeTab === 'chat' && <ChatTab />}
         {activeTab === 'explorer' && <ExplorerTab />}
         {activeTab === 'forecast' && <ForecastTab />}
         {activeTab === 'datasets' && <DatasetsTab />}
@@ -265,7 +249,7 @@ function DashboardTab() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
         <div className="relative flex items-center gap-6">
           <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-            <Bot className="w-8 h-8 text-white" />
+            <Sparkles className="w-8 h-8 text-white" />
           </div>
           <div className="flex-1">
             <h3 className="text-xl font-bold text-white mb-1">Hỏi AI bất cứ điều gì</h3>
@@ -313,210 +297,6 @@ function KPICard({ label, value, icon: Icon, color, change, loading }: any) {
           {typeof value === 'number' && value > 10000 ? formatCurrency(value) : formatNumber(value)}
         </p>
       )}
-    </div>
-  );
-}
-
-// ============================================================
-// CHAT TAB
-// ============================================================
-function ChatTab() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const chatMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await fetch('/v1/analytics/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, session_id: sessionId }),
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setSessionId(data.session_id);
-      setMessages((prev) => [...prev, {
-        role: 'assistant',
-        content: data.message,
-        toolCalls: data.tool_calls,
-        toolResults: data.tool_results,
-        timestamp: new Date().toISOString(),
-      }]);
-    },
-  });
-
-  const handleSend = () => {
-    if (!input.trim() || chatMutation.isPending) return;
-    setMessages((prev) => [...prev, { role: 'user', content: input, timestamp: new Date().toISOString() }]);
-    chatMutation.mutate(input);
-    setInput('');
-  };
-
-  const suggestions = [
-    'Liệt kê tất cả datasets',
-    'Phân tích FPT Stock Data',
-    'Thống kê dữ liệu MSN',
-    'Dự báo xu hướng giá',
-  ];
-
-  return (
-    <div className="bg-white rounded-3xl border border-gray-200/50 shadow-xl shadow-gray-200/50 overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
-      <div className="h-full flex flex-col">
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center">
-              <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mb-6 shadow-2xl shadow-violet-500/40">
-                <Bot className="w-12 h-12 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Xin chào! Tôi là AI Assistant</h2>
-              <p className="text-gray-500 mb-8 text-center max-w-md">
-                Tôi có thể giúp bạn phân tích dữ liệu, tạo báo cáo, và trả lời mọi câu hỏi về datasets của bạn.
-              </p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setInput(s)}
-                    className="px-4 py-2 bg-gray-100 hover:bg-violet-100 hover:text-violet-700 rounded-full text-sm transition-all"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6 max-w-3xl mx-auto">
-              {messages.map((msg, i) => (
-                <MessageBubble key={i} message={msg} />
-              ))}
-              {chatMutation.isPending && (
-                <div className="flex gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="bg-gray-100 rounded-2xl px-4 py-3 flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-violet-600" />
-                    <span className="text-gray-600">Đang xử lý...</span>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-
-        {/* Input */}
-        <div className="border-t bg-gray-50/50 p-4">
-          <div className="max-w-3xl mx-auto flex gap-3">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Hỏi về dữ liệu của bạn..."
-              className="flex-1 px-5 py-3.5 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || chatMutation.isPending}
-              className="px-6 py-3.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-2xl font-semibold hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-violet-500/30 flex items-center gap-2"
-            >
-              {chatMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.role === 'user';
-
-  return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-        isUser ? 'bg-gray-200' : 'bg-gradient-to-br from-violet-500 to-purple-600'
-      }`}>
-        {isUser ? <User className="w-5 h-5 text-gray-600" /> : <Bot className="w-5 h-5 text-white" />}
-      </div>
-      <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
-        <div className={`inline-block rounded-2xl px-4 py-3 ${
-          isUser ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white' : 'bg-gray-100 text-gray-900'
-        }`}>
-          <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-        </div>
-        
-        {/* Tool Results */}
-        {message.toolResults?.map((tr: any, i: number) => (
-          <ToolResultCard key={i} toolResult={tr} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ToolResultCard({ toolResult }: { toolResult: any }) {
-  const { tool, result } = toolResult;
-
-  if (tool === 'list_datasets' && result?.datasets) {
-    return (
-      <div className="mt-3 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm text-left">
-        <div className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-700">
-          <Database className="w-4 h-4 text-violet-600" />
-          <span>Datasets ({result.count})</span>
-        </div>
-        <div className="space-y-2">
-          {result.datasets.map((ds: any) => (
-            <div key={ds.name} className="flex items-center justify-between p-2.5 bg-gray-50 rounded-xl">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-gray-400" />
-                <span className="font-medium text-gray-900">{ds.name}</span>
-              </div>
-              <span className="font-bold text-violet-600">{formatNumber(ds.rows || ds.row_count)} rows</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (tool === 'describe_dataset' && result?.statistics) {
-    return (
-      <div className="mt-3 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm text-left">
-        <div className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-700">
-          <BarChart3 className="w-4 h-4 text-emerald-600" />
-          <span>Thống kê: {result.dataset}</span>
-          <span className="ml-auto text-xs text-gray-500">{result.shape?.rows} × {result.shape?.columns}</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(result.statistics).slice(0, 6).map(([col, stats]: [string, any]) => (
-            <div key={col} className="p-2 bg-gray-50 rounded-lg">
-              <p className="font-medium text-gray-900 text-sm truncate">{col}</p>
-              <p className="text-xs text-gray-500">{stats.dtype} {stats.mean ? `• μ=${stats.mean.toFixed(2)}` : ''}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm text-left">
-      <div className="flex items-center gap-2 mb-2 text-sm font-medium text-gray-700">
-        <Zap className="w-4 h-4 text-amber-600" />
-        <span>{tool}</span>
-        {result?.success && <CheckCircle2 className="w-4 h-4 text-green-500 ml-auto" />}
-      </div>
-      <pre className="text-xs text-gray-600 overflow-auto max-h-32 bg-gray-50 rounded-lg p-2">
-        {JSON.stringify(result, null, 2)}
-      </pre>
     </div>
   );
 }
