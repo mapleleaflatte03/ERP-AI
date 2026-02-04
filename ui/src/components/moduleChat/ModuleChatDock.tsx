@@ -204,25 +204,7 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
   ]);
   const [input, setInput] = useState('');
 
-  // Agent state for UX feedback
-  type AgentState = 'idle' | 'thinking' | 'proposing' | 'waiting_confirm';
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_agentState, _setAgentState] = useState<AgentState>('idle');
-
-  // Check if there are any pending proposals
-  const hasPendingProposals = messages.some(m => 
-    m.action_proposals?.some(p => p.status === 'proposed' && p.requires_confirmation)
-  );
-
-  // Update agent state based on conditions
-  const getAgentState = (): AgentState => {
-    if (chatMutation.isPending) return 'thinking';
-    if (hasPendingProposals) return 'waiting_confirm';
-    return 'idle';
-  };
-
-  const currentAgentState = getAgentState();
-
+  // Chat mutation - must be defined before getAgentState uses it
   const chatMutation = useMutation({
     mutationFn: (variables: { message: string; context: Record<string, any> }) =>
       api.sendCopilotMessage(variables.message, variables.context),
@@ -254,6 +236,21 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
       setMessages((prev) => [...prev, errorMessage]);
     },
   });
+
+  // Agent state for UX feedback
+  type AgentState = 'idle' | 'thinking' | 'waiting_confirm';
+
+  // Check if there are any pending proposals
+  const hasPendingProposals = messages.some(m => 
+    m.action_proposals?.some(p => p.status === 'proposed' && p.requires_confirmation)
+  );
+
+  // Get current agent state based on conditions
+  const currentAgentState: AgentState = chatMutation.isPending 
+    ? 'thinking' 
+    : hasPendingProposals 
+      ? 'waiting_confirm' 
+      : 'idle';
 
   const handleSend = () => {
     if (!input.trim() || chatMutation.isPending) return;
@@ -383,7 +380,6 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
               <span className={`agent-state agent-state--${currentAgentState}`}>
                 {currentAgentState === 'idle' && 'Sẵn sàng'}
                 {currentAgentState === 'thinking' && 'Đang xử lý...'}
-                {currentAgentState === 'proposing' && 'Đề xuất'}
                 {currentAgentState === 'waiting_confirm' && 'Chờ xác nhận'}
               </span>
             </div>
