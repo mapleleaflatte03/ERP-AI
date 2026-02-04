@@ -256,8 +256,8 @@ export default function ProposalsInbox() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span>Độ tin cậy: {Math.round(proposal.ai_confidence * 100)}%</span>
-                      {!proposal.is_balanced && (
+                      <span>Độ tin cậy: {Math.round((proposal.ai_confidence ?? 0) * 100)}%</span>
+                      {proposal.is_balanced === false && (
                         <span className="text-red-500 flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3" />
                           Chưa cân
@@ -349,8 +349,8 @@ export default function ProposalsInbox() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {selectedProposal.entries.length > 0 ? (
-                          selectedProposal.entries.map((entry, idx) => (
+                        {(selectedProposal.entries?.length ?? 0) > 0 ? (
+                          (selectedProposal.entries || []).map((entry, idx) => (
                             <tr key={idx} className="hover:bg-gray-50">
                               <td className="px-4 py-3">
                                 <div className="font-medium">{entry.account_code}</div>

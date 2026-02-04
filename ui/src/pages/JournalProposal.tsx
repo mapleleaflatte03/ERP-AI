@@ -72,8 +72,8 @@ export default function JournalProposalPage() {
     );
   }
 
-  const isBalanced = Math.abs(proposal.total_debit - proposal.total_credit) < 0.01;
-  const canSubmit = isBalanced && proposal.entries.length > 0 && 
+  const isBalanced = Math.abs((proposal.total_debit ?? 0) - (proposal.total_credit ?? 0)) < 0.01;
+  const canSubmit = isBalanced && (proposal.entries?.length ?? 0) > 0 && 
     !['pending_approval', 'approved', 'posted'].includes(doc.status);
 
   return (
@@ -173,7 +173,7 @@ export default function JournalProposalPage() {
       <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Định khoản</h2>
-          <span className="text-sm text-gray-500">{proposal.entries.length} dòng</span>
+          <span className="text-sm text-gray-500">{proposal.entries?.length ?? 0} dòng</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -190,7 +190,7 @@ export default function JournalProposalPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {proposal.entries.map((entry: JournalEntryLine, idx: number) => (
+              {(proposal.entries || []).map((entry: JournalEntryLine, idx: number) => (
                 <tr key={entry.id || idx} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-500">{idx + 1}</td>
                   <td className="px-4 py-3">
