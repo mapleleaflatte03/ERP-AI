@@ -32,6 +32,9 @@ from pydantic import BaseModel, Field
 # Add project root
 sys.path.insert(0, "/root/erp-ai")
 
+# Import version constant
+from core.constants import API_VERSION
+
 # Import config and storage for health check
 # Import middleware and logging config
 from src.api.auth import get_current_user, get_optional_user, User
@@ -1884,7 +1887,7 @@ def setup_otel_instrumentation(app: FastAPI):
         resource = Resource.create(
             {
                 "service.name": core_config.OTEL_SERVICE_NAME,
-                "service.version": "1.0.0",
+                "service.version": API_VERSION,
             }
         )
 
@@ -1953,7 +1956,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="ERPX AI Accounting API",
         description="AI-powered accounting document processing",
-        version="1.0.0",
+        version=API_VERSION,
         lifespan=lifespan,
     )
 
@@ -2087,7 +2090,7 @@ async def health_check():
 
     return HealthResponse(
         status=overall_status,
-        version="1.0.0",
+        version=API_VERSION,
         timestamp=datetime.utcnow().isoformat() + "Z",
         services=services,
     )
@@ -2112,16 +2115,16 @@ async def metrics():
     Returns basic application metrics in Prometheus format.
     """
     # Basic metrics - can be extended with prometheus_client library
-    metrics_text = """# HELP erpx_api_info API information
+    metrics_text = f"""# HELP erpx_api_info API information
 # TYPE erpx_api_info gauge
-erpx_api_info{version="1.0.0"} 1
+erpx_api_info{{version="{API_VERSION}"}} 1
 # HELP erpx_api_up API is up
 # TYPE erpx_api_up gauge
 erpx_api_up 1
 # HELP erpx_jobs_total Total jobs in memory store
 # TYPE erpx_jobs_total gauge
-erpx_jobs_total %d
-""" % len(job_store.jobs)
+erpx_jobs_total {len(job_store.jobs)}
+"""
     from fastapi.responses import PlainTextResponse
 
     return PlainTextResponse(content=metrics_text, media_type="text/plain; charset=utf-8")
