@@ -32,7 +32,7 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; }
 IMAGE_TAG="${IMAGE_TAG:-main}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 REPO="${REPO:-mapleleaflatte03/erp-ai}"
-DEPLOY_DIR="${DEPLOY_DIR:-/opt/erp-ai}"
+DEPLOY_DIR="${DEPLOY_DIR:-/root/erp-ai}"
 COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.yml"
 
 # Derived

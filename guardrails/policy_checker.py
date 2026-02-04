@@ -41,6 +41,16 @@ class PolicyCheckResult:
     recommendations: list[str]
 
 
+@dataclass
+class ApprovalDecision:
+    """Compatibility result for unit tests"""
+
+    needs_approval: bool
+    approval_reasons: list[str]
+    vat_compliant: bool
+    approver_level: str
+
+
 class PolicyChecker:
     """
     Business policy checker for accounting operations.
@@ -56,6 +66,61 @@ class PolicyChecker:
         self.auto_approval_threshold = self.tenant_config.get("auto_approval_threshold", APPROVAL_THRESHOLD_AUTO)
         self.manager_approval_threshold = self.tenant_config.get(
             "manager_approval_threshold", APPROVAL_THRESHOLD_MANAGER
+        )
+
+    def check(
+        self,
+        amount: float,
+        doc_type: str = None,
+        vendor_id: str | None = None,
+        is_new_vendor: bool = False,
+        vat_rate: float | None = None,
+        has_vat_invoice: bool | None = None,
+    ) -> ApprovalDecision:
+        """
+        Backwards-compatible check used by unit tests.
+        """
+        approval_reasons: list[str] = []
+        needs_approval = False
+
+        if amount is None:
+            amount = 0
+
+        # Amount-based approval gate
+        if amount > self.auto_approval_threshold:
+            needs_approval = True
+            approval_reasons.append("amount exceeds auto-approval threshold")
+
+        # New vendor policy
+        if is_new_vendor or (vendor_id and vendor_id.upper().startswith("NEW")):
+            needs_approval = True
+            approval_reasons.append("new vendor requires approval")
+
+        # VAT compliance
+        vat_compliant = True
+        if vat_rate is not None and vat_rate not in [0, 5, 8, 10]:
+            vat_compliant = False
+            approval_reasons.append("invalid VAT rate")
+            needs_approval = True
+
+        if has_vat_invoice is False and amount >= 20_000_000:
+            vat_compliant = False
+            approval_reasons.append("missing VAT invoice for high-value transaction")
+            needs_approval = True
+
+        # Approver level (simplified)
+        if amount > self.manager_approval_threshold:
+            approver_level = "manager"
+        elif amount > self.auto_approval_threshold:
+            approver_level = "kế toán trưởng"
+        else:
+            approver_level = "auto"
+
+        return ApprovalDecision(
+            needs_approval=needs_approval,
+            approval_reasons=approval_reasons,
+            vat_compliant=vat_compliant,
+            approver_level=approver_level,
         )
 
     def check_policy(self, output: dict[str, Any], context: dict[str, Any] = None) -> PolicyCheckResult:

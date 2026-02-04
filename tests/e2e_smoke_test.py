@@ -25,6 +25,7 @@ from datetime import datetime
 
 import asyncpg
 import httpx
+import pytest
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -50,6 +51,10 @@ POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@localhos
 DO_AGENT_URL = os.getenv("DO_AGENT_URL", "https://gdfyu2bkvuq4idxkb6x2xkpe.agents.do-ai.run")
 DO_AGENT_API_KEY = os.getenv("DO_AGENT_API_KEY", "")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "do_agent")
+
+# Skip strict E2E in local/default runs unless explicitly enabled
+RUN_E2E = os.getenv("RUN_E2E", "").lower() in ("1", "true", "yes")
+pytestmark = pytest.mark.skipif(not RUN_E2E, reason="Set RUN_E2E=1 to run strict E2E smoke tests")
 
 # Required collections with minimum points
 REQUIRED_COLLECTIONS = {

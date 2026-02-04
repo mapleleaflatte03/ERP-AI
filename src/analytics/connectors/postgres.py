@@ -123,11 +123,14 @@ class PostgresConnector(BaseConnector):
                 )
         
         try:
+            timeout_ms = int(get_config().query_timeout_seconds * 1000)
             async with self._pool.acquire() as conn:
-                if params:
-                    rows = await conn.fetch(sql, *params)
-                else:
-                    rows = await conn.fetch(sql)
+                async with conn.transaction():
+                    await conn.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+                    if params:
+                        rows = await conn.fetch(sql, *params)
+                    else:
+                        rows = await conn.fetch(sql)
                 
                 execution_time = (time.time() - start_time) * 1000
                 

@@ -22,6 +22,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -36,6 +37,10 @@ KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://localhost:8180")
 KONG_URL = os.getenv("KONG_URL", "http://localhost:8080")
 TEMPORAL_URL = os.getenv("TEMPORAL_URL", "http://localhost:8088")
 POSTGRES_URL = os.getenv("DATABASE_URL", "postgresql://erpx:erpx_secret@localhost:5432/erpx")
+
+# Skip strict E2E in local/default runs unless explicitly enabled
+RUN_E2E = os.getenv("RUN_E2E", "").lower() in ("1", "true", "yes")
+pytestmark = pytest.mark.skipif(not RUN_E2E, reason="Set RUN_E2E=1 to run strict E2E business flow tests")
 
 # =============================================================================
 # Test Results Tracker

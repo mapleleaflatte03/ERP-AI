@@ -1,29 +1,117 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Fraunces:wght@500;700&display=swap");
 
 :root {
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 47.4% 11.2%;
-  --radius: 0.5rem;
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Fraunces", "Times New Roman", serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+
+  --radius-1: 8px;
+  --radius-2: 14px;
+  --radius-3: 20px;
+
+  --motion-duration: 190ms;
+  --motion-ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+
+  --surface-1: #f7f8fb;
+  --surface-2: #ffffff;
+  --surface-3: #eef2f7;
+  --text-1: #0f172a;
+  --text-2: #475569;
+  --border-1: #e2e8f0;
+  --accent-1: #0ea5a0;
+  --accent-2: #14b8a6;
+  --accent-contrast: #ffffff;
+  --danger-1: #ef4444;
+  --danger-2: #f97316;
+
+  --shadow-1: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --shadow-2: 0 20px 60px rgba(15, 23, 42, 0.18);
+
+  --page-gradient: radial-gradient(circle at 20% 20%, rgba(14, 165, 160, 0.12), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(249, 115, 22, 0.08), transparent 40%),
+    linear-gradient(140deg, #f8fafc 0%, #f1f5f9 100%);
+  --header-gradient: linear-gradient(135deg, rgba(14, 165, 160, 0.16), rgba(56, 189, 248, 0.12));
+}
+
+[data-theme="dark"] {
+  --surface-1: #0b1220;
+  --surface-2: #121a2b;
+  --surface-3: #1c2436;
+  --text-1: #e2e8f0;
+  --text-2: #94a3b8;
+  --border-1: #233044;
+  --accent-1: #2dd4bf;
+  --accent-2: #38bdf8;
+  --accent-contrast: #0b1220;
+  --danger-1: #f97316;
+  --danger-2: #fb7185;
+  --shadow-1: 0 16px 40px rgba(2, 6, 23, 0.5);
+  --shadow-2: 0 20px 60px rgba(2, 6, 23, 0.6);
+  --page-gradient: radial-gradient(circle at 15% 20%, rgba(45, 212, 191, 0.14), transparent 45%),
+    radial-gradient(circle at 80% 5%, rgba(56, 189, 248, 0.12), transparent 40%),
+    linear-gradient(140deg, #0f172a 0%, #0b1220 100%);
+  --header-gradient: linear-gradient(135deg, rgba(45, 212, 191, 0.18), rgba(56, 189, 248, 0.16));
+}
+
+[data-density="compact"] {
+  --space-2: 6px;
+  --space-3: 10px;
+  --space-4: 14px;
+}
+
+[data-density="comfortable"] {
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+}
+
+[data-density="spacious"] {
+  --space-2: 10px;
+  --space-3: 14px;
+  --space-4: 18px;
+}
+
+[data-motion="reduced"] {
+  --motion-duration: 1ms;
+  --motion-ease: linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 1ms;
+    --motion-ease: linear;
+  }
 }
 
 * {
-  border-color: hsl(var(--border));
+  border-color: var(--border-1);
+}
+
+html {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
-  @apply bg-gray-50 text-gray-900;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  background: var(--page-gradient);
+  color: var(--text-1);
+  transition: background var(--motion-duration) var(--motion-ease),
+    color var(--motion-duration) var(--motion-ease);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
 /* Custom scrollbar */
@@ -42,4 +130,717 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-400;
+}
+
+/* Module Chat Dock */
+.module-chat-dock {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-1);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  transition: box-shadow var(--motion-duration) var(--motion-ease);
+  min-width: 320px;
+  min-height: 200px;
+  flex-shrink: 0;
+}
+
+.module-chat-dock.is-minimized {
+  min-height: auto;
+  height: auto !important;
+}
+
+.module-chat-dock.is-expanded {
+  box-shadow: var(--shadow-2);
+}
+
+.module-chat-header {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--header-gradient);
+  cursor: grab;
+  user-select: none;
+}
+
+.module-chat-header:active {
+  cursor: grabbing;
+}
+
+.module-chat-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-1);
+  color: var(--accent-contrast);
+}
+
+.module-chat-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.module-chat-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+
+.module-chat-control {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.6);
+  transition: transform var(--motion-duration) var(--motion-ease),
+    background var(--motion-duration) var(--motion-ease);
+}
+
+[data-theme="dark"] .module-chat-control {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.module-chat-control:hover {
+  transform: translateY(-1px);
+}
+
+.module-chat-body {
+  flex: 1;
+  padding: var(--space-4);
+  background: var(--surface-1);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.module-chat-message {
+  display: flex;
+  flex-direction: column;
+}
+
+.module-chat-message.user {
+  align-items: flex-end;
+}
+
+.module-chat-message .module-chat-bubble {
+  max-width: 80%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-3);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.module-chat-message.user .module-chat-bubble {
+  background: var(--accent-1);
+  color: var(--accent-contrast);
+}
+
+.module-chat-proposals {
+  margin-top: var(--space-2);
+}
+
+.module-chat-input {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-1);
+  display: flex;
+  gap: var(--space-2);
+  background: var(--surface-2);
+}
+
+.module-chat-input input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-1);
+  border: 1px solid var(--border-1);
+  background: var(--surface-2);
+  color: var(--text-1);
+  outline: none;
+}
+
+.module-chat-input button {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-1);
+  background: var(--accent-1);
+  color: var(--accent-contrast);
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+.module-chat-input button:disabled {
+  opacity: 0.6;
+}
+
+.module-chat-input button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.module-chat-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  color: white;
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), 
+              box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.module-chat-fab:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+}
+
+.module-chat-fab:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* =============================================================================
+   Quantum Shimmer & Loading States
+   ============================================================================= */
+
+/* Quantum shimmer effect - replaces traditional spinners */
+@keyframes quantum-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.quantum-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-element {
+  background: linear-gradient(
+    90deg,
+    rgba(14, 165, 160, 0.1) 0%,
+    rgba(14, 165, 160, 0.25) 20%,
+    rgba(56, 189, 248, 0.3) 50%,
+    rgba(14, 165, 160, 0.25) 80%,
+    rgba(14, 165, 160, 0.1) 100%
+  );
+  background-size: 200% 100%;
+  animation: quantum-shimmer 1.8s var(--motion-ease) infinite;
+}
+
+[data-theme="dark"] .shimmer-element {
+  background: linear-gradient(
+    90deg,
+    rgba(45, 212, 191, 0.1) 0%,
+    rgba(45, 212, 191, 0.2) 20%,
+    rgba(56, 189, 248, 0.25) 50%,
+    rgba(45, 212, 191, 0.2) 80%,
+    rgba(45, 212, 191, 0.1) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Quantum pulse indicator */
+@keyframes quantum-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.quantum-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  animation: quantum-pulse 1.5s var(--motion-ease) infinite;
+}
+
+/* Optimistic state styles */
+.optimistic-pending {
+  position: relative;
+}
+
+.optimistic-pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(14, 165, 160, 0.1) 50%,
+    transparent 70%
+  );
+  background-size: 200% 200%;
+  animation: quantum-shimmer 2s linear infinite;
+  pointer-events: none;
+}
+
+/* Skeleton loading for cards */
+.skeleton-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-4);
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: quantum-shimmer 1.5s var(--motion-ease) infinite;
+}
+
+[data-theme="dark"] .skeleton-line::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .quantum-shimmer,
+  .shimmer-element,
+  .quantum-pulse,
+  .optimistic-pending::after,
+  .skeleton-line::after {
+    animation: none;
+  }
+  
+  .quantum-pulse {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+[data-motion="reduced"] .quantum-shimmer,
+[data-motion="reduced"] .shimmer-element,
+[data-motion="reduced"] .quantum-pulse,
+[data-motion="reduced"] .optimistic-pending::after,
+[data-motion="reduced"] .skeleton-line::after {
+  animation: none;
+}
+
+/* =============================================================================
+   Agent State Machine - Visual Feedback
+   ============================================================================= */
+
+/* Agent states: idle, thinking, proposing, waiting_confirm */
+.agent-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-state--idle {
+  background: rgba(100, 116, 139, 0.1);
+  color: #64748b;
+}
+
+.agent-state--thinking {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  color: #6366f1;
+}
+
+.agent-state--thinking::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: quantum-pulse 1s ease-in-out infinite;
+}
+
+.agent-state--proposing {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(52, 211, 153, 0.15));
+  color: #10b981;
+}
+
+.agent-state--proposing::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: quantum-pulse 0.8s ease-in-out infinite;
+}
+
+.agent-state--waiting {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(251, 191, 36, 0.15));
+  color: #f59e0b;
+}
+
+.agent-state--waiting::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: quantum-pulse 1.2s ease-in-out infinite;
+}
+
+/* =============================================================================
+   Quantum Unified Components
+   ============================================================================= */
+
+/* Quantum Card - consistent across all modules */
+.quantum-card {
+  background: white;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
+}
+
+[data-theme="dark"] .quantum-card {
+  background: #1e293b;
+  border-color: rgba(51, 65, 85, 0.8);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Quantum Stat Card */
+.quantum-stat {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quantum-stat__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.quantum-stat__icon--primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-stat__icon--success {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+}
+
+.quantum-stat__icon--warning {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
+}
+
+.quantum-stat__icon--danger {
+  background: linear-gradient(135deg, #ef4444, #f87171);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+}
+
+.quantum-stat__label {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.quantum-stat__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .quantum-stat__label {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .quantum-stat__value {
+  color: #f1f5f9;
+}
+
+/* Quantum Badge */
+.quantum-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.quantum-badge--pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.quantum-badge--approved {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.quantum-badge--rejected {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.quantum-badge--processing {
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* Quantum Button */
+.quantum-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-btn--primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-btn--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4);
+}
+
+.quantum-btn--secondary {
+  background: white;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.quantum-btn--secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+/* Quantum Table */
+.quantum-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.quantum-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.quantum-table td {
+  padding: 16px;
+  font-size: 0.875rem;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 150ms ease;
+}
+
+.quantum-table tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+[data-theme="dark"] .quantum-table th {
+  background: #1e293b;
+  color: #94a3b8;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .quantum-table td {
+  color: #e2e8f0;
+  border-color: #1e293b;
+}
+
+/* Quantum Empty State */
+.quantum-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.quantum-empty__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.quantum-empty__icon svg {
+  width: 28px;
+  height: 28px;
+  color: #94a3b8;
+}
+
+.quantum-empty__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.quantum-empty__desc {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+/* Quantum Page Header - matches Analyze style */
+.quantum-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.quantum-header__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+}
+
+.quantum-header__icon svg {
+  width: 28px;
+  height: 28px;
+  color: white;
+}
+
+.quantum-header__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: linear-gradient(135deg, #0f172a, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.quantum-header__subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+/* Quantum Tabs - matches Analyze style */
+.quantum-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(241, 245, 249, 0.8);
+  border-radius: 16px;
+}
+
+.quantum-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  transition: all 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quantum-tab:hover {
+  color: #475569;
+}
+
+.quantum-tab--active {
+  background: white;
+  color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+}
+
+[data-theme="dark"] .quantum-tabs {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+[data-theme="dark"] .quantum-tab {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .quantum-tab--active {
+  background: #334155;
+  color: #a5b4fc;
 }

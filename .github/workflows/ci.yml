@@ -9,13 +9,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'fix/**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   NODE_VERSION: '20'
-  PYTHON_VERSION: '3.10'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   # ===========================================================================
@@ -68,17 +69,22 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          ruff check . --output-format=github || true
-          ruff format --check . || true
+          ruff check api/ core/ services/ domain/ tests/ --output-format=github --ignore=E501,F401,I001
+          ruff format --check api/ core/ services/ domain/ --diff || true
+
+      - name: Type check with compileall
+        run: |
+          python -m compileall -q api/ core/ services/ domain/ 2>&1 || exit 1
 
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql://erpx:erpx_secret@localhost:5432/erpx
           REDIS_URL: redis://localhost:6379
-          LLM_PROVIDER: mock
-          DISABLE_LOCAL_LLM: 1
+          LLM_PROVIDER: do_agent
+          DISABLE_LOCAL_LLM: "1"
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest tests/ -v --tb=short || echo "Tests completed with some failures"
+          pytest tests/ -v --tb=short -q --ignore=tests/smoke_test.py --ignore=tests/e2e_smoke_test.py --ignore=tests/e2e_business_flow_test.py
 
   # ===========================================================================
   # Job 2: Frontend - Lint, Test, Type Check, Build
@@ -105,13 +111,13 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint || true
+        run: npm run lint || echo "::warning::ESLint found issues (non-blocking for legacy code)"
 
       - name: Type check
         run: npx tsc --noEmit
 
       - name: Run unit tests
-        run: npm run test || echo "Tests completed"
+        run: npm run test
 
       - name: Build
         env:

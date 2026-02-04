@@ -51,6 +51,7 @@ class WorkflowState:
 
     # Input data
     raw_input: str | None = None  # OCR text or raw content
+    raw_content: str | None = None  # legacy alias for raw_input
     structured_input: dict[str, Any] | None = None  # Pre-extracted fields
     file_metadata: dict[str, Any] | None = None
     bank_transactions: list[dict[str, Any]] | None = None
@@ -69,6 +70,7 @@ class WorkflowState:
 
     # Step C: Extraction results
     extracted_fields: dict[str, Any] = field(default_factory=dict)
+    extracted_data: dict[str, Any] | None = None  # legacy alias for extracted_fields
     extraction_evidence: dict[str, Any] = field(default_factory=dict)
 
     # Step D: Validation results
@@ -90,10 +92,25 @@ class WorkflowState:
     # Output
     final_payload: dict[str, Any] | None = None
     evidence_log: list[dict[str, Any]] = field(default_factory=list)
+    validation_result: dict[str, Any] | None = None
+    output: dict[str, Any] | None = None
 
     # Error handling
     error_message: str | None = None
     error_step: str | None = None
+    has_error: bool = False
+
+    def __post_init__(self):
+        if self.raw_input is None and self.raw_content is not None:
+            self.raw_input = self.raw_content
+        if self.raw_content is None and self.raw_input is not None:
+            self.raw_content = self.raw_input
+        if self.extracted_data is not None and not self.extracted_fields:
+            self.extracted_fields = self.extracted_data
+        if self.extracted_fields and self.extracted_data is None:
+            self.extracted_data = self.extracted_fields
+        if self.error_message:
+            self.has_error = True
 
     def record_step(self, step: WorkflowStep, metadata: dict[str, Any] = None):
         """Record a step execution in history"""
@@ -122,6 +139,7 @@ class WorkflowState:
         """Add a validation error"""
         if message not in self.validation_errors:
             self.validation_errors.append(message)
+        self.has_error = True
 
     def mark_for_review(self, reason: str):
         """Mark document for human review"""

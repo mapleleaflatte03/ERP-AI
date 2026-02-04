@@ -1,47 +1,98 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-test.describe('E2E Smoke Tests - AI Kế Toán', () => {
-  
-  // E2E-01: Landing page shows "Inbox Chứng từ"
-  test('E2E-01: Home page loads with title "Inbox Chứng từ"', async ({ page }) => {
+const stubApi = async (page: Page) => {
+  await page.route('**/v1/**', async (route) => {
+    const url = route.request().url();
+    const fulfill = (body: Record<string, unknown>) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
+    if (url.includes('/v1/copilot/chat')) {
+      return fulfill({ response: 'Read-only response' });
+    }
+    if (url.includes('/v1/analytics/kpis')) {
+      return fulfill({ metrics: {} });
+    }
+    if (url.includes('/v1/analytics/datasets')) {
+      return fulfill({ datasets: [] });
+    }
+    if (url.includes('/v1/analytics/schema')) {
+      return fulfill({ tables: [] });
+    }
+    if (url.includes('/v1/analytics/query')) {
+      return fulfill({ results: { columns: [], rows: [] } });
+    }
+    if (url.includes('/v1/analytics/forecast')) {
+      return fulfill({ results: [] });
+    }
+    if (url.includes('/v1/analytics/chat')) {
+      return fulfill({ message: 'OK', session_id: 'smoke' });
+    }
+    if (url.includes('/v1/documents')) {
+      return fulfill({ documents: [], total: 0 });
+    }
+    if (url.includes('/v1/approvals')) {
+      return fulfill({ approvals: [], count: 0, pending: 0 });
+    }
+    if (url.includes('/v1/proposals')) {
+      return fulfill({ proposals: [], count: 0 });
+    }
+    if (url.includes('/v1/analyze/reports')) {
+      return fulfill({ reports: [] });
+    }
+    if (url.includes('/v1/analyze/datasets')) {
+      return fulfill({ datasets: [] });
+    }
+    if (url.includes('/v1/analyze/query')) {
+      return fulfill({ success: true, results: [], row_count: 0 });
+    }
+    return fulfill({});
+  });
+};
+
+const openDockAndChat = async (page: Page) => {
+  const dock = page.locator('.module-chat-dock').first();
+  const fab = page.locator('.module-chat-fab').first();
+  if (await fab.isVisible()) {
+    await fab.click();
+  }
+  await expect(dock).toBeVisible();
+  const input = dock.locator('.module-chat-input input');
+  await input.fill('Xin chao');
+  await input.press('Enter');
+  await expect(dock).toContainText('Read-only response');
+};
+
+test.describe('E2E Smoke Tests - Module Chat', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('erpx_token', 'test-token');
+    });
+    await stubApi(page);
+  });
+
+  test('@smoke module pages open with chat dock and no console errors', async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+    page.on('pageerror', (err) => {
+      consoleErrors.push(err.message);
+    });
+
     await page.goto('/');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Inbox Chứng từ');
-  });
+    await openDockAndChat(page);
 
-  // E2E-02: Navigate to Approvals via sidebar
-  test('E2E-02: Click sidebar "Duyệt" navigates to /approvals', async ({ page }) => {
-    await page.goto('/');
-    await page.getByRole('link', { name: 'Duyệt' }).click();
-    await expect(page).toHaveURL('/approvals');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Duyệt');
-  });
+    await page.goto('/proposals');
+    await openDockAndChat(page);
 
-  // E2E-03: Click a document in table (using mock data placeholder test)
-  test('E2E-03: Documents inbox renders document table', async ({ page }) => {
-    await page.goto('/');
-    // Since we have mock/empty data, just verify the page structure exists
-    await expect(page.locator('div:has-text("Tổng chứng từ")').first()).toBeVisible();
-  });
+    await page.goto('/approvals');
+    await openDockAndChat(page);
 
-  // E2E-04: Navigate to Copilot Chat
-  test('E2E-04: Click "Trợ lý AI" navigates to /copilot and loads OK', async ({ page }) => {
-    await page.goto('/');
-    await page.getByRole('link', { name: 'Trợ lý AI' }).click();
-    await expect(page).toHaveURL('/copilot');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Trợ lý AI');
-    // Verify chat input exists
-    await expect(page.getByPlaceholder(/Hỏi về nghiệp vụ kế toán/i)).toBeVisible();
-  });
+    await page.goto('/analyze');
+    await openDockAndChat(page);
 
-  // Additional smoke test: Reports page
-  test('E2E-05: Reports page loads', async ({ page }) => {
-    await page.goto('/reports');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Báo cáo');
-  });
-
-  // Additional smoke test: Reconciliation page
-  test('E2E-06: Reconciliation page loads', async ({ page }) => {
-    await page.goto('/reconciliation');
-    await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toContainText('Đối chiếu');
+    expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toHaveLength(0);
   });
 });

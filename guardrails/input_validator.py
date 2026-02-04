@@ -22,6 +22,8 @@ class ValidationResult:
     errors: list[str]
     warnings: list[str]
     sanitized_input: dict[str, Any] | None = None
+    scope_violation: bool = False
+    sanitized_content: str | None = None
 
 
 class InputValidator:
@@ -53,6 +55,7 @@ class InputValidator:
         r"UNION\s+SELECT",
         r"\$\{.*\}",  # Template injection
         r"\{\{.*\}\}",
+        r"ignore\s+previous\s+instructions",
     ]
 
     # Out-of-scope keywords (R1 - Scope Lock)
@@ -68,6 +71,26 @@ class InputValidator:
 
     def __init__(self):
         self._dangerous_regex = [re.compile(p, re.IGNORECASE) for p in self.DANGEROUS_PATTERNS]
+
+    def validate(self, content: str = None, doc_type: str = None) -> ValidationResult:
+        """
+        Backwards-compatible validator used by unit tests.
+        Treats `content` as OCR text and applies scope lock + sanitization.
+        """
+        result = self.validate_coding_request(ocr_text=content, structured_fields=None, file_content=None, mode="STRICT")
+        scope_violation = any("Scope Lock" in err for err in result.errors)
+        sanitized_content = self._sanitize_text(content) if content else ""
+        sanitized_input = result.sanitized_input or {"ocr_text": sanitized_content, "doc_type": doc_type}
+        if doc_type and isinstance(sanitized_input, dict):
+            sanitized_input["doc_type"] = doc_type
+        return ValidationResult(
+            is_valid=result.is_valid,
+            errors=result.errors,
+            warnings=result.warnings,
+            sanitized_input=sanitized_input,
+            scope_violation=scope_violation,
+            sanitized_content=sanitized_content,
+        )
 
     def validate_coding_request(
         self,

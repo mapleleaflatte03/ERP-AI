@@ -27,6 +27,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import api from '../lib/api';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 import DocumentPreview from '../components/DocumentPreview';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
@@ -961,6 +962,7 @@ export default function DocumentDetail() {
           </div>
         </div>
       </div>
+      <ModuleChatDock module="documents" scope={{ document_id: id }} />
     </div>
   );
 }

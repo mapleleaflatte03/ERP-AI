@@ -5160,6 +5160,7 @@ class ChatAction(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     actions: list[ChatAction] | None = None
+    action_proposals: list[dict[str, Any]] | None = None
     context: dict[str, Any] | None = None
 
 
@@ -5173,111 +5174,99 @@ async def chat_copilot(request: ChatRequest):
         from src.copilot import tools
         import json
 
-        # 1. Handle Confirmed Actions from UI
-        if request.context and request.context.get("confirmed_action"):
-            action = request.context["confirmed_action"]
-            tool_name = action.get("tool")
-            params = action.get("params", {})
-            
-            logger.info(f"Executing confirmed action: {tool_name} with {params}")
-            
-            if tool_name == "approve_proposal":
-                # Execute actual approval via DB
-                try:
-                    approval_id = params["id"]
-                    pool = await get_db_pool()
-                    async with pool.acquire() as conn:
-                        # Update approval status
-                        await conn.execute(
-                            """
-                            UPDATE approvals 
-                            SET status = 'approved', 
-                                approver_name = 'Copilot',
-                                comment = 'Approved via AI Copilot',
-                                updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        # Update journal proposal status
-                        await conn.execute(
-                            """
-                            UPDATE journal_proposals 
-                            SET status = 'approved', updated_at = NOW()
-                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        # Log to audit (uses correct schema)
-                        audit_approval_id = uuid.UUID(approval_id)
-                        await conn.execute(
-                            """
-                            INSERT INTO audit_events (job_id, tenant_id, event_type, event_data, actor, created_at)
-                            SELECT a.job_id, COALESCE(a.tenant_id::text, 'system'), 'approval_confirmed', 
-                                   jsonb_build_object('approval_id', $1::text, 'action', 'approved', 'source', 'copilot_chat'),
-                                   'Copilot', NOW()
-                            FROM approvals a WHERE a.id = $2
-                            """,
-                            approval_id, audit_approval_id
-                        )
-                    return ChatResponse(response=f"✅ Đã duyệt chứng từ {approval_id[:8]}... và ghi sổ cái thành công.")
-                except Exception as e:
-                    logger.error(f"Approval error: {e}")
-                    return ChatResponse(response=f"⚠️ Lỗi khi duyệt: {str(e)}")
-                    
-            elif tool_name == "reject_proposal":
-                # Execute actual rejection via DB
-                try:
-                    approval_id = params["id"]
-                    pool = await get_db_pool()
-                    async with pool.acquire() as conn:
-                        await conn.execute(
-                            """
-                            UPDATE approvals 
-                            SET status = 'rejected', 
-                                approver_name = 'Copilot',
-                                comment = 'Rejected via AI Copilot',
-                                updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                        await conn.execute(
-                            """
-                            UPDATE journal_proposals 
-                            SET status = 'rejected', updated_at = NOW()
-                            WHERE id IN (SELECT proposal_id FROM approvals WHERE id = $1)
-                            """,
-                            uuid.UUID(approval_id)
-                        )
-                    return ChatResponse(response=f"❌ Đã từ chối chứng từ {approval_id[:8]}...")
-                except Exception as e:
-                    logger.error(f"Rejection error: {e}")
-                    return ChatResponse(response=f"⚠️ Lỗi khi từ chối: {str(e)}")
+        context = request.context or {}
+        module = (context.get("module") or "copilot").lower()
+        module_aliases = {
+            "document": "documents",
+            "proposal": "proposals",
+            "approval": "approvals",
+        }
+        module = module_aliases.get(module, module)
+        session_id = context.get("session_id") or context.get("chat_session_id") or str(uuid.uuid4())
+        scope = context.get("scope") or {}
+
+        if context.get("confirmed_action"):
+            logger.warning("Confirmed action payload blocked in copilot chat")
+            return ChatResponse(
+                response="Luồng xác nhận đã chuyển sang Agent Actions. Vui lòng xác nhận trong UI của module.",
+                context={"module": module, "session_id": session_id}
+            )
 
         client = LLMClient()
 
         # 2. Agent Decision Loop
-        system_prompt = """Bạn là ERPX Copilot, trợ lý kế toán AI cao cấp.
+        module_tools = {
+            "copilot": [
+                "list_pending_approvals",
+                "get_approval_statistics",
+                "get_approval",
+                "get_document_content",
+                "search_documents",
+                "get_document_ocr_boxes",
+            ],
+            "documents": [
+                "get_document_content",
+                "search_documents",
+                "get_document_ocr_boxes",
+            ],
+            "proposals": [
+                "list_pending_approvals",
+                "get_approval_statistics",
+                "get_approval",
+                "propose_approve",
+                "propose_reject",
+            ],
+            "approvals": [
+                "list_pending_approvals",
+                "get_approval_statistics",
+                "get_approval",
+                "propose_approve",
+                "propose_reject",
+            ],
+            "analyze": [
+                "get_approval_statistics",
+                "list_pending_approvals",
+            ],
+            "evidence": [
+                "list_pending_approvals",
+                "get_approval_statistics",
+            ],
+            "admin": [
+                "list_pending_approvals",
+                "get_approval_statistics",
+            ],
+        }
+        read_only_modules = {"copilot", "analyze", "evidence", "admin"}
+        allowed_tools = module_tools.get(module, module_tools["copilot"])
+        tool_lines = []
+        for tool_name in allowed_tools:
+            tool_info = tools.COPILOT_TOOLS.get(tool_name)
+            if tool_info:
+                tool_lines.append(f"- {tool_name}: {tool_info['description']}")
+        tools_prompt = "\n".join(tool_lines) if tool_lines else "- (no tools)"
+
+        system_prompt = f"""Bạn là ERPX Copilot, trợ lý kế toán AI cao cấp.
+MODULE: {module}
+SCOPE: {json.dumps(scope, ensure_ascii=False)}
         
         CÁC CÔNG CỤ CÓ SẴN:
-        1. list_pending_approvals(limit): Liệt kê các chứng từ chờ duyệt.
-        2. get_approval_statistics(): Lấy thống kê số lượng chứng từ theo trạng thái.
-        3. approve_proposal(id): Duyệt một chứng từ cụ thể (cần ID).
-        4. reject_proposal(id): Từ chối một chứng từ cụ thể (cần ID).
+{tools_prompt}
         
         QUY TẮC:
         - Luôn trả lời bằng Tiếng Việt.
         - Khi người dùng hỏi cần thực hiện hành động (duyệt/từ chối), hãy trả về JSON tool call.
+        - Module {module} chỉ được dùng các tool đã liệt kê ở trên.
+        - Tuyệt đối KHÔNG thực hiện ghi trực tiếp. Mọi hành động ghi phải là propose_*.
+        - Nếu module là read-only, trả lời hướng dẫn thay vì gọi tool ghi.
         - Nếu chỉ hỏi thông tin, trả về JSON với field "response".
         - Định dạng số tiền VND đẹp mắt.
         OUTPUT FORMAT (JSON):
-        {
+        {{
             "thought": "Reasoning about what to do",
             "tool": "tool_name_or_none",
-            "params": { ... parameters ... },
+            "params": {{ ... parameters ... }},
             "response": "Text response to user (optional if tool is called)"
-        }
+        }}
         """
         
         # User prompt wrapper
@@ -5300,6 +5289,19 @@ async def chat_copilot(request: ChatRequest):
         thought = decision.get("thought", "")
 
         # 3. Execution Logic
+        if tool and tool not in allowed_tools:
+            return ChatResponse(
+                response="Module hiện tại không cho phép hành động này. Vui lòng dùng đúng module nghiệp vụ.",
+                context={"module": module, "session_id": session_id}
+            )
+
+        def apply_scope_param(param_key: str, scope_key: str) -> bool:
+            scoped_value = scope.get(scope_key) if isinstance(scope, dict) else None
+            if scoped_value:
+                if param_key in params and params[param_key] != scoped_value:
+                    return False
+                params[param_key] = params.get(param_key) or scoped_value
+            return True
         
         # Read-Only Tools (Auto-Execute)
         if tool == "list_pending_approvals":
@@ -5338,31 +5340,106 @@ async def chat_copilot(request: ChatRequest):
             
             return ChatResponse(response=summary)
 
-        # Write Tools (Safe Mode - Require Confirmation)
-        elif tool in ["approve_proposal", "reject_proposal"]:
-            proposal_id = params.get("id")
-            if not proposal_id:
-                return ChatResponse(response="Tôi cần Proposal ID để thực hiện.")
-                
-            # Return Action Request
-            label = "Duyệt chứng từ" if tool == "approve_proposal" else "Từ chối chứng từ"
-            style = "primary" if tool == "approve_proposal" else "danger"
-            confirm_msg = "Tôi tìm thấy yêu cầu duyệt. Vui lòng xác nhận:" if tool == "approve_proposal" else "Xác nhận từ chối chứng từ này:"
-            
+        elif tool == "get_approval":
+            if not apply_scope_param("approval_id", "approval_id"):
+                return ChatResponse(response="Scope không khớp với yêu cầu. Vui lòng mở đúng chứng từ.")
+            approval_id = params.get("approval_id")
+            if not approval_id:
+                return ChatResponse(response="Tôi cần approval_id để tra cứu.")
+            approval = await tools.get_approval(approval_id)
+            if not approval:
+                return ChatResponse(response="Không tìm thấy chứng từ cần tra cứu.")
             return ChatResponse(
-                response=confirm_msg,
-                actions=[
-                    ChatAction(
-                        label=f"{label} {proposal_id[:8]}...",
-                        tool=tool,
-                        params={"id": proposal_id},
-                        style=style
-                    )
-                ]
+                response=(
+                    f"**Chi tiết chứng từ:**\n"
+                    f"- Nhà cung cấp: {approval.get('counterparty') or '-'}\n"
+                    f"- Số tiền: {approval.get('amount') or 0:,.0f} {approval.get('currency') or 'VND'}\n"
+                    f"- Trạng thái: {approval.get('status') or 'pending'}\n"
+                    f"- Số hóa đơn: {approval.get('invoice_no') or '-'}"
+                )
+            )
+
+        elif tool == "get_document_content":
+            if not apply_scope_param("document_id", "document_id"):
+                return ChatResponse(response="Scope không khớp với yêu cầu. Vui lòng mở đúng chứng từ.")
+            document_id = params.get("document_id")
+            if not document_id:
+                return ChatResponse(response="Tôi cần document_id để đọc nội dung.")
+            doc = await tools.get_document_content(document_id)
+            if not doc.get("found"):
+                return ChatResponse(response="Không tìm thấy chứng từ hoặc chưa có OCR.")
+            fields = doc.get("extracted_fields") or {}
+            return ChatResponse(
+                response=(
+                    f"**Tóm tắt chứng từ:**\n"
+                    f"- Vendor: {fields.get('vendor_name') or '-'}\n"
+                    f"- Số HĐ: {fields.get('invoice_number') or '-'}\n"
+                    f"- Ngày: {fields.get('invoice_date') or '-'}\n"
+                    f"- Tổng tiền: {fields.get('total_amount') or 0:,.0f} {fields.get('currency') or 'VND'}\n"
+                    f"- OCR confidence: {doc.get('ocr_confidence') or doc.get('doc_type_confidence') or 0}"
+                )
+            )
+
+        elif tool == "search_documents":
+            query = params.get("query") or ""
+            if not query:
+                return ChatResponse(response="Tôi cần từ khóa để tìm chứng từ.")
+            doc_type = params.get("doc_type")
+            limit = params.get("limit", 10)
+            results = await tools.search_documents(query=query, doc_type=doc_type, limit=limit)
+            if not results:
+                return ChatResponse(response="Không tìm thấy chứng từ phù hợp.")
+            lines = ["**Kết quả tìm kiếm:**"]
+            for r in results[:limit]:
+                lines.append(
+                    f"- {r.get('vendor_name') or 'N/A'} | {r.get('invoice_number') or '-'} | "
+                    f"{r.get('total_amount') or 0:,.0f} {r.get('currency') or 'VND'} "
+                    f"(doc_id: {r.get('document_id') or '-'})"
+                )
+            return ChatResponse(response="\n".join(lines))
+
+        elif tool == "get_document_ocr_boxes":
+            if not apply_scope_param("document_id", "document_id"):
+                return ChatResponse(response="Scope không khớp với yêu cầu. Vui lòng mở đúng chứng từ.")
+            document_id = params.get("document_id")
+            if not document_id:
+                return ChatResponse(response="Tôi cần document_id để lấy OCR boxes.")
+            boxes = await tools.get_document_ocr_boxes(document_id)
+            if boxes.get("error"):
+                return ChatResponse(response=f"Không lấy được OCR boxes: {boxes.get('error')}")
+            return ChatResponse(response="Đã sẵn sàng hiển thị OCR overlay cho chứng từ này.")
+
+        # Write Tools (Propose only)
+        elif tool in ["propose_approve", "propose_reject"]:
+            if module in read_only_modules:
+                return ChatResponse(response="Module hiện tại chỉ đọc. Vui lòng dùng Approvals/Proposals để đề xuất hành động.")
+            if not apply_scope_param("approval_id", "approval_id"):
+                return ChatResponse(response="Scope không khớp với yêu cầu. Vui lòng mở đúng chứng từ.")
+            params["session_id"] = params.get("session_id") or session_id
+            approval_id = params.get("approval_id")
+            if not approval_id:
+                return ChatResponse(response="Tôi cần approval_id để đề xuất.")
+            result = await tools.COPILOT_TOOLS[tool]["function"](**params)
+            if not result or not result.get("success"):
+                return ChatResponse(response=result.get("error") if result else "Không thể tạo đề xuất.")
+            proposal_payload = {
+                "action_id": result.get("action_id"),
+                "action_type": result.get("action_type"),
+                "description": result.get("description"),
+                "status": result.get("status") or "proposed",
+                "requires_confirmation": True,
+            }
+            return ChatResponse(
+                response=result.get("message") or "Đã tạo đề xuất hành động.",
+                action_proposals=[proposal_payload],
+                context={"module": module, "session_id": session_id}
             )
 
         # Default / Conversational
-        return ChatResponse(response=decision.get("response") or thought)
+        return ChatResponse(
+            response=decision.get("response") or thought,
+            context={"module": module, "session_id": session_id}
+        )
 
     except Exception as e:
         logger.error(f"Copilot chat failed: {e}")

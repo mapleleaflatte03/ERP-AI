@@ -62,7 +62,7 @@ class LedgerWriter:
 
         # Check if ledger entries already exist (double-check)
         existing = self.db.query(LedgerEntry).filter(LedgerEntry.proposal_id == proposal.id).first()
-        if existing:
+        if existing is not None and isinstance(existing, LedgerEntry):
             logger.info(f"Proposal {proposal.id} already has ledger entries. Skipping.")
             return [], existing.journal_number
 

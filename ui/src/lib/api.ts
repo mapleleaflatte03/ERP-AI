@@ -403,8 +403,10 @@ class ApiClient {
     return response.data;
   }
 
-  async cancelAgentAction(actionId: string) {
-    const response = await this.client.post(`/v1/agent/actions/${actionId}/cancel`);
+  async cancelAgentAction(actionId: string, reason?: string) {
+    const response = await this.client.post(`/v1/agent/actions/${actionId}/cancel`, null, {
+      params: reason ? { reason } : undefined
+    });
     return response.data;
   }
 

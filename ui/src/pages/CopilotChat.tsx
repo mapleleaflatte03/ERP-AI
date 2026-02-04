@@ -19,7 +19,6 @@ import {
   Check,
 } from 'lucide-react';
 import api from '../lib/api';
-import ActionProposalCard from '../components/ActionProposalCard';
 import type { ChatMessage as BaseChatMessage } from '../types';
 
 // Extended ChatMessage with action_proposals for Agent Hub
@@ -42,15 +41,41 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 export default function CopilotChat() {
+  const READ_ONLY = true;
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '0',
       role: 'assistant',
-      content: 'Xin chào! Tôi là Trợ lý AI Kế toán. Tôi có thể giúp bạn:\n\n• Giải thích các bút toán và định khoản\n• Tra cứu quy định kế toán\n• Tư vấn nghiệp vụ kế toán\n• Phân tích chứng từ\n• Upload chứng từ để phân tích\n\nBạn cần hỗ trợ gì?',
+      content: 'Xin chào! Tôi là Trợ lý AI Kế toán. Tôi có thể giúp bạn:\n\n• Giải thích các bút toán và định khoản\n• Tra cứu quy định kế toán\n• Tư vấn nghiệp vụ kế toán\n• Giải thích dữ liệu và báo cáo\n\nLưu ý: Copilot chỉ đọc. Để đề xuất hành động, vui lòng dùng chat ở module Documents/Proposals/Approvals/Analyze.',
       created_at: new Date().toISOString(),
     },
   ]);
   const [input, setInput] = useState('');
+  const [sessionId] = useState(() => {
+    try {
+      const raw = localStorage.getItem('erpx_chat_state');
+      const existingState = raw ? JSON.parse(raw) : null;
+      const existing = existingState?.modules?.copilot?.session_id;
+      if (existing) return existing as string;
+      const next = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `copilot-${Date.now()}`;
+      const nextState = {
+        version: existingState?.version || 1,
+        modules: {
+          ...(existingState?.modules || {}),
+          copilot: {
+            ...(existingState?.modules?.copilot || {}),
+            session_id: next,
+          },
+        },
+      };
+      localStorage.setItem('erpx_chat_state', JSON.stringify(nextState));
+      return next;
+    } catch {
+      return `copilot-${Date.now()}`;
+    }
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // File upload state
@@ -121,23 +146,13 @@ export default function CopilotChat() {
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
-    chatMutation.mutate({ message: input.trim() });
-  };
-
-  const handleActionClick = (action: any) => {
-    // Optimistic update or just trigger chat
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: `CONFIRM: ${action.label}`, // Show user what they clicked
-      created_at: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, userMessage]);
-
-    // Call API with confirmed_action context
     chatMutation.mutate({
-      message: "Confirmed",
-      context: { confirmed_action: action }
+      message: input.trim(),
+      context: {
+        module: 'copilot',
+        session_id: sessionId,
+        scope: {},
+      },
     });
   };
 
@@ -260,8 +275,14 @@ export default function CopilotChat() {
         </div>
       </div>
 
+      {READ_ONLY && (
+        <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm">
+          Copilot ở chế độ chỉ đọc. Để tạo đề xuất và xác nhận hành động, hãy dùng Module Chat ở Documents, Proposals, Approvals hoặc Analyze.
+        </div>
+      )}
+
       {/* Upload Confirmation Panel */}
-      {showUploadConfirm && (
+      {!READ_ONLY && showUploadConfirm && (
         <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -372,80 +393,6 @@ export default function CopilotChat() {
                   <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                 </div>
 
-                {/* Actions */}
-                {/* Action Proposals from Agent Hub */}
-                {msg.action_proposals && msg.action_proposals.length > 0 && (
-                  <div className="mt-2">
-                    {msg.action_proposals.map((proposal) => (
-                      <ActionProposalCard
-                        key={proposal.action_id}
-                        proposal={proposal}
-                        onStatusChange={(newStatus, _result) => {
-                          // Update message state when action is confirmed/cancelled
-                          setMessages(prev => prev.map(m => 
-                            m.id === msg.id 
-                              ? {
-                                  ...m,
-                                  action_proposals: m.action_proposals?.map(p =>
-                                    p.action_id === proposal.action_id
-                                      ? { ...p, status: newStatus as any }
-                                      : p
-                                  )
-                                }
-                              : m
-                          ));
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Legacy actions (old format) */}
-                {/* Action Proposals from Agent Hub */}
-                {msg.action_proposals && msg.action_proposals.length > 0 && (
-                  <div className="mt-2">
-                    {msg.action_proposals.map((proposal) => (
-                      <ActionProposalCard
-                        key={proposal.action_id}
-                        proposal={proposal}
-                        onStatusChange={(newStatus, _result) => {
-                          // Update message state when action is confirmed/cancelled
-                          setMessages(prev => prev.map(m => 
-                            m.id === msg.id 
-                              ? {
-                                  ...m,
-                                  action_proposals: m.action_proposals?.map(p =>
-                                    p.action_id === proposal.action_id
-                                      ? { ...p, status: newStatus as any }
-                                      : p
-                                  )
-                                }
-                              : m
-                          ));
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Legacy actions (old format) */}
-                {msg.actions && msg.actions.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-2">
-                    {msg.actions.map(action => (
-                      <div key={action.id} className="p-3 bg-white border rounded-lg shadow-sm">
-                        <p className="text-sm font-medium text-gray-900 mb-2">{action.label}</p>
-                        <button
-                          onClick={() => handleActionClick(action)}
-                          className={`w-full px-3 py-1.5 rounded text-sm font-medium text-white transition-colors ${action.style === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                        >
-                          Xác nhận
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {msg.citations && msg.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {msg.citations.map((cite, idx) => (
@@ -521,31 +468,34 @@ export default function CopilotChat() {
         )}
         {/* Input */}
         <div className="p-4 border-t bg-gray-50">
-          {/* Hidden file input */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept=".pdf,.png,.jpg,.jpeg"
-            multiple
-            className="hidden"
-          />
+          {!READ_ONLY && (
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept=".pdf,.png,.jpg,.jpeg"
+              multiple
+              className="hidden"
+            />
+          )}
           <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-3 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-              title="Upload chứng từ"
-              disabled={chatMutation.isPending || isUploading}
-            >
-              <Paperclip className="w-5 h-5" />
-            </button>
+            {!READ_ONLY && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-3 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                title="Upload chứng từ"
+                disabled={chatMutation.isPending || isUploading}
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+            )}
             <input
               type="text"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              placeholder="Nhập câu hỏi hoặc yêu cầu (VD: Duyệt phiếu số...)"
+              placeholder={READ_ONLY ? "Nhập câu hỏi hoặc yêu cầu (read-only)..." : "Nhập câu hỏi hoặc yêu cầu (VD: Duyệt phiếu số...)"}
               className="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               disabled={chatMutation.isPending}
             />
@@ -562,7 +512,7 @@ export default function CopilotChat() {
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2 text-center">
-            Trợ lý có thể thực hiện tác vụ (duyệt, từ chối) khi được yêu cầu.
+            Copilot chỉ đọc. Dùng Module Chat để đề xuất và xác nhận hành động.
           </p>
         </div>
       </div>

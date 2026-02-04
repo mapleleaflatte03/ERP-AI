@@ -37,6 +37,7 @@ import {
   Settings,
   MoreVertical,
 } from 'lucide-react';
+import ModuleChatDock from '../components/moduleChat/ModuleChatDock';
 
 // Types
 interface Message {
@@ -141,6 +142,7 @@ export default function Analytics() {
         {activeTab === 'forecast' && <ForecastTab />}
         {activeTab === 'datasets' && <DatasetsTab />}
       </div>
+      <ModuleChatDock module="analyze" />
     </div>
   );
 }

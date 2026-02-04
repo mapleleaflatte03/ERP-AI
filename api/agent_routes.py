@@ -340,7 +340,7 @@ async def confirm_action(action_id: str, request: ActionConfirmRequest = None) -
         
         if row["status"] != "proposed":
             raise HTTPException(
-                status_code=400, 
+                status_code=409,
                 detail=f"Cannot confirm action in '{row['status']}' status"
             )
         
@@ -353,6 +353,16 @@ async def confirm_action(action_id: str, request: ActionConfirmRequest = None) -
             """,
             action_id,
             request.user_id if request and request.user_id else None
+        )
+
+        # Audit confirm event
+        await conn.execute(
+            """
+            INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
+            VALUES ('agent_action', $1, 'confirmed', 'user', $2, NOW())
+            """,
+            action_id,
+            {"action_type": row["action_type"]}
         )
         
         # Execute the action
@@ -429,8 +439,13 @@ async def confirm_action(action_id: str, request: ActionConfirmRequest = None) -
 
 
 @router.post("/actions/{action_id}/cancel")
-async def cancel_action(action_id: str) -> dict:
-    """Cancel a proposed action"""
+async def cancel_action(action_id: str, reason: str = None) -> dict:
+    """
+    Cancel a proposed action.
+    
+    This also logs rejection context for AI learning/personalization.
+    The AI can use this feedback to improve future proposals.
+    """
     pool = await get_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -451,27 +466,42 @@ async def cancel_action(action_id: str) -> dict:
                 detail=f"Cannot cancel action in '{row['status']}' status"
             )
         
-        # Update to cancelled
+        # Update to cancelled with rejection reason
         await conn.execute(
             """
             UPDATE agent_action_proposals 
-            SET status = 'cancelled', updated_at = NOW()
+            SET status = 'cancelled', 
+                updated_at = NOW(),
+                error_message = $2
             WHERE id = $1
             """,
-            action_id
+            action_id,
+            reason or "User cancelled"
         )
         
-        # Log to audit_events
+        # Log to audit_events with learning context
+        # This data helps AI personalize future proposals
+        audit_details = {
+            "action_type": row["action_type"],
+            "action_params": row["action_params"],
+            "rejection_reason": reason or "User cancelled without reason",
+            "session_id": row.get("session_id"),
+            "module": row.get("module"),
+            "learning_signal": "negative",  # AI can use this for personalization
+            "feedback_type": "user_rejection"
+        }
+        
         await conn.execute(
             """
             INSERT INTO audit_events (entity_type, entity_id, action, actor, details, created_at)
             VALUES ('agent_action', $1, 'cancelled', 'user', $2, NOW())
             """,
             action_id,
-            {"action_type": row["action_type"]}
+            audit_details
         )
         
         return {
             "success": True,
-            "message": "Action cancelled"
+            "message": "Action cancelled",
+            "feedback_recorded": True
         }

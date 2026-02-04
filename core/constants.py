@@ -4,7 +4,7 @@ ERPX AI Accounting - System Constants
 """
 
 # API Version
-API_VERSION = "1.0.0"
+API_VERSION = "3.0.0"
 API_PREFIX = "/v1"
 
 # Processing Modes
