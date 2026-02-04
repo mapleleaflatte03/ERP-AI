@@ -144,6 +144,14 @@ h1, h2, h3 {
   box-shadow: var(--shadow-2);
   overflow: hidden;
   transition: box-shadow var(--motion-duration) var(--motion-ease);
+  min-width: 320px;
+  min-height: 200px;
+  flex-shrink: 0;
+}
+
+.module-chat-dock.is-minimized {
+  min-height: auto;
+  height: auto !important;
 }
 
 .module-chat-dock.is-expanded {

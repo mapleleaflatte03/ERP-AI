@@ -133,10 +133,16 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
     const loaded = loadChatState();
     const base = getDefaultPanel();
     const existing = loaded.modules[moduleKey];
-    return {
+    const merged = {
       ...base,
       ...existing,
     } as ModulePanelState;
+    // Ensure minimum dimensions to prevent shrink-to-zero bug
+    return {
+      ...merged,
+      width: Math.max(320, merged.width || DEFAULT_SIZE.width),
+      height: Math.max(200, merged.height || DEFAULT_SIZE.height),
+    };
   }, [moduleKey]);
 
   const [open, setOpen] = useState(initialPanel.open);
@@ -169,18 +175,27 @@ export default function ModuleChatDock({ module, scope }: ModuleChatDockProps) {
 
   useEffect(() => {
     if (!panelRef.current) return;
+    const MIN_WIDTH = 320;
+    const MIN_HEIGHT = 200;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const box = entry.contentRect;
-        if (!expanded) {
-          setWidth(Math.round(box.width));
-          setHeight(Math.round(box.height));
+        if (!expanded && !minimized) {
+          // Only update if dimensions are valid (above minimum)
+          const newWidth = Math.round(box.width);
+          const newHeight = Math.round(box.height);
+          if (newWidth >= MIN_WIDTH) {
+            setWidth(newWidth);
+          }
+          if (newHeight >= MIN_HEIGHT) {
+            setHeight(newHeight);
+          }
         }
       }
     });
     observer.observe(panelRef.current);
     return () => observer.disconnect();
-  }, [expanded]);
+  }, [expanded, minimized]);
 
   useEffect(() => {
     const onResize = () => {
