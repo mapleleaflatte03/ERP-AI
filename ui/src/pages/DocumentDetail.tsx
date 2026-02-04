@@ -162,7 +162,7 @@ export default function DocumentDetail() {
   }, [doc?.status]);
 
   // Fetch proposal (if exists)
-  const { data: proposal, refetch: _refetchProposal, isLoading: loadingProposal } = useQuery({
+  const { data: proposal, isLoading: loadingProposal } = useQuery({
     queryKey: ['document-proposal', id],
     queryFn: () => api.getDocumentProposal(id!),
     enabled: !!id,

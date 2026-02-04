@@ -14,7 +14,7 @@ export function cleanupTokenOnce(): void {
     localStorage.setItem('erpx_token_cleanup_v1', '1');
     
     console.log('[Security] Token cleanup completed - please login again');
-  } catch (e) {
+  } catch {
     // Ignore errors in case localStorage is not available
   }
 }
